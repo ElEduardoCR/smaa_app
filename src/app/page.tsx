@@ -162,6 +162,46 @@ export default function Home() {
               </div>
             </Link>
 
+            <Link href="/suppliers" className="block group">
+              <div className="bg-slate-800/40 border border-slate-700/50 hover:border-rose-500/50 hover:bg-slate-800/80 transition-all duration-300 rounded-3xl p-6 h-full flex flex-col shadow-lg shadow-black/20 hover:shadow-rose-500/10 group-hover:-translate-y-1">
+                <div className="w-14 h-14 bg-gradient-to-br from-rose-500/20 to-pink-500/20 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
+                  <svg className="w-7 h-7 text-rose-400 group-hover:text-rose-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} />
+                  </svg>
+                </div>
+                <h3 className="text-xl font-semibold text-white mb-2">Proveedores</h3>
+                <p className="text-slate-400 text-sm flex-1 leading-relaxed">
+                  Alta, edición y eliminación de proveedores con datos fiscales.
+                </p>
+                <div className="mt-6 font-medium text-sm text-rose-400 flex items-center group-hover:text-rose-300">
+                  Open Module
+                  <svg className="w-4 h-4 ml-1 transform group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
+              </div>
+            </Link>
+
+            <Link href="/purchases" className="block group">
+              <div className="bg-slate-800/40 border border-slate-700/50 hover:border-violet-500/50 hover:bg-slate-800/80 transition-all duration-300 rounded-3xl p-6 h-full flex flex-col shadow-lg shadow-black/20 hover:shadow-violet-500/10 group-hover:-translate-y-1">
+                <div className="w-14 h-14 bg-gradient-to-br from-violet-500/20 to-purple-500/20 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
+                  <svg className="w-7 h-7 text-violet-400 group-hover:text-violet-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" />
+                  </svg>
+                </div>
+                <h3 className="text-xl font-semibold text-white mb-2">Compras</h3>
+                <p className="text-slate-400 text-sm flex-1 leading-relaxed">
+                  Órdenes de compra, cotizaciones de proveedores y PDF de POs.
+                </p>
+                <div className="mt-6 font-medium text-sm text-violet-400 flex items-center group-hover:text-violet-300">
+                  Open Module
+                  <svg className="w-4 h-4 ml-1 transform group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
+              </div>
+            </Link>
+
           </div>
         </section>
       </main>
