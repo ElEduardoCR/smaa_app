@@ -88,11 +88,31 @@ export default function Home() {
                 <div className="w-14 h-14 bg-gradient-to-br from-indigo-500/20 to-purple-500/20 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
                   <Users className="w-7 h-7 text-indigo-400 group-hover:text-indigo-300" />
                 </div>
-                <h3 className="text-xl font-semibold text-white mb-2">Clients</h3>
+                <h3 className="text-xl font-semibold text-white mb-2">Clientes</h3>
                 <p className="text-slate-400 text-sm flex-1 leading-relaxed">
                   Manage CFDI 4.0 compliant client records, RFCs, and fiscal regimes.
                 </p>
                 <div className="mt-6 font-medium text-sm text-indigo-400 flex items-center group-hover:text-indigo-300">
+                  Open Module
+                  <svg className="w-4 h-4 ml-1 transform group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
+              </div>
+            </Link>
+
+            <Link href="/sales" className="block group">
+              <div className="bg-slate-800/40 border border-slate-700/50 hover:border-emerald-500/50 hover:bg-slate-800/80 transition-all duration-300 rounded-3xl p-6 h-full flex flex-col shadow-lg shadow-black/20 hover:shadow-emerald-500/10 group-hover:-translate-y-1">
+                <div className="w-14 h-14 bg-gradient-to-br from-emerald-500/20 to-teal-500/20 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
+                  <svg className="w-7 h-7 text-emerald-400 group-hover:text-emerald-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                </div>
+                <h3 className="text-xl font-semibold text-white mb-2">Ventas</h3>
+                <p className="text-slate-400 text-sm flex-1 leading-relaxed">
+                  Create and manage quotations, auto-calculate IVA, and export PDFs.
+                </p>
+                <div className="mt-6 font-medium text-sm text-emerald-400 flex items-center group-hover:text-emerald-300">
                   Open Module
                   <svg className="w-4 h-4 ml-1 transform group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
