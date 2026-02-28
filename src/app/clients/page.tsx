@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { supabase } from "@/lib/supabase";
-import { Building2, FileText, Hash, Mail, MapPin, Phone, RefreshCw, Plus, ArrowLeft, Users } from "lucide-react";
+import { Building2, FileText, Hash, Mail, MapPin, Phone, RefreshCw, Plus, ArrowLeft, Users, Download, FileCheck } from "lucide-react";
 import Link from "next/link";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -28,6 +28,8 @@ type ClientFormValues = z.infer<typeof clientSchema>;
 
 type Client = ClientFormValues & {
     id: string;
+    constancia_pdf_url?: string;
+    constancia_updated_at?: string;
     created_at: string;
 };
 
@@ -37,6 +39,7 @@ export default function ClientsPage() {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isFormOpen, setIsFormOpen] = useState(false);
     const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+    const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
     const {
         register,
@@ -82,7 +85,41 @@ export default function ClientsPage() {
         setIsSubmitting(true);
         setMessage(null);
         try {
-            const { error } = await supabase.from('clients').insert([data]);
+            let pdfUrl = null;
+            let pdfUpdatedAt = null;
+
+            // 1. Upload File if selected
+            if (selectedFile) {
+                const fileExt = selectedFile.name.split('.').pop();
+                const fileName = `${data.rfc}-${Date.now()}.${fileExt}`;
+                const filePath = `${fileName}`;
+
+                const { error: uploadError, data: uploadData } = await supabase.storage
+                    .from('client_documents')
+                    .upload(filePath, selectedFile, {
+                        cacheControl: '3600',
+                        upsert: true,
+                    });
+
+                if (uploadError) throw new Error(`File upload failed: ${uploadError.message}`);
+
+                // Get public URL
+                const { data: publicUrlData } = supabase.storage
+                    .from('client_documents')
+                    .getPublicUrl(filePath);
+
+                pdfUrl = publicUrlData.publicUrl;
+                pdfUpdatedAt = new Date().toISOString();
+            }
+
+            // 2. Insert Client Record
+            const insertData = {
+                ...data,
+                constancia_pdf_url: pdfUrl,
+                constancia_updated_at: pdfUpdatedAt,
+            };
+
+            const { error } = await supabase.from('clients').insert([insertData]);
             if (error) {
                 if (error.code === '23505') throw new Error(`RFC ${data.rfc} is already registered.`);
                 throw error;
@@ -90,6 +127,7 @@ export default function ClientsPage() {
 
             setMessage({ type: 'success', text: "Client added successfully!" });
             reset();
+            setSelectedFile(null);
             setIsFormOpen(false);
             fetchClients();
 
@@ -299,6 +337,20 @@ export default function ClientsPage() {
                                     </div>
                                 </div>
 
+                                {/* Constancia PDF */}
+                                <div className="space-y-2 md:col-span-2 lg:col-span-3">
+                                    <label className="text-sm font-medium text-slate-300 ml-1">Constancia de Situación Fiscal (PDF)</label>
+                                    <div className="relative">
+                                        <input
+                                            type="file"
+                                            accept=".pdf"
+                                            onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                                            className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-500/20 file:text-indigo-400 hover:file:bg-indigo-500/30 transition-all focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 cursor-pointer"
+                                        />
+                                    </div>
+                                    <p className="text-xs text-slate-500 ml-1 font-light">Optional. Upload the latest SAT PDF document.</p>
+                                </div>
+
                                 {/* Address */}
                                 <div className="space-y-2 md:col-span-2 lg:col-span-3">
                                     <label className="text-sm font-medium text-slate-300 ml-1">Address</label>
@@ -362,20 +414,21 @@ export default function ClientsPage() {
                                     <th className="px-6 py-4">Regime</th>
                                     <th className="px-6 py-4">Zip Code</th>
                                     <th className="px-6 py-4">Email</th>
+                                    <th className="px-6 py-4">Constancia</th>
                                     <th className="px-6 py-4 rounded-tr-xl">Enrolled</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-700/50">
                                 {isLoading ? (
                                     <tr>
-                                        <td colSpan={6} className="px-6 py-12 text-center text-slate-400">
+                                        <td colSpan={7} className="px-6 py-12 text-center text-slate-400">
                                             <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-3 text-indigo-500" />
                                             Loading clients...
                                         </td>
                                     </tr>
                                 ) : clients.length === 0 ? (
                                     <tr>
-                                        <td colSpan={6} className="px-6 py-12 text-center text-slate-400">
+                                        <td colSpan={7} className="px-6 py-12 text-center text-slate-400">
                                             <div className="bg-slate-800/50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 border border-slate-700">
                                                 <Users className="w-8 h-8 text-slate-500" />
                                             </div>
@@ -395,6 +448,27 @@ export default function ClientsPage() {
                                             <td className="px-6 py-4 text-slate-400">{client.fiscal_regime}</td>
                                             <td className="px-6 py-4 text-slate-400">{client.fiscal_zip_code}</td>
                                             <td className="px-6 py-4 text-slate-400">{client.email || '-'}</td>
+                                            <td className="px-6 py-4">
+                                                {client.constancia_pdf_url ? (
+                                                    <div className="flex flex-col gap-1">
+                                                        <a
+                                                            href={client.constancia_pdf_url}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-emerald-300 transition-colors bg-emerald-500/10 hover:bg-emerald-500/20 px-2.5 py-1.5 rounded-lg border border-emerald-500/20 w-max"
+                                                        >
+                                                            <FileCheck className="w-3.5 h-3.5" />
+                                                            View PDF
+                                                            <Download className="w-3 h-3 ml-0.5 opacity-70" />
+                                                        </a>
+                                                        <span className="text-[10px] text-slate-500 pl-1">
+                                                            Uploaded: {new Date(client.constancia_updated_at!).toLocaleDateString()}
+                                                        </span>
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-slate-600 text-xs italic">Not uploaded</span>
+                                                )}
+                                            </td>
                                             <td className="px-6 py-4 text-slate-500 text-xs">
                                                 {new Date(client.created_at).toLocaleDateString()}
                                             </td>
