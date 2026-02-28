@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, Factory, Upload, Download, Trash2, FileText, RefreshCw, CheckCircle, AlertCircle, Paperclip } from "lucide-react";
+import { ArrowLeft, Factory, Upload, Download, Trash2, FileText, RefreshCw, CheckCircle, AlertCircle, Paperclip, Plus, Edit2, Save, X, GripVertical } from "lucide-react";
 import Link from "next/link";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -11,6 +11,8 @@ import { twMerge } from "tailwind-merge";
 function cn(...inputs: (string | undefined | null | false)[]) {
     return twMerge(clsx(inputs));
 }
+
+const OPERATION_TYPES = ["Cortar", "Maquinar", "Soldar", "Doblar", "Pulir", "Pintar", "Ensamblar", "Inspección", "Embalaje", "Otro"];
 
 type WorkOrder = {
     id: string;
@@ -55,10 +57,20 @@ export default function WorkOrderDetailPage() {
     const [statusMsg, setStatusMsg] = useState<{ type: 'error' | 'success', text: string } | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
+    // Editing state
+    const [editingOpId, setEditingOpId] = useState<string | null>(null);
+    const [editOpType, setEditOpType] = useState("");
+    const [editOpDesc, setEditOpDesc] = useState("");
+
+    // Add new operation state
+    const [isAddingOp, setIsAddingOp] = useState(false);
+    const [newOpType, setNewOpType] = useState("Cortar");
+    const [newOpDesc, setNewOpDesc] = useState("");
+    const [isSavingOp, setIsSavingOp] = useState(false);
+
     const fetchAll = async () => {
         setIsLoading(true);
         try {
-            // Fetch Work Order
             const { data: woData, error: woError } = await supabase
                 .from('work_orders')
                 .select(`*, quotation:quotations(quotation_number, client:clients(business_name, rfc))`)
@@ -75,7 +87,6 @@ export default function WorkOrderDetailPage() {
             }
             setWorkOrder(formattedWO);
 
-            // Fetch Operations
             const { data: opsData, error: opsError } = await supabase
                 .from('work_order_operations')
                 .select('*')
@@ -84,7 +95,6 @@ export default function WorkOrderDetailPage() {
             if (opsError) throw opsError;
             setOperations(opsData || []);
 
-            // Fetch Files
             const { data: filesData, error: filesError } = await supabase
                 .from('work_order_files')
                 .select('*')
@@ -92,7 +102,6 @@ export default function WorkOrderDetailPage() {
                 .order('created_at', { ascending: false });
             if (filesError) throw filesError;
             setFiles(filesData || []);
-
         } catch (error: any) {
             console.error("Error loading work order:", error);
             setStatusMsg({ type: 'error', text: "Error loading work order details." });
@@ -103,53 +112,109 @@ export default function WorkOrderDetailPage() {
 
     useEffect(() => { fetchAll(); }, [woId]);
 
+    // --- Operations CRUD ---
+    const handleAddOperation = async () => {
+        if (!newOpType) return;
+        setIsSavingOp(true);
+        try {
+            const nextSeq = operations.length > 0 ? Math.max(...operations.map(o => o.sequence)) + 1 : 1;
+            const { error } = await supabase.from('work_order_operations').insert([{
+                work_order_id: woId,
+                sequence: nextSeq,
+                operation_type: newOpType,
+                description: newOpDesc || null,
+                status: 'Pending'
+            }]);
+            if (error) throw error;
+            setNewOpType("Cortar");
+            setNewOpDesc("");
+            setIsAddingOp(false);
+            setStatusMsg({ type: 'success', text: "Operación agregada." });
+            fetchAll();
+            setTimeout(() => setStatusMsg(null), 2000);
+        } catch (error: any) {
+            setStatusMsg({ type: 'error', text: error.message });
+        } finally {
+            setIsSavingOp(false);
+        }
+    };
+
+    const handleStartEdit = (op: Operation) => {
+        setEditingOpId(op.id);
+        setEditOpType(op.operation_type);
+        setEditOpDesc(op.description || "");
+    };
+
+    const handleCancelEdit = () => {
+        setEditingOpId(null);
+        setEditOpType("");
+        setEditOpDesc("");
+    };
+
+    const handleSaveEdit = async () => {
+        if (!editingOpId) return;
+        setIsSavingOp(true);
+        try {
+            const { error } = await supabase.from('work_order_operations').update({
+                operation_type: editOpType,
+                description: editOpDesc || null,
+            }).eq('id', editingOpId);
+            if (error) throw error;
+            setEditingOpId(null);
+            setStatusMsg({ type: 'success', text: "Operación actualizada." });
+            fetchAll();
+            setTimeout(() => setStatusMsg(null), 2000);
+        } catch (error: any) {
+            setStatusMsg({ type: 'error', text: error.message });
+        } finally {
+            setIsSavingOp(false);
+        }
+    };
+
+    const handleDeleteOp = async (opId: string) => {
+        if (!confirm("¿Eliminar esta operación?")) return;
+        try {
+            const { error } = await supabase.from('work_order_operations').delete().eq('id', opId);
+            if (error) throw error;
+            setStatusMsg({ type: 'success', text: "Operación eliminada." });
+            fetchAll();
+            setTimeout(() => setStatusMsg(null), 2000);
+        } catch (error: any) {
+            setStatusMsg({ type: 'error', text: error.message });
+        }
+    };
+
+    const handleToggleOpStatus = async (op: Operation) => {
+        const newStatus = op.status === 'Pending' ? 'Done' : 'Pending';
+        await supabase.from('work_order_operations').update({ status: newStatus }).eq('id', op.id);
+        fetchAll();
+    };
+
+    // --- File handlers ---
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const selectedFiles = e.target.files;
         if (!selectedFiles || selectedFiles.length === 0) return;
-
         setIsUploading(true);
         setStatusMsg(null);
-
         try {
             for (let i = 0; i < selectedFiles.length; i++) {
                 const file = selectedFiles[i];
-
-                // Check 100MB limit
                 if (file.size > 100 * 1024 * 1024) {
                     setStatusMsg({ type: 'error', text: `El archivo "${file.name}" excede el límite de 100MB.` });
                     continue;
                 }
-
                 const filePath = `${woId}/${Date.now()}_${file.name}`;
-
-                const { error: uploadError } = await supabase.storage
-                    .from('work_order_files')
-                    .upload(filePath, file, { cacheControl: '3600', upsert: false, contentType: file.type });
-
+                const { error: uploadError } = await supabase.storage.from('work_order_files').upload(filePath, file, { cacheControl: '3600', upsert: false, contentType: file.type });
                 if (uploadError) throw uploadError;
-
-                const { data: publicUrlData } = supabase.storage
-                    .from('work_order_files')
-                    .getPublicUrl(filePath);
-
-                // Insert file record
-                const { error: insertError } = await supabase
-                    .from('work_order_files')
-                    .insert([{
-                        work_order_id: woId,
-                        file_name: file.name,
-                        file_url: publicUrlData.publicUrl,
-                        file_size: file.size,
-                        uploaded_by: 'company'
-                    }]);
-
+                const { data: publicUrlData } = supabase.storage.from('work_order_files').getPublicUrl(filePath);
+                const { error: insertError } = await supabase.from('work_order_files').insert([{
+                    work_order_id: woId, file_name: file.name, file_url: publicUrlData.publicUrl, file_size: file.size, uploaded_by: 'company'
+                }]);
                 if (insertError) throw insertError;
             }
-
             setStatusMsg({ type: 'success', text: "¡Archivos subidos exitosamente!" });
             fetchAll();
         } catch (error: any) {
-            console.error("Upload error:", error);
             setStatusMsg({ type: 'error', text: error.message || "Error al subir archivo." });
         } finally {
             setIsUploading(false);
@@ -160,7 +225,6 @@ export default function WorkOrderDetailPage() {
     const handleDeleteFile = async (fileId: string, fileUrl: string) => {
         if (!confirm("¿Eliminar este archivo?")) return;
         try {
-            // Extract path from URL
             const urlParts = fileUrl.split('/work_order_files/');
             if (urlParts.length > 1) {
                 const storagePath = decodeURIComponent(urlParts[1]);
@@ -171,12 +235,6 @@ export default function WorkOrderDetailPage() {
         } catch (error: any) {
             console.error("Delete error:", error);
         }
-    };
-
-    const handleToggleOpStatus = async (op: Operation) => {
-        const newStatus = op.status === 'Pending' ? 'Done' : 'Pending';
-        await supabase.from('work_order_operations').update({ status: newStatus }).eq('id', op.id);
-        fetchAll();
     };
 
     const formatFileSize = (bytes: number | null) => {
@@ -257,17 +315,50 @@ export default function WorkOrderDetailPage() {
                     </div>
                 )}
 
-                {/* Operations */}
+                {/* Operations — Editable */}
                 <div className="bg-slate-800/40 border border-slate-700/50 rounded-3xl overflow-hidden backdrop-blur-sm">
-                    <div className="p-6 border-b border-slate-700/50 bg-slate-800/20">
+                    <div className="p-6 border-b border-slate-700/50 bg-slate-800/20 flex justify-between items-center">
                         <h2 className="text-xl font-semibold text-white">Operaciones (Routing)</h2>
+                        {!isAddingOp && (
+                            <button onClick={() => setIsAddingOp(true)}
+                                className="flex items-center gap-2 text-sm text-cyan-400 hover:text-cyan-300 font-medium bg-cyan-500/10 hover:bg-cyan-500/20 px-4 py-2 rounded-lg transition-colors border border-cyan-500/20">
+                                <Plus className="w-4 h-4" /> Agregar Operación
+                            </button>
+                        )}
                     </div>
                     <div className="p-6 space-y-3">
-                        {operations.length === 0 ? (
-                            <p className="text-slate-500 text-center py-4">No operations defined.</p>
+                        {/* Add New Operation Form */}
+                        {isAddingOp && (
+                            <div className="bg-cyan-500/5 border border-cyan-500/20 p-4 rounded-xl space-y-3">
+                                <p className="text-sm font-semibold text-cyan-400">Nueva Operación</p>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                    <select value={newOpType} onChange={(e) => setNewOpType(e.target.value)}
+                                        className="bg-slate-900/80 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-cyan-500 transition-all appearance-none">
+                                        {OPERATION_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                                    </select>
+                                    <input value={newOpDesc} onChange={(e) => setNewOpDesc(e.target.value)}
+                                        className="bg-slate-900/80 border border-slate-700 rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition-all md:col-span-2"
+                                        placeholder="Descripción (opcional)" />
+                                </div>
+                                <div className="flex items-center gap-2 justify-end">
+                                    <button onClick={() => { setIsAddingOp(false); setNewOpDesc(""); }}
+                                        className="text-sm text-slate-400 hover:text-white px-3 py-1.5 rounded-lg hover:bg-slate-700 transition-colors">
+                                        Cancelar
+                                    </button>
+                                    <button onClick={handleAddOperation} disabled={isSavingOp}
+                                        className="text-sm text-cyan-400 hover:text-white bg-cyan-500/10 hover:bg-cyan-500 px-4 py-1.5 rounded-lg border border-cyan-500/20 transition-all flex items-center gap-1.5 font-medium disabled:opacity-50">
+                                        {isSavingOp ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Guardar
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {operations.length === 0 && !isAddingOp ? (
+                            <p className="text-slate-500 text-center py-4">No hay operaciones definidas. Agrega una con el botón de arriba.</p>
                         ) : (
                             operations.map((op) => (
-                                <div key={op.id} className="flex items-center gap-4 bg-slate-900/40 p-4 rounded-xl border border-slate-700/30 hover:bg-slate-800/60 transition-colors">
+                                <div key={op.id} className="flex items-center gap-3 bg-slate-900/40 p-4 rounded-xl border border-slate-700/30 hover:bg-slate-800/60 transition-colors">
+                                    {/* Toggle Done */}
                                     <button
                                         onClick={() => handleToggleOpStatus(op)}
                                         className={cn("w-8 h-8 rounded-lg border-2 flex items-center justify-center transition-all flex-shrink-0",
@@ -276,15 +367,56 @@ export default function WorkOrderDetailPage() {
                                     >
                                         {op.status === 'Done' && <CheckCircle className="w-5 h-5" />}
                                     </button>
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-xs font-mono text-slate-500">#{op.sequence}</span>
-                                            <span className="font-semibold text-white">{op.operation_type}</span>
-                                            <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-semibold border", getOpStatusStyle(op.status))}>
-                                                {op.status}
-                                            </span>
+
+                                    {/* Content — view or edit mode */}
+                                    {editingOpId === op.id ? (
+                                        <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-2">
+                                            <select value={editOpType} onChange={(e) => setEditOpType(e.target.value)}
+                                                className="bg-slate-900/80 border border-cyan-500/30 rounded-lg px-3 py-1.5 text-white focus:outline-none focus:border-cyan-500 transition-all appearance-none text-sm">
+                                                {OPERATION_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                                            </select>
+                                            <input value={editOpDesc} onChange={(e) => setEditOpDesc(e.target.value)}
+                                                className="bg-slate-900/80 border border-cyan-500/30 rounded-lg px-3 py-1.5 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition-all text-sm md:col-span-2"
+                                                placeholder="Descripción" />
                                         </div>
-                                        {op.description && <p className="text-sm text-slate-400 mt-0.5 truncate">{op.description}</p>}
+                                    ) : (
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-xs font-mono text-slate-500">#{op.sequence}</span>
+                                                <span className="font-semibold text-white">{op.operation_type}</span>
+                                                <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-semibold border", getOpStatusStyle(op.status))}>
+                                                    {op.status}
+                                                </span>
+                                            </div>
+                                            {op.description && <p className="text-sm text-slate-400 mt-0.5 truncate">{op.description}</p>}
+                                        </div>
+                                    )}
+
+                                    {/* Action buttons */}
+                                    <div className="flex items-center gap-1 flex-shrink-0">
+                                        {editingOpId === op.id ? (
+                                            <>
+                                                <button onClick={handleSaveEdit} disabled={isSavingOp}
+                                                    className="p-2 text-cyan-400 hover:text-white hover:bg-cyan-500/20 rounded-lg transition-colors" title="Guardar">
+                                                    {isSavingOp ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                                                </button>
+                                                <button onClick={handleCancelEdit}
+                                                    className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors" title="Cancelar">
+                                                    <X className="w-4 h-4" />
+                                                </button>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <button onClick={() => handleStartEdit(op)}
+                                                    className="p-2 text-slate-500 hover:text-cyan-400 hover:bg-cyan-500/10 rounded-lg transition-colors" title="Editar">
+                                                    <Edit2 className="w-4 h-4" />
+                                                </button>
+                                                <button onClick={() => handleDeleteOp(op.id)}
+                                                    className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors" title="Eliminar">
+                                                    <Trash2 className="w-4 h-4" />
+                                                </button>
+                                            </>
+                                        )}
                                     </div>
                                 </div>
                             ))
@@ -306,18 +438,11 @@ export default function WorkOrderDetailPage() {
                         )}>
                             {isUploading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
                             {isUploading ? "Subiendo..." : "Subir Archivos"}
-                            <input
-                                ref={fileInputRef}
-                                type="file"
-                                multiple
-                                className="hidden"
-                                onChange={handleFileUpload}
-                                disabled={isUploading}
-                            />
+                            <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileUpload} disabled={isUploading} />
                         </label>
                     </div>
                     <div className="p-6">
-                        <p className="text-xs text-slate-500 mb-4">Máximo 100MB por archivo. Se pueden subir planos, modelos 3D, PDFs del cliente, etc.</p>
+                        <p className="text-xs text-slate-500 mb-4">Máximo 100MB por archivo.</p>
                         {files.length === 0 ? (
                             <div className="text-center py-8 text-slate-500">
                                 <FileText className="w-10 h-10 mx-auto mb-3 opacity-50" />
@@ -335,20 +460,12 @@ export default function WorkOrderDetailPage() {
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-2 flex-shrink-0">
-                                            <a
-                                                href={file.file_url}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="p-2 text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10 rounded-lg transition-colors"
-                                                title="Download"
-                                            >
+                                            <a href={file.file_url} target="_blank" rel="noopener noreferrer"
+                                                className="p-2 text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10 rounded-lg transition-colors" title="Download">
                                                 <Download className="w-4 h-4" />
                                             </a>
-                                            <button
-                                                onClick={() => handleDeleteFile(file.id, file.file_url)}
-                                                className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
-                                                title="Delete"
-                                            >
+                                            <button onClick={() => handleDeleteFile(file.id, file.file_url)}
+                                                className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors" title="Delete">
                                                 <Trash2 className="w-4 h-4" />
                                             </button>
                                         </div>
