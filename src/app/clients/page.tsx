@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { supabase } from "@/lib/supabase";
-import { Building2, FileText, Hash, Mail, MapPin, Phone, RefreshCw, Plus, ArrowLeft, Users, Download, FileCheck } from "lucide-react";
+import { Building2, FileText, Hash, Mail, MapPin, Phone, RefreshCw, Plus, ArrowLeft, Users, Download, FileCheck, Edit2 } from "lucide-react";
 import Link from "next/link";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -38,6 +38,7 @@ export default function ClientsPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isFormOpen, setIsFormOpen] = useState(false);
+    const [editingClientId, setEditingClientId] = useState<string | null>(null);
     const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
@@ -81,6 +82,37 @@ export default function ClientsPage() {
         fetchClients();
     }, []);
 
+    const handleEditClick = (client: Client) => {
+        setEditingClientId(client.id);
+        reset({
+            rfc: client.rfc,
+            business_name: client.business_name,
+            fiscal_regime: client.fiscal_regime,
+            fiscal_zip_code: client.fiscal_zip_code,
+            email: client.email || "",
+            phone: client.phone || "",
+            address: client.address || "",
+        });
+        setSelectedFile(null); // Clear selected file when editing
+        setIsFormOpen(true);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+
+    const handleCloseForm = () => {
+        setIsFormOpen(false);
+        setEditingClientId(null);
+        setSelectedFile(null);
+        reset({
+            rfc: "",
+            business_name: "",
+            fiscal_regime: "",
+            fiscal_zip_code: "",
+            email: "",
+            phone: "",
+            address: "",
+        });
+    };
+
     const onSubmit = async (data: ClientFormValues) => {
         setIsSubmitting(true);
         setMessage(null);
@@ -112,23 +144,35 @@ export default function ClientsPage() {
                 pdfUpdatedAt = new Date().toISOString();
             }
 
-            // 2. Insert Client Record
-            const insertData = {
+            // 2. Insert or Update Client Record
+            const recordData: any = {
                 ...data,
-                constancia_pdf_url: pdfUrl,
-                constancia_updated_at: pdfUpdatedAt,
             };
 
-            const { error } = await supabase.from('clients').insert([insertData]);
-            if (error) {
-                if (error.code === '23505') throw new Error(`RFC ${data.rfc} is already registered.`);
-                throw error;
+            // Only override URL/Date if a physical file was actually uploaded.
+            // If not selected, it inherits whatever the db has.
+            if (pdfUrl) {
+                recordData.constancia_pdf_url = pdfUrl;
+                recordData.constancia_updated_at = pdfUpdatedAt;
             }
 
-            setMessage({ type: 'success', text: "Client added successfully!" });
-            reset();
-            setSelectedFile(null);
-            setIsFormOpen(false);
+            if (editingClientId) {
+                const { error } = await supabase.from('clients').update(recordData).eq('id', editingClientId);
+                if (error) {
+                    if (error.code === '23505') throw new Error(`RFC ${data.rfc} is already registered to another client.`);
+                    throw error;
+                }
+                setMessage({ type: 'success', text: "Client updated successfully!" });
+            } else {
+                const { error } = await supabase.from('clients').insert([recordData]);
+                if (error) {
+                    if (error.code === '23505') throw new Error(`RFC ${data.rfc} is already registered.`);
+                    throw error;
+                }
+                setMessage({ type: 'success', text: "Client added successfully!" });
+            }
+
+            handleCloseForm();
             fetchClients();
 
             // Clear success message after 3 seconds
@@ -161,7 +205,7 @@ export default function ClientsPage() {
                     </div>
 
                     <button
-                        onClick={() => setIsFormOpen(!isFormOpen)}
+                        onClick={isFormOpen ? handleCloseForm : () => setIsFormOpen(true)}
                         className="flex items-center justify-center gap-2 bg-indigo-500 hover:bg-indigo-600 text-white px-6 py-3 rounded-xl font-medium transition-all hover:shadow-[0_0_20px_rgba(99,102,241,0.4)] active:scale-95"
                     >
                         {isFormOpen ? "Cancel" : <><Plus className="w-5 h-5" /> Add Client</>}
@@ -187,7 +231,7 @@ export default function ClientsPage() {
                     <div className="bg-slate-800/60 border border-slate-700 shadow-xl rounded-3xl p-6 md:p-8 animate-in slide-in-from-top-8 fade-in duration-300">
                         <h2 className="text-xl font-semibold text-white mb-6 flex items-center gap-2 border-b border-slate-700 pb-4">
                             <FileText className="w-5 h-5 text-indigo-400" />
-                            New Client Details (SAT)
+                            {editingClientId ? "Edit Client Details (SAT)" : "New Client Details (SAT)"}
                         </h2>
 
                         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
@@ -348,7 +392,9 @@ export default function ClientsPage() {
                                             className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-500/20 file:text-indigo-400 hover:file:bg-indigo-500/30 transition-all focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 cursor-pointer"
                                         />
                                     </div>
-                                    <p className="text-xs text-slate-500 ml-1 font-light">Optional. Upload the latest SAT PDF document.</p>
+                                    <p className="text-xs text-slate-500 ml-1 font-light">
+                                        {editingClientId ? "Optional. Upload a new PDF to replace the current Constancia." : "Optional. Upload the latest SAT PDF document."}
+                                    </p>
                                 </div>
 
                                 {/* Address */}
@@ -370,7 +416,7 @@ export default function ClientsPage() {
                             <div className="flex justify-end gap-3 pt-4 border-t border-slate-700">
                                 <button
                                     type="button"
-                                    onClick={() => setIsFormOpen(false)}
+                                    onClick={handleCloseForm}
                                     className="px-6 py-3 rounded-xl font-medium text-slate-300 hover:text-white hover:bg-slate-700 transition-colors"
                                 >
                                     Cancel
@@ -381,9 +427,9 @@ export default function ClientsPage() {
                                     className="bg-indigo-500 hover:bg-indigo-600 disabled:bg-indigo-500/50 text-white px-8 py-3 rounded-xl font-medium transition-all shadow-[0_0_15px_rgba(99,102,241,0.2)] hover:shadow-[0_0_20px_rgba(99,102,241,0.4)] flex items-center gap-2"
                                 >
                                     {isSubmitting ? (
-                                        <><RefreshCw className="w-5 h-5 animate-spin" /> Saving...</>
+                                        <><RefreshCw className="w-5 h-5 animate-spin" /> {editingClientId ? "Updating..." : "Saving..."}</>
                                     ) : (
-                                        "Save Client"
+                                        editingClientId ? "Update Client" : "Save Client"
                                     )}
                                 </button>
                             </div>
@@ -415,20 +461,21 @@ export default function ClientsPage() {
                                     <th className="px-6 py-4">Zip Code</th>
                                     <th className="px-6 py-4">Email</th>
                                     <th className="px-6 py-4">Constancia</th>
-                                    <th className="px-6 py-4 rounded-tr-xl">Enrolled</th>
+                                    <th className="px-6 py-4">Enrolled</th>
+                                    <th className="px-6 py-4 rounded-tr-xl text-right">Actions</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-700/50">
                                 {isLoading ? (
                                     <tr>
-                                        <td colSpan={7} className="px-6 py-12 text-center text-slate-400">
+                                        <td colSpan={8} className="px-6 py-12 text-center text-slate-400">
                                             <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-3 text-indigo-500" />
                                             Loading clients...
                                         </td>
                                     </tr>
                                 ) : clients.length === 0 ? (
                                     <tr>
-                                        <td colSpan={7} className="px-6 py-12 text-center text-slate-400">
+                                        <td colSpan={8} className="px-6 py-12 text-center text-slate-400">
                                             <div className="bg-slate-800/50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 border border-slate-700">
                                                 <Users className="w-8 h-8 text-slate-500" />
                                             </div>
@@ -471,6 +518,15 @@ export default function ClientsPage() {
                                             </td>
                                             <td className="px-6 py-4 text-slate-500 text-xs">
                                                 {new Date(client.created_at).toLocaleDateString()}
+                                            </td>
+                                            <td className="px-6 py-4 text-right">
+                                                <button
+                                                    onClick={() => handleEditClick(client)}
+                                                    className="p-2 text-indigo-400 hover:text-white bg-indigo-500/10 hover:bg-indigo-500 transition-colors rounded-lg border border-indigo-500/20"
+                                                    title="Edit Client"
+                                                >
+                                                    <Edit2 className="w-4 h-4" />
+                                                </button>
                                             </td>
                                         </tr>
                                     ))
