@@ -1,0 +1,214 @@
+"use client";
+
+import { useEffect, useState, Suspense } from "react";
+import { supabase } from "@/lib/supabase";
+import { ArrowLeft, PackageCheck, Save, AlertCircle, RefreshCw, Truck, MapPin, FileText, Hash } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import clsx from "clsx";
+import { twMerge } from "tailwind-merge";
+
+function cn(...inputs: (string | undefined | null | false)[]) {
+    return twMerge(clsx(inputs));
+}
+
+type WOOption = {
+    id: string;
+    order_number: string;
+    notes: string | null;
+    quotation?: { quotation_number: string; client?: { business_name: string } };
+};
+
+function NewDeliveryForm() {
+    const router = useRouter();
+    const [workOrders, setWorkOrders] = useState<WOOption[]>([]);
+    const [isLoadingWOs, setIsLoadingWOs] = useState(true);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+    const [selectedWOId, setSelectedWOId] = useState("");
+    const [observations, setObservations] = useState("");
+    const [shippingMethod, setShippingMethod] = useState("");
+    const [shippingAddress, setShippingAddress] = useState("");
+    const [shippingCarrier, setShippingCarrier] = useState("");
+    const [trackingNumber, setTrackingNumber] = useState("");
+
+    useEffect(() => {
+        async function fetchWOs() {
+            try {
+                // Only show WOs that are NOT Closed
+                const { data, error } = await supabase
+                    .from('work_orders')
+                    .select('id, order_number, notes, quotation:quotations(quotation_number, client:clients(business_name))')
+                    .neq('status', 'Closed')
+                    .order('created_at', { ascending: false });
+                if (error) throw error;
+
+                const formatted = (data as any[]).map(wo => {
+                    if (wo.quotation) wo.quotation = Array.isArray(wo.quotation) ? wo.quotation[0] : wo.quotation;
+                    if (wo.quotation?.client) wo.quotation.client = Array.isArray(wo.quotation.client) ? wo.quotation.client[0] : wo.quotation.client;
+                    return wo;
+                });
+                setWorkOrders(formatted || []);
+            } catch (err) {
+                console.error("Failed to load work orders", err);
+            } finally {
+                setIsLoadingWOs(false);
+            }
+        }
+        fetchWOs();
+    }, []);
+
+    const selectedWO = workOrders.find(w => w.id === selectedWOId);
+
+    // Derive VX number from the OT number: OT00001 -> VX00001
+    const deriveVXNumber = (orderNumber: string) => {
+        const digits = orderNumber.replace(/\D/g, '');
+        return `VX${digits}`;
+    };
+
+    const onSubmit = async () => {
+        if (!selectedWOId) {
+            setErrorMsg("Selecciona una Orden de Trabajo.");
+            return;
+        }
+
+        setIsSubmitting(true);
+        setErrorMsg(null);
+
+        try {
+            const deliveryNumber = deriveVXNumber(selectedWO!.order_number);
+
+            // 1. Create delivery record
+            const { error: deliveryError } = await supabase.from('deliveries').insert([{
+                delivery_number: deliveryNumber,
+                work_order_id: selectedWOId,
+                observations: observations || null,
+                shipping_method: shippingMethod || null,
+                shipping_address: shippingAddress || null,
+                shipping_carrier: shippingCarrier || null,
+                tracking_number: trackingNumber || null,
+            }]);
+            if (deliveryError) throw deliveryError;
+
+            // 2. Mark WO as Closed
+            const { error: woError } = await supabase.from('work_orders').update({ status: 'Closed' }).eq('id', selectedWOId);
+            if (woError) throw woError;
+
+            router.push('/deliveries');
+        } catch (error: any) {
+            console.error("Error creating delivery:", error);
+            setErrorMsg(error.message || "Error al crear la entrega.");
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    return (
+        <div className="min-h-screen bg-[#0B1120] text-slate-200 p-6 md:p-10 font-[family-name:var(--font-sans)]">
+            <div className="max-w-4xl mx-auto space-y-8">
+                <header className="flex items-center gap-4 bg-slate-800/40 p-6 rounded-3xl border border-slate-700/50 backdrop-blur-sm">
+                    <Link href="/deliveries" className="p-3 bg-slate-800 hover:bg-slate-700 rounded-xl transition-colors text-slate-400 hover:text-white border border-slate-700"><ArrowLeft className="w-5 h-5" /></Link>
+                    <div>
+                        <h1 className="text-3xl font-bold text-white flex items-center gap-3"><PackageCheck className="w-8 h-8 text-emerald-400" />Nueva Entrega</h1>
+                        <p className="text-slate-400 text-sm mt-1">Selecciona una OT terminada para generar la nota de entrega</p>
+                    </div>
+                </header>
+
+                {errorMsg && (
+                    <div className="p-4 rounded-xl border bg-red-500/10 border-red-500/30 text-red-400 flex items-center gap-3"><AlertCircle className="w-5 h-5" />{errorMsg}</div>
+                )}
+
+                {/* WO Selection */}
+                <div className="bg-slate-800/40 p-6 rounded-3xl border border-slate-700/50 backdrop-blur-sm">
+                    <h2 className="text-lg font-semibold text-white mb-4">Orden de Trabajo</h2>
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium text-slate-300 ml-1">Seleccionar OT *</label>
+                        <select value={selectedWOId} onChange={(e) => setSelectedWOId(e.target.value)}
+                            className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white appearance-none focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                            disabled={isLoadingWOs}>
+                            <option value="" disabled>Elige una orden de trabajo...</option>
+                            {workOrders.map(wo => (
+                                <option key={wo.id} value={wo.id}>
+                                    {wo.order_number} — {wo.quotation?.client?.business_name || ''} ({wo.quotation?.quotation_number || ''})
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                    {selectedWO && (
+                        <div className="mt-4 bg-slate-900/40 p-4 rounded-xl border border-slate-700/30">
+                            <div className="flex items-center gap-3 flex-wrap">
+                                <span className="text-xs text-slate-400">Folio Entrega:</span>
+                                <span className="font-mono font-bold text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-lg border border-emerald-500/20 text-lg">
+                                    {deriveVXNumber(selectedWO.order_number)}
+                                </span>
+                                <span className="text-xs text-slate-500">• La OT se cerrará al crear esta entrega</span>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Observations */}
+                <div className="bg-slate-800/40 p-6 rounded-3xl border border-slate-700/50 backdrop-blur-sm">
+                    <h2 className="text-lg font-semibold text-white mb-4">Observaciones</h2>
+                    <textarea value={observations} onChange={(e) => setObservations(e.target.value)}
+                        className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all min-h-[100px]"
+                        placeholder="Observaciones sobre la entrega, condiciones del producto, etc." />
+                </div>
+
+                {/* Shipping Info */}
+                <div className="bg-slate-800/40 p-6 rounded-3xl border border-slate-700/50 backdrop-blur-sm">
+                    <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2"><Truck className="w-5 h-5 text-cyan-400" />Datos de Envío (opcional)</h2>
+                    <p className="text-xs text-slate-500 mb-4">Completa solo si el producto será enviado. Si es recolección, puedes dejarlo vacío.</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium text-slate-300 ml-1">Método de Envío</label>
+                            <select value={shippingMethod} onChange={(e) => setShippingMethod(e.target.value)}
+                                className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white appearance-none focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all">
+                                <option value="">Ninguno / Recolección</option>
+                                <option value="Paquetería">Paquetería</option>
+                                <option value="Envío propio">Envío propio</option>
+                                <option value="Flete">Flete</option>
+                                <option value="Otro">Otro</option>
+                            </select>
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium text-slate-300 ml-1">Paquetería / Carrier</label>
+                            <input value={shippingCarrier} onChange={(e) => setShippingCarrier(e.target.value)}
+                                className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                                placeholder="Ej: DHL, FedEx, Estafeta" />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium text-slate-300 ml-1">No. de Guía</label>
+                            <input value={trackingNumber} onChange={(e) => setTrackingNumber(e.target.value)}
+                                className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                                placeholder="Número de rastreo" />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium text-slate-300 ml-1">Dirección de Envío</label>
+                            <input value={shippingAddress} onChange={(e) => setShippingAddress(e.target.value)}
+                                className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                                placeholder="Dirección completa del destinatario" />
+                        </div>
+                    </div>
+                </div>
+
+                {/* Submit */}
+                <div className="flex justify-end">
+                    <button onClick={onSubmit} disabled={isSubmitting || !selectedWOId}
+                        className="w-full md:w-auto bg-emerald-500 hover:bg-emerald-600 disabled:bg-emerald-500/50 text-white px-10 py-4 rounded-xl font-bold transition-all shadow-[0_0_15px_rgba(16,185,129,0.2)] hover:shadow-[0_0_20px_rgba(16,185,129,0.4)] flex items-center justify-center gap-2 text-lg disabled:cursor-not-allowed">
+                        {isSubmitting ? <><RefreshCw className="w-5 h-5 animate-spin" /> Creando...</> : <><Save className="w-5 h-5" /> Crear Entrega y Cerrar OT</>}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+export default function NewDeliveryPage() {
+    return (
+        <Suspense fallback={<div className="min-h-screen bg-[#0B1120] flex items-center justify-center"><RefreshCw className="w-8 h-8 animate-spin text-emerald-400" /></div>}>
+            <NewDeliveryForm />
+        </Suspense>
+    );
+}

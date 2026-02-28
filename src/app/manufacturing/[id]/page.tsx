@@ -266,6 +266,8 @@ export default function WorkOrderDetailPage() {
         );
     }
 
+    const isClosed = workOrder.status === 'Closed';
+
     return (
         <div className="min-h-screen bg-[#0B1120] text-slate-200 p-6 md:p-10 font-[family-name:var(--font-sans)]">
             <div className="max-w-5xl mx-auto space-y-8">
@@ -319,11 +321,16 @@ export default function WorkOrderDetailPage() {
                 <div className="bg-slate-800/40 border border-slate-700/50 rounded-3xl overflow-hidden backdrop-blur-sm">
                     <div className="p-6 border-b border-slate-700/50 bg-slate-800/20 flex justify-between items-center">
                         <h2 className="text-xl font-semibold text-white">Operaciones (Routing)</h2>
-                        {!isAddingOp && (
+                        {!isAddingOp && !isClosed && (
                             <button onClick={() => setIsAddingOp(true)}
                                 className="flex items-center gap-2 text-sm text-cyan-400 hover:text-cyan-300 font-medium bg-cyan-500/10 hover:bg-cyan-500/20 px-4 py-2 rounded-lg transition-colors border border-cyan-500/20">
                                 <Plus className="w-4 h-4" /> Agregar Operación
                             </button>
+                        )}
+                        {isClosed && (
+                            <span className="text-xs font-medium text-slate-500 bg-slate-500/10 px-3 py-1 rounded-lg border border-slate-500/20 flex items-center gap-2">
+                                <AlertCircle className="w-3.5 h-3.5" /> Lectura (Cerrada)
+                            </span>
                         )}
                     </div>
                     <div className="p-6 space-y-3">
@@ -360,9 +367,12 @@ export default function WorkOrderDetailPage() {
                                 <div key={op.id} className="flex items-center gap-3 bg-slate-900/40 p-4 rounded-xl border border-slate-700/30 hover:bg-slate-800/60 transition-colors">
                                     {/* Toggle Done */}
                                     <button
-                                        onClick={() => handleToggleOpStatus(op)}
+                                        onClick={() => !isClosed && handleToggleOpStatus(op)}
+                                        disabled={isClosed}
                                         className={cn("w-8 h-8 rounded-lg border-2 flex items-center justify-center transition-all flex-shrink-0",
-                                            op.status === 'Done' ? "border-emerald-500 bg-emerald-500/20 text-emerald-400" : "border-slate-600 hover:border-cyan-500"
+                                            op.status === 'Done' ? "border-emerald-500 bg-emerald-500/20 text-emerald-400" : "border-slate-600",
+                                            !isClosed && "hover:border-cyan-500",
+                                            isClosed && "cursor-not-allowed opacity-70"
                                         )}
                                     >
                                         {op.status === 'Done' && <CheckCircle className="w-5 h-5" />}
@@ -394,28 +404,30 @@ export default function WorkOrderDetailPage() {
 
                                     {/* Action buttons */}
                                     <div className="flex items-center gap-1 flex-shrink-0">
-                                        {editingOpId === op.id ? (
-                                            <>
-                                                <button onClick={handleSaveEdit} disabled={isSavingOp}
-                                                    className="p-2 text-cyan-400 hover:text-white hover:bg-cyan-500/20 rounded-lg transition-colors" title="Guardar">
-                                                    {isSavingOp ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                                                </button>
-                                                <button onClick={handleCancelEdit}
-                                                    className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors" title="Cancelar">
-                                                    <X className="w-4 h-4" />
-                                                </button>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <button onClick={() => handleStartEdit(op)}
-                                                    className="p-2 text-slate-500 hover:text-cyan-400 hover:bg-cyan-500/10 rounded-lg transition-colors" title="Editar">
-                                                    <Edit2 className="w-4 h-4" />
-                                                </button>
-                                                <button onClick={() => handleDeleteOp(op.id)}
-                                                    className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors" title="Eliminar">
-                                                    <Trash2 className="w-4 h-4" />
-                                                </button>
-                                            </>
+                                        {!isClosed && (
+                                            editingOpId === op.id ? (
+                                                <>
+                                                    <button onClick={handleSaveEdit} disabled={isSavingOp}
+                                                        className="p-2 text-cyan-400 hover:text-white hover:bg-cyan-500/20 rounded-lg transition-colors" title="Guardar">
+                                                        {isSavingOp ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                                                    </button>
+                                                    <button onClick={handleCancelEdit}
+                                                        className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors" title="Cancelar">
+                                                        <X className="w-4 h-4" />
+                                                    </button>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <button onClick={() => handleStartEdit(op)}
+                                                        className="p-2 text-slate-500 hover:text-cyan-400 hover:bg-cyan-500/10 rounded-lg transition-colors" title="Editar">
+                                                        <Edit2 className="w-4 h-4" />
+                                                    </button>
+                                                    <button onClick={() => handleDeleteOp(op.id)}
+                                                        className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors" title="Eliminar">
+                                                        <Trash2 className="w-4 h-4" />
+                                                    </button>
+                                                </>
+                                            )
                                         )}
                                     </div>
                                 </div>
@@ -430,16 +442,18 @@ export default function WorkOrderDetailPage() {
                         <h2 className="text-xl font-semibold text-white flex items-center gap-2">
                             <Paperclip className="w-5 h-5 text-cyan-400" /> Archivos Adjuntos
                         </h2>
-                        <label className={cn(
-                            "flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-lg border transition-colors cursor-pointer",
-                            isUploading
-                                ? "bg-slate-700 text-slate-400 border-slate-600 cursor-wait"
-                                : "bg-cyan-500/10 text-cyan-400 border-cyan-500/20 hover:bg-cyan-500/20"
-                        )}>
-                            {isUploading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                            {isUploading ? "Subiendo..." : "Subir Archivos"}
-                            <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileUpload} disabled={isUploading} />
-                        </label>
+                        {!isClosed && (
+                            <label className={cn(
+                                "flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-lg border transition-colors cursor-pointer",
+                                isUploading
+                                    ? "bg-slate-700 text-slate-400 border-slate-600 cursor-wait"
+                                    : "bg-cyan-500/10 text-cyan-400 border-cyan-500/20 hover:bg-cyan-500/20"
+                            )}>
+                                {isUploading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                                {isUploading ? "Subiendo..." : "Subir Archivos"}
+                                <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileUpload} disabled={isUploading} />
+                            </label>
+                        )}
                     </div>
                     <div className="p-6">
                         <p className="text-xs text-slate-500 mb-4">Máximo 100MB por archivo.</p>
@@ -464,10 +478,12 @@ export default function WorkOrderDetailPage() {
                                                 className="p-2 text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10 rounded-lg transition-colors" title="Download">
                                                 <Download className="w-4 h-4" />
                                             </a>
-                                            <button onClick={() => handleDeleteFile(file.id, file.file_url)}
-                                                className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors" title="Delete">
-                                                <Trash2 className="w-4 h-4" />
-                                            </button>
+                                            {!isClosed && (
+                                                <button onClick={() => handleDeleteFile(file.id, file.file_url)}
+                                                    className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors" title="Delete">
+                                                    <Trash2 className="w-4 h-4" />
+                                                </button>
+                                            )}
                                         </div>
                                     </div>
                                 ))}

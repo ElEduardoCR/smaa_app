@@ -202,6 +202,26 @@ export default function Home() {
               </div>
             </Link>
 
+            <Link href="/deliveries" className="block group">
+              <div className="bg-slate-800/40 border border-slate-700/50 hover:border-emerald-500/50 hover:bg-slate-800/80 transition-all duration-300 rounded-3xl p-6 h-full flex flex-col shadow-lg shadow-black/20 hover:shadow-emerald-500/10 group-hover:-translate-y-1">
+                <div className="w-14 h-14 bg-gradient-to-br from-emerald-500/20 to-teal-500/20 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
+                  <svg className="w-7 h-7 text-emerald-400 group-hover:text-emerald-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <h3 className="text-xl font-semibold text-white mb-2">Entregas</h3>
+                <p className="text-slate-400 text-sm flex-1 leading-relaxed">
+                  Notas de entrega de OTs terminadas con folio VX y datos de envío.
+                </p>
+                <div className="mt-6 font-medium text-sm text-emerald-400 flex items-center group-hover:text-emerald-300">
+                  Open Module
+                  <svg className="w-4 h-4 ml-1 transform group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
+              </div>
+            </Link>
+
           </div>
         </section>
       </main>
