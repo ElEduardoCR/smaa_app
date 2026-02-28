@@ -7,6 +7,9 @@ type QuotationData = {
     subtotal: number;
     vat_total: number;
     total: number;
+    seller?: string;
+    delivery_time?: string;
+    terms_conditions?: string;
     company?: {
         company_name: string;
         email?: string;
@@ -139,6 +142,26 @@ export const generateQuotationPDF = async (data: QuotationData) => {
     }
     if (data.client.address) {
         doc.text(`Dirección: ${data.client.address}`, 14, nextClientY);
+        nextClientY += 5;
+    }
+
+    // Seller & Delivery Time (right column)
+    let metaRightY = clientStartY + 7;
+    if (data.seller) {
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(100, 116, 139);
+        doc.text("Vendedor:", pageWidth - 80, metaRightY);
+        doc.setTextColor(15, 23, 42);
+        doc.text(data.seller, pageWidth - 14, metaRightY, { align: "right" });
+        metaRightY += 6;
+    }
+    if (data.delivery_time) {
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(100, 116, 139);
+        doc.text("Tiempo de Entrega:", pageWidth - 80, metaRightY);
+        doc.setTextColor(15, 23, 42);
+        doc.text(data.delivery_time, pageWidth - 14, metaRightY, { align: "right" });
+        metaRightY += 6;
     }
 
     // --- Items Table ---
@@ -199,6 +222,32 @@ export const generateQuotationPDF = async (data: QuotationData) => {
     doc.text("Total Neto:", totalsX, finalY + 18);
     doc.setTextColor(16, 185, 129); // Emerald 500
     doc.text(formatCurrency(data.total), pageWidth - 14, finalY + 18, { align: "right" });
+
+    // --- Terms & Conditions ---
+    let termsY = finalY + 25;
+    if (data.terms_conditions) {
+        // Check if need page break
+        if (termsY + 30 > doc.internal.pageSize.getHeight() - 20) {
+            doc.addPage();
+            termsY = 20;
+        }
+        doc.setDrawColor(226, 232, 240);
+        doc.setLineWidth(0.5);
+        doc.line(14, termsY, pageWidth - 14, termsY);
+        termsY += 8;
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(10);
+        doc.setTextColor(30, 41, 59);
+        doc.text("Términos y Condiciones:", 14, termsY);
+        termsY += 6;
+
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8);
+        doc.setTextColor(100, 116, 139);
+        const termsLines = doc.splitTextToSize(data.terms_conditions, pageWidth - 28);
+        doc.text(termsLines, 14, termsY);
+    }
 
     // --- Footer ---
     doc.setFont("helvetica", "italic");

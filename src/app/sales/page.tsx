@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { FileText, Plus, RefreshCw, ArrowLeft, Download, FileSpreadsheet, Edit3, CheckCircle } from "lucide-react";
+import { FileText, Plus, RefreshCw, ArrowLeft, Download, FileSpreadsheet, Edit3, CheckCircle, Upload, Eye } from "lucide-react";
 import Link from "next/link";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -21,6 +21,10 @@ type Quotation = {
     subtotal: number;
     vat_total: number;
     total: number;
+    seller: string | null;
+    delivery_time: string | null;
+    terms_conditions: string | null;
+    client_po_url: string | null;
     created_at: string;
     client?: {
         business_name: string;
@@ -48,6 +52,10 @@ export default function SalesPage() {
                     subtotal,
                     vat_total,
                     total,
+                    seller,
+                    delivery_time,
+                    terms_conditions,
+                    client_po_url,
                     created_at,
                     client:clients(business_name, rfc, email, address)
                 `)
@@ -121,6 +129,9 @@ export default function SalesPage() {
                 subtotal: quote.subtotal,
                 vat_total: quote.vat_total,
                 total: quote.total,
+                seller: quote.seller || undefined,
+                delivery_time: quote.delivery_time || undefined,
+                terms_conditions: quote.terms_conditions || undefined,
                 company: companySettings ? {
                     company_name: companySettings.company_name,
                     email: companySettings.email,
@@ -168,6 +179,22 @@ export default function SalesPage() {
         }
     };
 
+    const handleUploadClientPO = async (quoteId: string, file: File) => {
+        try {
+            const fileExt = file.name.split('.').pop();
+            const fileName = `client_po_${quoteId}_${Date.now()}.${fileExt}`;
+            const { error: uploadError } = await supabase.storage.from('purchase_files').upload(`client_pos/${fileName}`, file, { cacheControl: '3600', upsert: false, contentType: file.type });
+            if (uploadError) throw uploadError;
+            const { data: publicUrlData } = supabase.storage.from('purchase_files').getPublicUrl(`client_pos/${fileName}`);
+            const { error: updateError } = await supabase.from('quotations').update({ client_po_url: publicUrlData.publicUrl }).eq('id', quoteId);
+            if (updateError) throw updateError;
+            fetchQuotations();
+        } catch (error: any) {
+            console.error("Error uploading client PO:", error);
+            alert("Error al subir la OC del cliente.");
+        }
+    };
+
     return (
         <div className="min-h-screen bg-[#0B1120] text-slate-200 p-6 md:p-10 font-[family-name:var(--font-sans)]">
             <div className="max-w-7xl mx-auto space-y-8">
@@ -212,25 +239,28 @@ export default function SalesPage() {
                         <table className="w-full text-left text-sm whitespace-nowrap">
                             <thead className="bg-slate-900/50 text-slate-400 uppercase text-xs font-semibold tracking-wider">
                                 <tr>
-                                    <th className="px-6 py-4 rounded-tl-xl">Quote #</th>
-                                    <th className="px-6 py-4">Client</th>
-                                    <th className="px-6 py-4">Date</th>
+                                    <th className="px-6 py-4 rounded-tl-xl">Folio</th>
+                                    <th className="px-6 py-4">Cliente</th>
+                                    <th className="px-6 py-4">Vendedor</th>
+                                    <th className="px-6 py-4">Entrega</th>
+                                    <th className="px-6 py-4">Fecha</th>
                                     <th className="px-6 py-4 text-right">Total</th>
                                     <th className="px-6 py-4">Status</th>
-                                    <th className="px-6 py-4 rounded-tr-xl text-right">Actions</th>
+                                    <th className="px-6 py-4">OC Cliente</th>
+                                    <th className="px-6 py-4 rounded-tr-xl text-right">Acciones</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-700/50">
                                 {isLoading ? (
                                     <tr>
-                                        <td colSpan={6} className="px-6 py-12 text-center text-slate-400">
+                                        <td colSpan={9} className="px-6 py-12 text-center text-slate-400">
                                             <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-3 text-emerald-500" />
-                                            Loading quotations...
+                                            Cargando...
                                         </td>
                                     </tr>
                                 ) : quotations.length === 0 ? (
                                     <tr>
-                                        <td colSpan={6} className="px-6 py-12 text-center text-slate-400">
+                                        <td colSpan={9} className="px-6 py-12 text-center text-slate-400">
                                             <div className="bg-slate-800/50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 border border-slate-700">
                                                 <FileText className="w-8 h-8 text-slate-500" />
                                             </div>
@@ -247,8 +277,10 @@ export default function SalesPage() {
                                                 </span>
                                             </td>
                                             <td className="px-6 py-4 font-medium text-slate-200">
-                                                {quote.client?.business_name || 'Unknown Client'}
+                                                {quote.client?.business_name || 'Unknown'}
                                             </td>
+                                            <td className="px-6 py-4 text-slate-400">{quote.seller || '—'}</td>
+                                            <td className="px-6 py-4 text-slate-400 text-xs">{quote.delivery_time || '—'}</td>
                                             <td className="px-6 py-4 text-slate-400">
                                                 {new Date(quote.created_at).toLocaleDateString()}
                                             </td>
@@ -259,6 +291,20 @@ export default function SalesPage() {
                                                 <span className={cn("px-2.5 py-1 rounded-full text-xs font-semibold border", getStatusStyle(quote.status))}>
                                                     {quote.status}
                                                 </span>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                {quote.status === 'Approved' ? (
+                                                    quote.client_po_url ? (
+                                                        <a href={quote.client_po_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-2.5 py-1.5 rounded-lg border border-emerald-500/20">
+                                                            <Eye className="w-3.5 h-3.5" /> Ver OC
+                                                        </a>
+                                                    ) : (
+                                                        <label className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 px-2.5 py-1.5 rounded-lg border border-amber-500/20 cursor-pointer transition-colors">
+                                                            <Upload className="w-3.5 h-3.5" /> Subir OC
+                                                            <input type="file" accept=".pdf,image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadClientPO(quote.id, f); e.target.value = ''; }} />
+                                                        </label>
+                                                    )
+                                                ) : <span className="text-slate-600 text-xs">—</span>}
                                             </td>
                                             <td className="px-6 py-4 text-right">
                                                 <div className="flex items-center justify-end gap-2">

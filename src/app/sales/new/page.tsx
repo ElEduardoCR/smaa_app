@@ -24,6 +24,9 @@ const itemSchema = z.object({
 
 const quotationSchema = z.object({
     client_id: z.string().min(1, "Please select a client"),
+    seller: z.string().optional().or(z.literal('')),
+    delivery_time: z.string().optional().or(z.literal('')),
+    terms_conditions: z.string().optional().or(z.literal('')),
     items: z.array(itemSchema).min(1, "At least one item is required"),
 });
 
@@ -51,6 +54,9 @@ function QuotationForm() {
         resolver: zodResolver(quotationSchema) as any,
         defaultValues: {
             client_id: "",
+            seller: "",
+            delivery_time: "",
+            terms_conditions: "",
             items: [{ description: "", quantity: 1, unit_price: 0 }]
         }
     });
@@ -112,6 +118,9 @@ function QuotationForm() {
                 // Reset form with fetched data
                 reset({
                     client_id: quote.client_id,
+                    seller: quote.seller || "",
+                    delivery_time: quote.delivery_time || "",
+                    terms_conditions: quote.terms_conditions || "",
                     items: items.map((i: any) => ({
                         description: i.description,
                         quantity: i.quantity,
@@ -138,6 +147,9 @@ function QuotationForm() {
                     .from('quotations')
                     .update({
                         client_id: data.client_id,
+                        seller: data.seller || null,
+                        delivery_time: data.delivery_time || null,
+                        terms_conditions: data.terms_conditions || null,
                         subtotal,
                         vat_total: vatTotal,
                         total,
@@ -159,6 +171,9 @@ function QuotationForm() {
                 // Insert new quote
                 const quoteData = {
                     client_id: data.client_id,
+                    seller: data.seller || null,
+                    delivery_time: data.delivery_time || null,
+                    terms_conditions: data.terms_conditions || null,
                     subtotal,
                     vat_total: vatTotal,
                     total,
@@ -250,6 +265,37 @@ function QuotationForm() {
                                 </div>
                             </div>
                             {errors.client_id && <p className="text-red-400 text-xs ml-1">{errors.client_id.message}</p>}
+                        </div>
+                    </div>
+
+                    {/* Seller & Delivery */}
+                    <div className="bg-slate-800/40 p-6 rounded-3xl border border-slate-700/50 backdrop-blur-sm">
+                        <h2 className="text-lg font-semibold text-white mb-4">Información Adicional</h2>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-slate-300 ml-1">Vendedor</label>
+                                <input
+                                    {...register("seller")}
+                                    className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                                    placeholder="Nombre del vendedor"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-slate-300 ml-1">Tiempo de Entrega</label>
+                                <input
+                                    {...register("delivery_time")}
+                                    className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                                    placeholder="Ej: 5 días hábiles, 2 semanas"
+                                />
+                            </div>
+                            <div className="space-y-2 md:col-span-2">
+                                <label className="text-sm font-medium text-slate-300 ml-1">Términos y Condiciones</label>
+                                <textarea
+                                    {...register("terms_conditions")}
+                                    className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all min-h-[120px]"
+                                    placeholder="Ej: Precios en MXN, validez 30 días, pago 50% anticipo..."
+                                />
+                            </div>
                         </div>
                     </div>
 
