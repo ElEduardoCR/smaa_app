@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { supabase } from "@/lib/supabase";
 import { ArrowLeft, Save, Plus, Trash2, Calculator, AlertCircle, RefreshCw } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -29,8 +29,12 @@ const quotationSchema = z.object({
 
 type QuotationFormValues = z.infer<typeof quotationSchema>;
 
-export default function NewQuotationPage() {
+function QuotationForm() {
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const editId = searchParams.get('id');
+    const isEditing = !!editId;
+
     const [clients, setClients] = useState<{ id: string, business_name: string }[]>([]);
     const [isLoadingClients, setIsLoadingClients] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -41,6 +45,7 @@ export default function NewQuotationPage() {
         control,
         handleSubmit,
         watch,
+        reset,
         formState: { errors }
     } = useForm<QuotationFormValues>({
         resolver: zodResolver(quotationSchema) as any,
@@ -85,30 +90,94 @@ export default function NewQuotationPage() {
         fetchClients();
     }, []);
 
+    useEffect(() => {
+        async function fetchQuote() {
+            if (!editId) return;
+            try {
+                const { data: quote, error: quoteError } = await supabase
+                    .from('quotations')
+                    .select('*')
+                    .eq('id', editId)
+                    .single();
+
+                if (quoteError) throw quoteError;
+
+                const { data: items, error: itemsError } = await supabase
+                    .from('quotation_items')
+                    .select('*')
+                    .eq('quotation_id', editId);
+
+                if (itemsError) throw itemsError;
+
+                // Reset form with fetched data
+                reset({
+                    client_id: quote.client_id,
+                    items: items.map((i: any) => ({
+                        description: i.description,
+                        quantity: i.quantity,
+                        unit_price: i.unit_price
+                    }))
+                });
+            } catch (err) {
+                console.error("Failed to load quotation for editing", err);
+                setErrorMsg("Error loading quotation data.");
+            }
+        }
+        fetchQuote();
+    }, [editId, reset]);
+
     const onSubmit = async (data: QuotationFormValues) => {
         setIsSubmitting(true);
         setErrorMsg(null);
         try {
-            // 1. Insert Quotation (Header)
-            const quoteData = {
-                client_id: data.client_id,
-                subtotal,
-                vat_total: vatTotal,
-                total,
-                status: 'Draft'
-            };
+            let currentQuoteId = editId;
 
-            const { data: insertedQuote, error: quoteError } = await supabase
-                .from('quotations')
-                .insert([quoteData])
-                .select()
-                .single();
+            if (isEditing) {
+                // Update existing quote
+                const { error: quoteError } = await supabase
+                    .from('quotations')
+                    .update({
+                        client_id: data.client_id,
+                        subtotal,
+                        vat_total: vatTotal,
+                        total,
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('id', editId);
 
-            if (quoteError) throw quoteError;
+                if (quoteError) throw quoteError;
 
-            // 2. Insert Items (Lines)
+                // Delete old items
+                const { error: delError } = await supabase
+                    .from('quotation_items')
+                    .delete()
+                    .eq('quotation_id', editId);
+
+                if (delError) throw delError;
+
+            } else {
+                // Insert new quote
+                const quoteData = {
+                    client_id: data.client_id,
+                    subtotal,
+                    vat_total: vatTotal,
+                    total,
+                    status: 'Draft'
+                };
+
+                const { data: insertedQuote, error: quoteError } = await supabase
+                    .from('quotations')
+                    .insert([quoteData])
+                    .select()
+                    .single();
+
+                if (quoteError) throw quoteError;
+                currentQuoteId = insertedQuote.id;
+            }
+
+            // Insert new or replaced items
             const itemsToInsert = data.items.map(item => ({
-                quotation_id: insertedQuote.id,
+                quotation_id: currentQuoteId,
                 description: item.description,
                 quantity: item.quantity,
                 unit_price: item.unit_price,
@@ -143,9 +212,9 @@ export default function NewQuotationPage() {
                     <div>
                         <h1 className="text-3xl font-bold text-white flex items-center gap-3">
                             <Calculator className="w-8 h-8 text-emerald-400" />
-                            Nueva Cotización
+                            {isEditing ? "Editar Cotización" : "Nueva Cotización"}
                         </h1>
-                        <p className="text-slate-400 text-sm mt-1">Create a new sales quotation with auto-calculated totals</p>
+                        <p className="text-slate-400 text-sm mt-1">{isEditing ? "Modify an existing draft quotation" : "Create a new sales quotation with auto-calculated totals"}</p>
                     </div>
                 </header>
 
@@ -278,7 +347,7 @@ export default function NewQuotationPage() {
                                 {isSubmitting ? (
                                     <><RefreshCw className="w-5 h-5 animate-spin" /> Guardando...</>
                                 ) : (
-                                    <><Save className="w-5 h-5" /> Guardar Cotización</>
+                                    <><Save className="w-5 h-5" /> {isEditing ? "Actualizar Cotización" : "Guardar Cotización"}</>
                                 )}
                             </button>
                         </div>
@@ -302,5 +371,17 @@ export default function NewQuotationPage() {
                 </form>
             </div>
         </div>
+    );
+}
+
+export default function NewQuotationPage() {
+    return (
+        <Suspense fallback={
+            <div className="min-h-screen bg-[#0B1120] flex items-center justify-center p-10 font-[family-name:var(--font-sans)]">
+                <RefreshCw className="w-8 h-8 animate-spin text-emerald-400" />
+            </div>
+        }>
+            <QuotationForm />
+        </Suspense>
     );
 }

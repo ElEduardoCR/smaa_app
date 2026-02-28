@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { FileText, Plus, RefreshCw, ArrowLeft, Download, FileSpreadsheet } from "lucide-react";
+import { FileText, Plus, RefreshCw, ArrowLeft, Download, FileSpreadsheet, Edit3, CheckCircle } from "lucide-react";
 import Link from "next/link";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -128,6 +128,28 @@ export default function SalesPage() {
         }
     };
 
+    const handleConfirmQuote = async (quote: Quotation) => {
+        if (!confirm(`¿Estás seguro de que deseas aprobar la cotización ${quote.quotation_number}?`)) return;
+
+        setIsLoading(true);
+        try {
+            const { error } = await supabase
+                .from('quotations')
+                .update({ status: 'Approved' })
+                .eq('id', quote.id);
+
+            if (error) throw error;
+
+            // Re-fetch to update list
+            fetchQuotations();
+        } catch (error: any) {
+            console.error("Error approving quotation:", error);
+            alert("Error al aprobar la cotización.");
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
     return (
         <div className="min-h-screen bg-[#0B1120] text-slate-200 p-6 md:p-10 font-[family-name:var(--font-sans)]">
             <div className="max-w-7xl mx-auto space-y-8">
@@ -221,13 +243,33 @@ export default function SalesPage() {
                                                 </span>
                                             </td>
                                             <td className="px-6 py-4 text-right">
-                                                <button
-                                                    onClick={() => handleDownloadPDF(quote)}
-                                                    className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-400 hover:text-indigo-300 transition-colors bg-indigo-500/10 hover:bg-indigo-500/20 px-3 py-1.5 rounded-lg border border-indigo-500/20"
-                                                    title="Download PDF"
-                                                >
-                                                    <Download className="w-3.5 h-3.5" /> PDF
-                                                </button>
+                                                <div className="flex items-center justify-end gap-2">
+                                                    {quote.status === 'Draft' && (
+                                                        <>
+                                                            <button
+                                                                onClick={() => handleConfirmQuote(quote)}
+                                                                className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-emerald-300 transition-colors bg-emerald-500/10 hover:bg-emerald-500/20 px-3 py-1.5 rounded-lg border border-emerald-500/20"
+                                                                title="Confirm Quote"
+                                                            >
+                                                                <CheckCircle className="w-3.5 h-3.5" /> Confirmar
+                                                            </button>
+                                                            <Link
+                                                                href={`/sales/new?id=${quote.id}`}
+                                                                className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-400 hover:text-amber-300 transition-colors bg-amber-500/10 hover:bg-amber-500/20 px-3 py-1.5 rounded-lg border border-amber-500/20"
+                                                                title="Edit Quote"
+                                                            >
+                                                                <Edit3 className="w-3.5 h-3.5" /> Editar
+                                                            </Link>
+                                                        </>
+                                                    )}
+                                                    <button
+                                                        onClick={() => handleDownloadPDF(quote)}
+                                                        className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-400 hover:text-indigo-300 transition-colors bg-indigo-500/10 hover:bg-indigo-500/20 px-3 py-1.5 rounded-lg border border-indigo-500/20"
+                                                        title="Download PDF"
+                                                    >
+                                                        <Download className="w-3.5 h-3.5" /> PDF
+                                                    </button>
+                                                </div>
                                             </td>
                                         </tr>
                                     ))
