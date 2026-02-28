@@ -103,6 +103,17 @@ export default function SalesPage() {
                 return;
             }
 
+            // Fetch company settings
+            const { data: companySettings, error: companyError } = await supabase
+                .from('company_settings')
+                .select('*')
+                .limit(1)
+                .single();
+
+            if (companyError && companyError.code !== 'PGRST116') {
+                console.warn("Could not fetch company settings:", companyError);
+            }
+
             // Construct the complete QuotationData
             const pdfData = {
                 quotation_number: quote.quotation_number,
@@ -110,6 +121,13 @@ export default function SalesPage() {
                 subtotal: quote.subtotal,
                 vat_total: quote.vat_total,
                 total: quote.total,
+                company: companySettings ? {
+                    company_name: companySettings.company_name,
+                    email: companySettings.email,
+                    phone: companySettings.phone,
+                    address: companySettings.address,
+                    logo_url: companySettings.logo_url
+                } : undefined,
                 client: {
                     business_name: quote.client.business_name,
                     rfc: quote.client.rfc,
@@ -119,7 +137,7 @@ export default function SalesPage() {
                 items: items || []
             };
 
-            generateQuotationPDF(pdfData);
+            await generateQuotationPDF(pdfData);
 
         } catch (error: any) {
             console.error("Error generating PDF:", error);

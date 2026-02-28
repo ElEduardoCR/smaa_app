@@ -7,6 +7,13 @@ type QuotationData = {
     subtotal: number;
     vat_total: number;
     total: number;
+    company?: {
+        company_name: string;
+        email?: string;
+        phone?: string;
+        address?: string;
+        logo_url?: string;
+    };
     client: {
         business_name: string;
         rfc: string;
@@ -21,7 +28,7 @@ type QuotationData = {
     }[];
 };
 
-export const generateQuotationPDF = (data: QuotationData) => {
+export const generateQuotationPDF = async (data: QuotationData) => {
     // Create new A4 document
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
@@ -30,22 +37,62 @@ export const generateQuotationPDF = (data: QuotationData) => {
     const formatCurrency = (amt: number) => `$ ${amt.toFixed(2)}`;
 
     // --- Header Section ---
-    // Company Name
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(24);
-    doc.setTextColor(79, 70, 229); // Indigo 600
-    doc.text("VOXA", 14, 22);
 
+    // Logo or Company Name
+    let currentY = 22;
+    if (data.company?.logo_url) {
+        try {
+            const response = await fetch(data.company.logo_url);
+            const blob = await response.blob();
+            const base64data = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result as string);
+                reader.readAsDataURL(blob);
+            });
+            // Try to keep logo aspect ratio roughly width 40, height 15
+            doc.addImage(base64data, 'PNG', 14, 12, 40, 15, undefined, 'FAST');
+            currentY = 32;
+        } catch (e) {
+            console.error("Failed to load logo for PDF", e);
+            // Default to text if image fails
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(24);
+            doc.setTextColor(79, 70, 229);
+            doc.text(data.company?.company_name || "VOXA", 14, currentY);
+            currentY += 6;
+        }
+    } else {
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(24);
+        doc.setTextColor(79, 70, 229);
+        doc.text(data.company?.company_name || "VOXA", 14, currentY);
+        currentY += 6;
+    }
+
+    // Company Contact Info
     doc.setFontSize(10);
-    doc.setTextColor(100, 116, 139); // Slate 500
+    doc.setTextColor(100, 116, 139);
     doc.setFont("helvetica", "normal");
-    doc.text("Enterprise Resource Planning", 14, 28);
-    doc.text("contacto@voxa.com", 14, 33);
+
+    if (data.company?.email) {
+        doc.text(data.company.email, 14, currentY);
+        currentY += 5;
+    }
+    if (data.company?.phone) {
+        doc.text(data.company.phone, 14, currentY);
+        currentY += 5;
+    }
+    if (data.company?.address) {
+        // Split long address strings
+        const addressLines = doc.splitTextToSize(data.company.address, 90);
+        doc.text(addressLines, 14, currentY);
+        currentY += (addressLines.length * 5);
+    }
 
     // Document Title
     doc.setFont("helvetica", "bold");
     doc.setFontSize(20);
-    doc.setTextColor(15, 23, 42); // Slate 900
+    doc.setTextColor(15, 23, 42);
     doc.text("COTIZACIÓN", pageWidth - 14, 25, { align: "right" });
 
     doc.setFontSize(10);
@@ -54,22 +101,31 @@ export const generateQuotationPDF = (data: QuotationData) => {
     doc.text(`Fecha: ${new Date(data.created_at).toLocaleDateString()}`, pageWidth - 14, 37, { align: "right" });
 
     // Divider Line
-    doc.setDrawColor(226, 232, 240); // Slate 200
+    const dividerY = Math.max(currentY, 45);
+    doc.setDrawColor(226, 232, 240);
     doc.setLineWidth(0.5);
-    doc.line(14, 45, pageWidth - 14, 45);
+    doc.line(14, dividerY, pageWidth - 14, dividerY);
 
     // --- Client Details ---
+    const clientStartY = dividerY + 10;
     doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
-    doc.setTextColor(30, 41, 59); // Slate 800
-    doc.text("Datos del Cliente:", 14, 55);
+    doc.setTextColor(30, 41, 59);
+    doc.text("Datos del Cliente:", 14, clientStartY);
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(10);
-    doc.text(`Razón Social: ${data.client.business_name}`, 14, 62);
-    doc.text(`RFC: ${data.client.rfc}`, 14, 67);
-    if (data.client.email) doc.text(`Email: ${data.client.email}`, 14, 72);
-    if (data.client.address) doc.text(`Dirección: ${data.client.address}`, 14, 77);
+    doc.text(`Razón Social: ${data.client.business_name}`, 14, clientStartY + 7);
+    doc.text(`RFC: ${data.client.rfc}`, 14, clientStartY + 12);
+
+    let nextClientY = clientStartY + 17;
+    if (data.client.email) {
+        doc.text(`Email: ${data.client.email}`, 14, nextClientY);
+        nextClientY += 5;
+    }
+    if (data.client.address) {
+        doc.text(`Dirección: ${data.client.address}`, 14, nextClientY);
+    }
 
     // --- Items Table ---
     const tableData = data.items.map(item => [
@@ -80,12 +136,12 @@ export const generateQuotationPDF = (data: QuotationData) => {
     ]);
 
     autoTable(doc, {
-        startY: 85,
+        startY: Math.max(nextClientY + 10, dividerY + 35),
         head: [['Descripción', 'Cantidad', 'Precio Unitario', 'Importe']],
         body: tableData,
         theme: 'striped',
         headStyles: {
-            fillColor: [79, 70, 229], // Indigo 600
+            fillColor: [79, 70, 229],
             textColor: 255,
             fontStyle: 'bold',
         },
@@ -133,7 +189,7 @@ export const generateQuotationPDF = (data: QuotationData) => {
     // --- Footer ---
     doc.setFont("helvetica", "italic");
     doc.setFontSize(8);
-    doc.setTextColor(148, 163, 184); // Slate 400
+    doc.setTextColor(148, 163, 184);
     doc.text("Esta cotización es de carácter informativo y está sujeta a cambios.", pageWidth / 2, doc.internal.pageSize.getHeight() - 15, { align: "center" });
 
     // Trigger download
