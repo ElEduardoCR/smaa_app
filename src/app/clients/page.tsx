@@ -201,15 +201,45 @@ export default function ClientsPage() {
                                         <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                                             <FileText className="h-4 w-4 text-slate-500" />
                                         </div>
-                                        <input
+                                        <select
                                             {...register("fiscal_regime")}
                                             className={cn(
-                                                "w-full bg-slate-900/50 border rounded-xl pl-11 pr-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:ring-2 transition-all",
+                                                "w-full bg-slate-900/50 border rounded-xl pl-11 pr-4 py-3 text-white placeholder-slate-500 appearance-none focus:outline-none focus:ring-2 transition-all",
                                                 errors.fiscal_regime ? "border-red-500/50 focus:border-red-500 focus:ring-red-500/20" : "border-slate-700 focus:border-indigo-500 focus:ring-indigo-500/20"
                                             )}
-                                            placeholder="601"
-                                            maxLength={3}
-                                        />
+                                        >
+                                            <option value="" disabled className="text-slate-500">Select a regime</option>
+
+                                            <optgroup label="Régimen Fiscal – Personas Morales" className="bg-slate-900 text-slate-300 font-semibold">
+                                                <option value="601">601 - General de Ley Personas Morales</option>
+                                                <option value="603">603 - Personas Morales con Fines no Lucrativos</option>
+                                                <option value="610">610 - Residentes en el Extranjero sin Establecimiento Permanente en México</option>
+                                                <option value="620">620 - Sociedades Cooperativas de Producción que optan por diferir sus ingresos</option>
+                                                <option value="622">622 - Actividades Agrícolas, Ganaderas, Silvícolas y Pesqueras</option>
+                                                <option value="623">623 - Opcional para Grupos de Sociedades</option>
+                                                <option value="624">624 - Coordinados</option>
+                                                <option value="626">626 - Régimen Simplificado de Confianza (RESICO PM)</option>
+                                            </optgroup>
+
+                                            <optgroup label="Régimen Fiscal – Personas Físicas" className="bg-slate-900 text-slate-300 font-semibold">
+                                                <option value="605">605 - Sueldos y Salarios e Ingresos Asimilados a Salarios</option>
+                                                <option value="606">606 - Arrendamiento</option>
+                                                <option value="607">607 - Régimen de Enajenación o Adquisición de Bienes</option>
+                                                <option value="608">608 - Demás ingresos</option>
+                                                <option value="611">611 - Ingresos por Dividendos (socios y accionistas)</option>
+                                                <option value="612">612 - Personas Físicas con Actividades Empresariales y Profesionales</option>
+                                                <option value="614">614 - Ingresos por intereses</option>
+                                                <option value="615">615 - Régimen de los ingresos por obtención de premios</option>
+                                                <option value="616">616 - Sin obligaciones fiscales</option>
+                                                <option value="621">621 - Incorporación Fiscal (RIF)</option>
+                                                <option value="625">625 - Actividades Empresariales con ingresos a través de Plataformas Tecnológicas</option>
+                                                <option value="626">626 - Régimen Simplificado de Confianza (RESICO PF)</option>
+                                            </optgroup>
+                                        </select>
+                                        {/* Select indicator icon */}
+                                        <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-slate-500">
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                                        </div>
                                     </div>
                                     {errors.fiscal_regime && <p className="text-red-400 text-xs ml-1">{errors.fiscal_regime.message}</p>}
                                 </div>
