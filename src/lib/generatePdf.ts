@@ -49,9 +49,23 @@ export const generateQuotationPDF = async (data: QuotationData) => {
                 reader.onloadend = () => resolve(reader.result as string);
                 reader.readAsDataURL(blob);
             });
-            // Try to keep logo aspect ratio roughly width 40, height 15
-            doc.addImage(base64data, 'PNG', 14, 12, 40, 15, undefined, 'FAST');
-            currentY = 32;
+
+            // Load image to get natural dimensions and preserve aspect ratio
+            const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+                const image = new window.Image();
+                image.onload = () => resolve(image);
+                image.onerror = reject;
+                image.src = base64data;
+            });
+
+            const maxW = 45; // mm
+            const maxH = 20; // mm
+            const ratio = Math.min(maxW / img.naturalWidth, maxH / img.naturalHeight);
+            const logoW = img.naturalWidth * ratio;
+            const logoH = img.naturalHeight * ratio;
+
+            doc.addImage(base64data, 'PNG', 14, 12, logoW, logoH, undefined, 'FAST');
+            currentY = 12 + logoH + 4;
         } catch (e) {
             console.error("Failed to load logo for PDF", e);
             // Default to text if image fails
