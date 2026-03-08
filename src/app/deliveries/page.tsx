@@ -68,8 +68,7 @@ export default function DeliveriesPage() {
             const { data: items, error } = await supabase
                 .from('quotation_items')
                 .select('description, quantity')
-                .eq('quotation_id', delivery.work_order.quotation.id)
-                .order('created_at');
+                .eq('quotation_id', delivery.work_order.quotation.id);
             if (error) throw error;
 
             await generateDeliveryPDF({
