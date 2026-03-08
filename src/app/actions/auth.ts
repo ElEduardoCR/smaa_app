@@ -1,12 +1,16 @@
 'use server';
 
-import { updateSession } from '@/lib/session';
+import { updateSession, destroySession } from '@/lib/session';
 
 type LoginResult = {
     success: boolean;
     error?: string;
     redirectTo?: string;
 };
+
+export async function logoutAction() {
+    await destroySession();
+}
 
 export async function loginAction(password: string, redirectTo?: string): Promise<LoginResult> {
     const master = process.env.MASTER_PASS;
