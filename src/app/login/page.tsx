@@ -15,6 +15,12 @@ function LoginForm() {
     const [error, setError] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
 
+    let moduleName = "el Sistema Voxa";
+    if (redirectUrl.startsWith('/purchases')) moduleName = "Compras";
+    if (redirectUrl.startsWith('/sales')) moduleName = "Ventas";
+    if (redirectUrl.startsWith('/settings')) moduleName = "Configuración";
+    if (redirectUrl.startsWith('/manufacturing/new')) moduleName = "Fabricación";
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError(null);
@@ -50,7 +56,9 @@ function LoginForm() {
 
                 <div className="text-center mb-10">
                     <h1 className="text-3xl font-bold text-white mb-2">Voxa ERP</h1>
-                    <p className="text-slate-400 text-sm">Ingresa la clave de tu departamento para continuar</p>
+                    <p className="text-slate-400 text-sm">
+                        Ingresa la clave para acceder a <strong className="text-white">{moduleName}</strong>
+                    </p>
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-6">

@@ -24,36 +24,51 @@ export async function loginAction(password: string, redirectTo?: string): Promis
         return { success: false, error: 'Por favor ingresa una contraseña.' };
     }
 
-    let grantedPermissions: string[] = [];
-    let defaultRedirect = '/';
-
+    // Master pass bypasses everything
     if (master && password === master) {
-        grantedPermissions = ['master', 'system', 'purchases', 'sales', 'config', 'ot'];
-        defaultRedirect = '/';
-    } else if (system && password === system) {
-        grantedPermissions = ['system'];
-        defaultRedirect = '/';
-    } else if (purchase && password === purchase) {
-        grantedPermissions = ['purchases'];
-        defaultRedirect = '/purchases';
-    } else if (sales && password === sales) {
-        grantedPermissions = ['sales'];
-        defaultRedirect = '/sales';
-    } else if (config && password === config) {
-        grantedPermissions = ['config'];
-        defaultRedirect = '/settings';
-    } else if (ot && password === ot) {
-        grantedPermissions = ['ot'];
-        defaultRedirect = '/manufacturing/new';
-    } else {
-        return { success: false, error: 'Contraseña incorrecta.' };
+        await updateSession(['master', 'system', 'purchases', 'sales', 'config', 'ot']);
+        return { success: true, redirectTo: redirectTo || '/' };
     }
 
-    // Update the encrypted cookie
-    await updateSession(grantedPermissions);
+    const targetPath = redirectTo || '/';
 
-    return {
-        success: true,
-        redirectTo: redirectTo || defaultRedirect
-    };
+    if (targetPath.startsWith('/purchases')) {
+        if (purchase && password === purchase) {
+            await updateSession(['purchases']);
+            return { success: true, redirectTo: targetPath };
+        }
+        return { success: false, error: 'Contraseña de departamento incorrecta.' };
+    }
+
+    if (targetPath.startsWith('/sales')) {
+        if (sales && password === sales) {
+            await updateSession(['sales']);
+            return { success: true, redirectTo: targetPath };
+        }
+        return { success: false, error: 'Contraseña de departamento incorrecta.' };
+    }
+
+    if (targetPath.startsWith('/settings')) {
+        if (config && password === config) {
+            await updateSession(['config']);
+            return { success: true, redirectTo: targetPath };
+        }
+        return { success: false, error: 'Contraseña de departamento incorrecta.' };
+    }
+
+    if (targetPath.startsWith('/manufacturing/new')) {
+        if (ot && password === ot) {
+            await updateSession(['ot']);
+            return { success: true, redirectTo: targetPath };
+        }
+        return { success: false, error: 'Contraseña de departamento incorrecta.' };
+    }
+
+    // Default to system login for /, /clients, /deliveries, /suppliers, etc
+    if (system && password === system) {
+        await updateSession(['system']);
+        return { success: true, redirectTo: targetPath };
+    }
+
+    return { success: false, error: 'Contraseña de sistema incorrecta.' };
 }
