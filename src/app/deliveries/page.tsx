@@ -26,6 +26,7 @@ type Delivery = {
         order_number: string;
         notes: string | null;
         quotation: {
+            id: string;
             quotation_number: string;
             client: { business_name: string; rfc: string; email?: string; address?: string; };
         };
@@ -41,7 +42,7 @@ export default function DeliveriesPage() {
         try {
             const { data, error } = await supabase
                 .from('deliveries')
-                .select(`*, work_order:work_orders(id, order_number, notes, quotation:quotations(quotation_number, client:clients(business_name, rfc, email, address)))`)
+                .select(`*, work_order:work_orders(id, order_number, notes, quotation:quotations(id, quotation_number, client:clients(business_name, rfc, email, address)))`)
                 .order('created_at', { ascending: false });
             if (error) throw error;
 
@@ -63,12 +64,12 @@ export default function DeliveriesPage() {
 
     const handleDownloadPDF = async (delivery: Delivery) => {
         try {
-            // Fetch operations for this WO
-            const { data: ops, error } = await supabase
-                .from('work_order_operations')
-                .select('sequence, operation_type, description, status')
-                .eq('work_order_id', delivery.work_order.id)
-                .order('sequence');
+            // Fetch quotation items for this quotation
+            const { data: items, error } = await supabase
+                .from('quotation_items')
+                .select('description, quantity')
+                .eq('quotation_id', delivery.work_order.quotation.id)
+                .order('created_at');
             if (error) throw error;
 
             await generateDeliveryPDF({
@@ -82,7 +83,7 @@ export default function DeliveriesPage() {
                 work_order: { order_number: delivery.work_order.order_number, notes: delivery.work_order.notes },
                 quotation: { quotation_number: delivery.work_order.quotation.quotation_number },
                 client: delivery.work_order.quotation.client,
-                operations: ops || []
+                items: items || []
             });
         } catch (error: any) {
             console.error("PDF error:", error);

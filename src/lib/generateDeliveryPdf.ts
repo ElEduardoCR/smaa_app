@@ -23,11 +23,9 @@ type DeliveryPDFData = {
         email?: string;
         address?: string;
     };
-    operations: {
-        sequence: number;
-        operation_type: string;
-        description: string | null;
-        status: string;
+    items: {
+        description: string;
+        quantity: number;
     }[];
 };
 
@@ -142,22 +140,21 @@ export const generateDeliveryPDF = async (data: DeliveryPDFData) => {
         }
     }
 
-    // Operations table
-    if (data.operations.length > 0) {
-        const opsData = data.operations.map(op => [
-            `#${op.sequence}`,
-            op.operation_type,
-            op.description || '—',
-            op.status === 'Done' ? '✓ Completado' : 'Pendiente'
+    // Items table
+    if (data.items && data.items.length > 0) {
+        const itemsData = data.items.map((item, index) => [
+            `#${index + 1}`,
+            item.description,
+            item.quantity.toString()
         ]);
 
         autoTable(doc, {
             startY: nextY + 8,
-            head: [['#', 'Operación', 'Descripción', 'Estado']],
-            body: opsData,
+            head: [['#', 'Descripción', 'Cantidad']],
+            body: itemsData,
             theme: 'striped',
             headStyles: { fillColor: [16, 185, 129], textColor: 255, fontStyle: 'bold' },
-            columnStyles: { 0: { cellWidth: 15, halign: 'center' }, 1: { cellWidth: 35 }, 2: { cellWidth: 'auto' }, 3: { cellWidth: 30, halign: 'center' } },
+            columnStyles: { 0: { cellWidth: 15, halign: 'center' }, 1: { cellWidth: 'auto' }, 2: { cellWidth: 30, halign: 'center' } },
             styles: { fontSize: 9, cellPadding: 4 }
         });
         nextY = (doc as any).lastAutoTable.finalY + 10;
