@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { generatePurchaseOrderPDF } from "@/lib/generatePoPdf";
-import { ShoppingCart, Plus, RefreshCw, ArrowLeft, Download, Eye, CheckCircle, Upload, FileText, Camera, FileSignature } from "lucide-react";
+import { ShoppingCart, Plus, RefreshCw, ArrowLeft, Download, Eye, CheckCircle, Upload, FileText, Camera } from "lucide-react";
 import Link from "next/link";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -22,7 +22,6 @@ type PO = {
     supplier_quote_url: string | null;
     invoice_url: string | null;
     evidence_photo_url: string | null;
-    signed_invoice_url: string | null;
     created_at: string;
     supplier: { business_name: string; rfc: string; email?: string; address?: string; };
 };
@@ -53,33 +52,28 @@ export default function PurchasesPage() {
 
     useEffect(() => { fetchOrders(); }, []);
 
-    const handleUploadPurchaseEvidence = async (poId: string, file: File, type: 'photo' | 'signed_invoice') => {
+    const handleUploadPurchaseEvidence = async (poId: string, file: File) => {
         try {
             const fileExt = file.name.split('.').pop();
-            const folder = type === 'photo' ? 'evidence_photos' : 'signed_invoices';
-            const fileName = `po_${type}_${poId}_${Date.now()}.${fileExt}`;
+            const fileName = `po_photo_${poId}_${Date.now()}.${fileExt}`;
             const { error: uploadError } = await supabase.storage
                 .from('purchase_files')
-                .upload(`purchases/${folder}/${fileName}`, file, { cacheControl: '3600', upsert: false, contentType: file.type });
+                .upload(`purchases/evidence_photos/${fileName}`, file, { cacheControl: '3600', upsert: false, contentType: file.type });
             if (uploadError) throw uploadError;
 
             const { data: publicUrlData } = supabase.storage
                 .from('purchase_files')
-                .getPublicUrl(`purchases/${folder}/${fileName}`);
-
-            const updateField = type === 'photo'
-                ? { evidence_photo_url: publicUrlData.publicUrl }
-                : { signed_invoice_url: publicUrlData.publicUrl };
+                .getPublicUrl(`purchases/evidence_photos/${fileName}`);
 
             const { error: updateError } = await supabase
                 .from('purchase_orders')
-                .update(updateField)
+                .update({ evidence_photo_url: publicUrlData.publicUrl })
                 .eq('id', poId);
             if (updateError) throw updateError;
 
             fetchOrders();
         } catch (error: any) {
-            console.error(`Error uploading purchase ${type}:`, error);
+            console.error('Error uploading purchase photo:', error);
             alert(`Error al subir el archivo: ${error.message}`);
         }
     };
@@ -191,15 +185,14 @@ export default function PurchasesPage() {
                                     <th className="px-6 py-4">Status</th>
                                     <th className="px-6 py-4">Cotización Prov.</th>
                                     <th className="px-6 py-4 text-center">Evidencia Recepción</th>
-                                    <th className="px-6 py-4 text-center">Factura Firmada</th>
                                     <th className="px-6 py-4 rounded-tr-xl text-right">Acciones</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-700/50">
                                 {isLoading ? (
-                                    <tr><td colSpan={9} className="px-6 py-12 text-center text-slate-400"><RefreshCw className="w-6 h-6 animate-spin mx-auto mb-3 text-violet-500" />Loading...</td></tr>
+                                    <tr><td colSpan={8} className="px-6 py-12 text-center text-slate-400"><RefreshCw className="w-6 h-6 animate-spin mx-auto mb-3 text-violet-500" />Loading...</td></tr>
                                 ) : orders.length === 0 ? (
-                                    <tr><td colSpan={9} className="px-6 py-12 text-center text-slate-400">
+                                    <tr><td colSpan={8} className="px-6 py-12 text-center text-slate-400">
                                         <div className="bg-slate-800/50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 border border-slate-700"><ShoppingCart className="w-8 h-8 text-slate-500" /></div>
                                         <p className="text-lg text-slate-300 font-medium">No hay órdenes de compra</p>
                                         <p className="text-sm mt-1">Crea tu primera orden para verla aquí.</p>
@@ -218,7 +211,6 @@ export default function PurchasesPage() {
                                                 ) : <span className="text-slate-600 text-xs">—</span>}
                                             </td>
 
-                                            {/* Evidencia de Recepción */}
                                             <td className="px-6 py-4 text-center">
                                                 {po.evidence_photo_url ? (
                                                     <a href={po.evidence_photo_url} target="_blank" rel="noopener noreferrer"
@@ -229,23 +221,7 @@ export default function PurchasesPage() {
                                                     <label className="inline-flex items-center gap-1.5 text-xs font-medium text-violet-400 hover:text-violet-300 bg-violet-500/10 hover:bg-violet-500/20 px-2.5 py-1.5 rounded-lg border border-violet-500/20 cursor-pointer transition-colors">
                                                         <Camera className="w-3.5 h-3.5" /> Subir Foto
                                                         <input type="file" accept="image/*" className="hidden"
-                                                            onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadPurchaseEvidence(po.id, f, 'photo'); e.target.value = ''; }} />
-                                                    </label>
-                                                )}
-                                            </td>
-
-                                            {/* Factura Firmada */}
-                                            <td className="px-6 py-4 text-center">
-                                                {po.signed_invoice_url ? (
-                                                    <a href={po.signed_invoice_url} target="_blank" rel="noopener noreferrer"
-                                                        className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 px-2.5 py-1.5 rounded-lg border border-amber-500/20 transition-colors">
-                                                        <Eye className="w-3.5 h-3.5" /> Ver Factura
-                                                    </a>
-                                                ) : (
-                                                    <label className="inline-flex items-center gap-1.5 text-xs font-medium text-orange-400 hover:text-orange-300 bg-orange-500/10 hover:bg-orange-500/20 px-2.5 py-1.5 rounded-lg border border-orange-500/20 cursor-pointer transition-colors">
-                                                        <FileSignature className="w-3.5 h-3.5" /> Subir Factura
-                                                        <input type="file" accept="image/*,.pdf" className="hidden"
-                                                            onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadPurchaseEvidence(po.id, f, 'signed_invoice'); e.target.value = ''; }} />
+                                                            onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadPurchaseEvidence(po.id, f); e.target.value = ''; }} />
                                                     </label>
                                                 )}
                                             </td>
