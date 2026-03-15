@@ -38,8 +38,7 @@ export default function QuotationDetailsModal({ quote, onClose }: QuotationDetai
             const { data, error } = await supabase
                 .from('quotation_items')
                 .select('*')
-                .eq('quotation_id', quote.id)
-                .order('created_at', { ascending: true });
+                .eq('quotation_id', quote.id);
 
             if (error) throw error;
             setItems(data || []);
