@@ -7,6 +7,7 @@ import Link from "next/link";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
 import { generateQuotationPDF } from "@/lib/generatePdf";
+import QuotationDetailsModal from "./QuotationDetailsModal";
 
 function cn(...inputs: (string | undefined | null | false)[]) {
     return twMerge(clsx(inputs));
@@ -37,6 +38,7 @@ type Quotation = {
 export default function SalesPage() {
     const [quotations, setQuotations] = useState<Quotation[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [selectedQuote, setSelectedQuote] = useState<Quotation | null>(null);
 
     const fetchQuotations = async () => {
         setIsLoading(true);
@@ -270,7 +272,11 @@ export default function SalesPage() {
                                     </tr>
                                 ) : (
                                     quotations.map((quote) => (
-                                        <tr key={quote.id} className="hover:bg-slate-800/80 transition-colors group">
+                                        <tr 
+                                            key={quote.id} 
+                                            className="hover:bg-slate-800/80 transition-colors group cursor-pointer"
+                                            onClick={() => setSelectedQuote(quote)}
+                                        >
                                             <td className="px-6 py-4">
                                                 <span className="font-mono font-medium text-emerald-300 bg-emerald-500/10 px-2.5 py-1 rounded-md border border-emerald-500/20">
                                                     {quote.quotation_number}
@@ -299,7 +305,10 @@ export default function SalesPage() {
                                                             <Eye className="w-3.5 h-3.5" /> Ver OC
                                                         </a>
                                                     ) : (
-                                                        <label className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 px-2.5 py-1.5 rounded-lg border border-amber-500/20 cursor-pointer transition-colors">
+                                                        <label 
+                                                            className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 px-2.5 py-1.5 rounded-lg border border-amber-500/20 cursor-pointer transition-colors"
+                                                            onClick={(e) => e.stopPropagation()}
+                                                        >
                                                             <Upload className="w-3.5 h-3.5" /> Subir OC
                                                             <input type="file" accept=".pdf,image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadClientPO(quote.id, f); e.target.value = ''; }} />
                                                         </label>
@@ -311,7 +320,7 @@ export default function SalesPage() {
                                                     {quote.status === 'Draft' && (
                                                         <>
                                                             <button
-                                                                onClick={() => handleConfirmQuote(quote)}
+                                                                onClick={(e) => { e.stopPropagation(); handleConfirmQuote(quote); }}
                                                                 className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-emerald-300 transition-colors bg-emerald-500/10 hover:bg-emerald-500/20 px-3 py-1.5 rounded-lg border border-emerald-500/20"
                                                                 title="Confirm Quote"
                                                             >
@@ -321,13 +330,14 @@ export default function SalesPage() {
                                                                 href={`/sales/new?id=${quote.id}`}
                                                                 className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-400 hover:text-amber-300 transition-colors bg-amber-500/10 hover:bg-amber-500/20 px-3 py-1.5 rounded-lg border border-amber-500/20"
                                                                 title="Edit Quote"
+                                                                onClick={(e) => e.stopPropagation()}
                                                             >
                                                                 <Edit3 className="w-3.5 h-3.5" /> Editar
                                                             </Link>
                                                         </>
                                                     )}
                                                     <button
-                                                        onClick={() => handleDownloadPDF(quote)}
+                                                        onClick={(e) => { e.stopPropagation(); handleDownloadPDF(quote); }}
                                                         className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-400 hover:text-indigo-300 transition-colors bg-indigo-500/10 hover:bg-indigo-500/20 px-3 py-1.5 rounded-lg border border-indigo-500/20"
                                                         title="Download PDF"
                                                     >
@@ -343,6 +353,14 @@ export default function SalesPage() {
                     </div>
                 </div>
             </div>
+
+            {/* Modal de Detalle */}
+            {selectedQuote && (
+                <QuotationDetailsModal 
+                    quote={selectedQuote} 
+                    onClose={() => setSelectedQuote(null)} 
+                />
+            )}
         </div>
     );
 }
