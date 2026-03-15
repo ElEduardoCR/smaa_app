@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, Factory, Upload, Download, Trash2, FileText, RefreshCw, CheckCircle, AlertCircle, Paperclip, Plus, Edit2, Save, X, GripVertical } from "lucide-react";
+import { ArrowLeft, Factory, Upload, Download, Trash2, FileText, RefreshCw, CheckCircle, AlertCircle, Paperclip, Plus, Edit2, Save, X, GripVertical, ShieldCheck, Camera, Lock, ImageIcon } from "lucide-react";
 import Link from "next/link";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -44,6 +44,15 @@ type WOFile = {
     created_at: string;
 };
 
+type QCPhoto = {
+    id: string;
+    photo_url: string;
+    photo_label: string;
+    created_at: string;
+};
+
+const QC_PHOTO_LABELS = ["Primera Pieza", "Plano", "Medidas", "Detalle", "Otro"];
+
 export default function WorkOrderDetailPage() {
     const params = useParams();
     const router = useRouter();
@@ -56,6 +65,16 @@ export default function WorkOrderDetailPage() {
     const [isUploading, setIsUploading] = useState(false);
     const [statusMsg, setStatusMsg] = useState<{ type: 'error' | 'success', text: string } | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // QC First Piece state
+    const [qcPhotos, setQcPhotos] = useState<QCPhoto[]>([]);
+    const [qcApproved, setQcApproved] = useState(false);
+    const [qcApprovedAt, setQcApprovedAt] = useState<string | null>(null);
+    const [qcPassword, setQcPassword] = useState("");
+    const [isSigningQC, setIsSigningQC] = useState(false);
+    const [isUploadingQCPhoto, setIsUploadingQCPhoto] = useState(false);
+    const [qcLabel, setQcLabel] = useState("Primera Pieza");
+    const [qcStatusMsg, setQcStatusMsg] = useState<{ type: 'error' | 'success', text: string } | null>(null);
 
     // Editing state
     const [editingOpId, setEditingOpId] = useState<string | null>(null);
@@ -86,6 +105,8 @@ export default function WorkOrderDetailPage() {
                 formattedWO.quotation.client = formattedWO.quotation.client[0];
             }
             setWorkOrder(formattedWO);
+            setQcApproved(formattedWO.qc_approved || false);
+            setQcApprovedAt(formattedWO.qc_approved_at || null);
 
             const { data: opsData, error: opsError } = await supabase
                 .from('work_order_operations')
@@ -102,6 +123,14 @@ export default function WorkOrderDetailPage() {
                 .order('created_at', { ascending: false });
             if (filesError) throw filesError;
             setFiles(filesData || []);
+
+            const { data: qcData, error: qcError } = await supabase
+                .from('work_order_qc_photos')
+                .select('*')
+                .eq('work_order_id', woId)
+                .order('created_at', { ascending: true });
+            if (qcError) throw qcError;
+            setQcPhotos(qcData || []);
         } catch (error: any) {
             console.error("Error loading work order:", error);
             setStatusMsg({ type: 'error', text: "Error loading work order details." });
@@ -237,7 +266,81 @@ export default function WorkOrderDetailPage() {
         }
     };
 
+
+    // --- QC Handlers ---
+    const handleUploadQCPhoto = async (file: File) => {
+        setIsUploadingQCPhoto(true);
+        setQcStatusMsg(null);
+        try {
+            const filePath = `qc/${woId}/${Date.now()}_${file.name}`;
+            const { error: uploadError } = await supabase.storage
+                .from('work_order_files')
+                .upload(filePath, file, { cacheControl: '3600', upsert: false, contentType: file.type });
+            if (uploadError) throw uploadError;
+
+            const { data: publicUrlData } = supabase.storage.from('work_order_files').getPublicUrl(filePath);
+
+            const { error: insertError } = await supabase.from('work_order_qc_photos').insert([{
+                work_order_id: woId,
+                photo_url: publicUrlData.publicUrl,
+                photo_label: qcLabel,
+            }]);
+            if (insertError) throw insertError;
+
+            setQcStatusMsg({ type: 'success', text: "Foto agregada." });
+            setTimeout(() => setQcStatusMsg(null), 2000);
+            fetchAll();
+        } catch (err: any) {
+            setQcStatusMsg({ type: 'error', text: err.message || "Error al subir foto." });
+        } finally {
+            setIsUploadingQCPhoto(false);
+        }
+    };
+
+    const handleDeleteQCPhoto = async (photoId: string, photoUrl: string) => {
+        if (!confirm("¿Eliminar esta foto de evidencia?")) return;
+        try {
+            const urlParts = photoUrl.split('/work_order_files/');
+            if (urlParts.length > 1) {
+                await supabase.storage.from('work_order_files').remove([decodeURIComponent(urlParts[1])]);
+            }
+            await supabase.from('work_order_qc_photos').delete().eq('id', photoId);
+            fetchAll();
+        } catch (err: any) {
+            console.error("Delete QC photo error:", err);
+        }
+    };
+
+    const handleQCSign = async () => {
+        if (!qcPassword) {
+            setQcStatusMsg({ type: 'error', text: "Ingresa la contraseña de Calidad." });
+            return;
+        }
+        setIsSigningQC(true);
+        setQcStatusMsg(null);
+        try {
+            const res = await fetch('/api/qc-sign', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: qcPassword, work_order_id: woId }),
+            });
+            const json = await res.json();
+            if (!json.ok) {
+                setQcStatusMsg({ type: 'error', text: json.error || "Contraseña incorrecta." });
+            } else {
+                setQcStatusMsg({ type: 'success', text: "¡Primera pieza liberada exitosamente!" });
+                setQcPassword("");
+                fetchAll();
+            }
+        } catch (err: any) {
+            setQcStatusMsg({ type: 'error', text: "Error de conexión." });
+        } finally {
+            setIsSigningQC(false);
+        }
+    };
+
     const formatFileSize = (bytes: number | null) => {
+
         if (!bytes) return '—';
         if (bytes < 1024) return `${bytes} B`;
         if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -432,6 +535,125 @@ export default function WorkOrderDetailPage() {
                                     </div>
                                 </div>
                             ))
+                        )}
+                    </div>
+                </div>
+
+                {/* QC First Piece Release Section */}
+                <div className="bg-slate-800/40 border border-slate-700/50 rounded-3xl overflow-hidden backdrop-blur-sm">
+                    <div className="p-6 border-b border-slate-700/50 bg-slate-800/20 flex justify-between items-center">
+                        <h2 className="text-xl font-semibold text-white flex items-center gap-2">
+                            <ShieldCheck className="w-5 h-5 text-violet-400" />
+                            Liberación de Primera Pieza
+                        </h2>
+                        {qcApproved && (
+                            <span className="flex items-center gap-2 text-xs font-semibold text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-full border border-emerald-500/20">
+                                <CheckCircle className="w-3.5 h-3.5" />
+                                Liberada {qcApprovedAt ? `• ${new Date(qcApprovedAt).toLocaleString()}` : ''}
+                            </span>
+                        )}
+                    </div>
+
+                    <div className="p-6 space-y-6">
+                        {/* Photo grid */}
+                        {qcPhotos.length === 0 && !qcApproved && (
+                            <div className="text-center py-6 text-slate-500">
+                                <Camera className="w-10 h-10 mx-auto mb-3 opacity-40" />
+                                <p className="text-sm">No hay fotos de evidencia aún. Agrega al menos una antes de firmar.</p>
+                            </div>
+                        )}
+
+                        {qcPhotos.length > 0 && (
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                                {qcPhotos.map((photo) => (
+                                    <div key={photo.id} className="relative group rounded-xl overflow-hidden border border-slate-700/50 bg-slate-900/50">
+                                        <a href={photo.photo_url} target="_blank" rel="noopener noreferrer">
+                                            <img
+                                                src={photo.photo_url}
+                                                alt={photo.photo_label}
+                                                className="w-full h-32 object-cover hover:opacity-90 transition-opacity"
+                                                onError={(e) => { (e.target as HTMLImageElement).style.display='none'; }}
+                                            />
+                                        </a>
+                                        <div className="p-2 flex items-center justify-between">
+                                            <span className="text-xs text-slate-400 truncate">{photo.photo_label}</span>
+                                            {!qcApproved && (
+                                                <button onClick={() => handleDeleteQCPhoto(photo.id, photo.photo_url)}
+                                                    className="p-1 text-slate-600 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors flex-shrink-0">
+                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* Upload controls — hidden if already approved */}
+                        {!qcApproved && (
+                            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 bg-slate-900/30 p-4 rounded-xl border border-slate-700/30">
+                                <select
+                                    value={qcLabel}
+                                    onChange={(e) => setQcLabel(e.target.value)}
+                                    className="bg-slate-900/80 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500 transition-all appearance-none"
+                                >
+                                    {QC_PHOTO_LABELS.map(l => <option key={l} value={l}>{l}</option>)}
+                                </select>
+                                <label className={cn(
+                                    "flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-lg border transition-colors cursor-pointer",
+                                    isUploadingQCPhoto
+                                        ? "bg-slate-700 text-slate-400 border-slate-600 cursor-wait"
+                                        : "bg-violet-500/10 text-violet-400 border-violet-500/20 hover:bg-violet-500/20"
+                                )}>
+                                    {isUploadingQCPhoto ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
+                                    {isUploadingQCPhoto ? "Subiendo..." : "Agregar Foto"}
+                                    <input type="file" accept="image/*" className="hidden" disabled={isUploadingQCPhoto}
+                                        onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadQCPhoto(f); e.target.value = ''; }} />
+                                </label>
+                            </div>
+                        )}
+
+                        {/* QC status message */}
+                        {qcStatusMsg && (
+                            <div className={cn("p-3 rounded-xl border flex items-center gap-2 text-sm",
+                                qcStatusMsg.type === 'error'
+                                    ? "bg-red-500/10 border-red-500/30 text-red-400"
+                                    : "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                            )}>
+                                {qcStatusMsg.type === 'error' ? <AlertCircle className="w-4 h-4 flex-shrink-0" /> : <CheckCircle className="w-4 h-4 flex-shrink-0" />}
+                                {qcStatusMsg.text}
+                            </div>
+                        )}
+
+                        {/* Sign section — hidden if already approved */}
+                        {!qcApproved && (
+                            <div className="border-t border-slate-700/50 pt-5">
+                                <p className="text-sm font-semibold text-slate-300 mb-3 flex items-center gap-2">
+                                    <Lock className="w-4 h-4 text-violet-400" />
+                                    Firma de Calidad
+                                </p>
+                                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                                    <input
+                                        type="password"
+                                        value={qcPassword}
+                                        onChange={(e) => setQcPassword(e.target.value)}
+                                        placeholder="Contraseña de Calidad"
+                                        className="flex-1 bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 transition-all text-sm"
+                                        onKeyDown={(e) => { if (e.key === 'Enter' && qcPhotos.length > 0) handleQCSign(); }}
+                                    />
+                                    <button
+                                        onClick={handleQCSign}
+                                        disabled={isSigningQC || qcPhotos.length === 0}
+                                        className="flex items-center justify-center gap-2 bg-violet-500 hover:bg-violet-600 disabled:bg-violet-500/40 disabled:cursor-not-allowed text-white px-6 py-3 rounded-xl font-semibold transition-all hover:shadow-[0_0_20px_rgba(139,92,246,0.4)] text-sm"
+                                    >
+                                        {isSigningQC ? <RefreshCw className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+                                        {isSigningQC ? "Firmando..." : "Firmar Liberación"}
+                                    </button>
+                                </div>
+                                {qcPhotos.length === 0 && (
+                                    <p className="text-xs text-slate-600 mt-2">Debes agregar al menos una foto antes de poder firmar.</p>
+                                )}
+                            </div>
                         )}
                     </div>
                 </div>
