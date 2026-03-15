@@ -9,7 +9,7 @@ type Item = {
     description: string;
     quantity: number;
     unit_price: number;
-    total: number;
+    line_total: number;
 };
 
 type QuotationDetailsModalProps = {
@@ -143,7 +143,7 @@ export default function QuotationDetailsModal({ quote, onClose }: QuotationDetai
                                                 {formatCurrency(item.unit_price)}
                                             </td>
                                             <td className="px-6 py-4 text-right font-medium text-emerald-400">
-                                                {formatCurrency(item.total)}
+                                                {formatCurrency(item.line_total)}
                                             </td>
                                         </tr>
                                     ))}
