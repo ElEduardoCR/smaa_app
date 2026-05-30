@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, Save, Upload, AlertCircle, Building, CheckCircle, RefreshCw, Hexagon } from "lucide-react";
+import { ArrowLeft, Save, Upload, AlertCircle, Building, CheckCircle, RefreshCw, Hexagon, Mail, Inbox, Zap } from "lucide-react";
 import Link from "next/link";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -24,6 +24,211 @@ const settingsSchema = z.object({
 });
 
 type SettingsFormValues = z.infer<typeof settingsSchema>;
+
+type EmailIntegration = {
+    id: string;
+    provider: string;
+    email: string;
+    last_sync_at: string | null;
+    last_sync_status: string | null;
+    last_sync_error: string | null;
+    last_sync_processed: number | null;
+    backfill_completed_at: string | null;
+    backfill_months: number | null;
+};
+
+function GmailIntegrationSection() {
+    const [integ, setInteg] = useState<EmailIntegration | null>(null);
+    const [pendingCount, setPendingCount] = useState(0);
+    const [loading, setLoading] = useState(true);
+    const [backfilling, setBackfilling] = useState(false);
+    const [syncing, setSyncing] = useState(false);
+    const [msg, setMsg] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+
+    const refresh = async () => {
+        setLoading(true);
+        try {
+            const { data } = await supabase
+                .from('email_integrations')
+                .select('*')
+                .eq('provider', 'gmail')
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+            setInteg(data as EmailIntegration | null);
+
+            if (data) {
+                const { count } = await supabase
+                    .from('invoice_inbox')
+                    .select('id', { count: 'exact', head: true })
+                    .eq('integration_id', (data as EmailIntegration).id)
+                    .eq('status', 'pending');
+                setPendingCount(count || 0);
+            }
+        } catch (e: any) {
+            console.error(e);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        refresh();
+        const url = new URL(window.location.href);
+        if (url.searchParams.get('gmail_connected')) {
+            setMsg({ type: 'success', text: '¡Gmail conectado exitosamente!' });
+            window.history.replaceState({}, '', '/settings');
+        } else if (url.searchParams.get('gmail_error')) {
+            setMsg({ type: 'error', text: `Error: ${url.searchParams.get('gmail_error')}` });
+            window.history.replaceState({}, '', '/settings');
+        }
+    }, []);
+
+    const handleBackfill = async () => {
+        if (!integ) return;
+        if (!confirm('Esto escaneará los últimos 5 meses de tu correo. Puede tomar varios minutos. ¿Continuar?')) return;
+        setBackfilling(true);
+        setMsg(null);
+        try {
+            const res = await fetch('/api/email-sync/backfill', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ integrationId: integ.id, months: 5 }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Backfill falló');
+            setMsg({ type: 'success', text: `Backfill completo. Escaneados: ${data.scanned}, agregados a bandeja: ${data.inserted}, ignorados: ${data.skipped}.` });
+            await refresh();
+        } catch (e: any) {
+            setMsg({ type: 'error', text: e.message });
+        } finally {
+            setBackfilling(false);
+        }
+    };
+
+    const handleSyncNow = async () => {
+        if (!integ) return;
+        setSyncing(true);
+        setMsg(null);
+        try {
+            const res = await fetch('/api/email-sync/backfill', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ integrationId: integ.id, months: 1 }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Sync falló');
+            setMsg({ type: 'success', text: `Sync OK. Escaneados: ${data.scanned}, agregados: ${data.inserted}.` });
+            await refresh();
+        } catch (e: any) {
+            setMsg({ type: 'error', text: e.message });
+        } finally {
+            setSyncing(false);
+        }
+    };
+
+    return (
+        <div className="bg-slate-800/40 p-6 md:p-8 rounded-3xl border border-slate-700/50 backdrop-blur-sm space-y-6">
+            <div className="flex items-center gap-3">
+                <Mail className="w-7 h-7 text-violet-400" />
+                <div>
+                    <h2 className="text-xl font-bold text-white">Integración de Correo (Facturas IA)</h2>
+                    <p className="text-sm text-slate-400">Conecta Gmail. La IA detecta facturas con PDF/XML una vez al día y las manda a tu bandeja de revisión.</p>
+                </div>
+            </div>
+
+            {msg && (
+                <div className={cn(
+                    "p-3 rounded-xl border flex items-start gap-2 text-sm",
+                    msg.type === 'error' ? "bg-red-500/10 border-red-500/30 text-red-300" : "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
+                )}>
+                    {msg.type === 'error' ? <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" /> : <CheckCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />}
+                    <span>{msg.text}</span>
+                </div>
+            )}
+
+            {loading ? (
+                <div className="text-slate-400 text-sm flex items-center gap-2"><RefreshCw className="w-4 h-4 animate-spin" /> Cargando...</div>
+            ) : !integ ? (
+                <div className="flex flex-col items-start gap-4">
+                    <p className="text-sm text-slate-400">No hay correo conectado.</p>
+                    <a href="/api/auth/google/start"
+                        className="inline-flex items-center gap-2 bg-violet-500 hover:bg-violet-600 text-white px-5 py-3 rounded-xl font-medium transition-all">
+                        <Mail className="w-4 h-4" /> Conectar Gmail
+                    </a>
+                </div>
+            ) : (
+                <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="bg-slate-900/50 border border-slate-700/50 rounded-xl p-4">
+                            <div className="text-xs text-slate-500 uppercase tracking-wider">Correo conectado</div>
+                            <div className="text-white font-medium mt-1">{integ.email}</div>
+                        </div>
+                        <div className="bg-slate-900/50 border border-slate-700/50 rounded-xl p-4">
+                            <div className="text-xs text-slate-500 uppercase tracking-wider">Última sincronización</div>
+                            <div className="text-white font-medium mt-1">
+                                {integ.last_sync_at ? new Date(integ.last_sync_at).toLocaleString() : 'Nunca'}
+                                {integ.last_sync_status && (
+                                    <span className={cn("ml-2 text-xs px-2 py-0.5 rounded-full",
+                                        integ.last_sync_status === 'ok' ? "bg-emerald-500/10 text-emerald-400" :
+                                        integ.last_sync_status === 'error' ? "bg-red-500/10 text-red-400" :
+                                        "bg-amber-500/10 text-amber-400"
+                                    )}>{integ.last_sync_status}</span>
+                                )}
+                            </div>
+                        </div>
+                        <div className="bg-slate-900/50 border border-slate-700/50 rounded-xl p-4">
+                            <div className="text-xs text-slate-500 uppercase tracking-wider">Backfill de 5 meses</div>
+                            <div className="text-white font-medium mt-1">
+                                {integ.backfill_completed_at
+                                    ? `Completado el ${new Date(integ.backfill_completed_at).toLocaleDateString()}`
+                                    : 'Pendiente'}
+                            </div>
+                        </div>
+                        <div className="bg-slate-900/50 border border-slate-700/50 rounded-xl p-4">
+                            <div className="text-xs text-slate-500 uppercase tracking-wider">Facturas pendientes</div>
+                            <div className="text-white font-medium mt-1 flex items-center gap-2">
+                                {pendingCount}
+                                {pendingCount > 0 && (
+                                    <Link href="/purchases/inbox" className="text-xs text-violet-400 hover:text-violet-300 underline">
+                                        Ir a bandeja
+                                    </Link>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    {integ.last_sync_error && (
+                        <div className="text-xs text-red-400 bg-red-500/5 border border-red-500/20 rounded-lg p-3">
+                            Error último sync: {integ.last_sync_error}
+                        </div>
+                    )}
+
+                    <div className="flex flex-wrap gap-3">
+                        {!integ.backfill_completed_at && (
+                            <button onClick={handleBackfill} disabled={backfilling}
+                                className="inline-flex items-center gap-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white px-5 py-2.5 rounded-xl font-medium transition-all">
+                                {backfilling ? <><RefreshCw className="w-4 h-4 animate-spin" /> Procesando 5 meses...</> : <><Zap className="w-4 h-4" /> Sincronizar últimos 5 meses</>}
+                            </button>
+                        )}
+                        <button onClick={handleSyncNow} disabled={syncing}
+                            className="inline-flex items-center gap-2 bg-violet-500 hover:bg-violet-600 disabled:opacity-50 text-white px-5 py-2.5 rounded-xl font-medium transition-all">
+                            {syncing ? <><RefreshCw className="w-4 h-4 animate-spin" /> Sincronizando...</> : <><RefreshCw className="w-4 h-4" /> Sincronizar ahora (último mes)</>}
+                        </button>
+                        <Link href="/purchases/inbox"
+                            className="inline-flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white px-5 py-2.5 rounded-xl font-medium transition-all border border-slate-700">
+                            <Inbox className="w-4 h-4" /> Bandeja de revisión
+                        </Link>
+                        <a href="/api/auth/google/start"
+                            className="inline-flex items-center gap-2 text-xs text-slate-400 hover:text-white px-3 py-2 transition-all">
+                            Reconectar Gmail
+                        </a>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
 
 export default function SettingsPage() {
     const [isLoading, setIsLoading] = useState(true);
@@ -312,6 +517,8 @@ export default function SettingsPage() {
                         </button>
                     </div>
                 </form>
+
+                <GmailIntegrationSection />
             </div>
         </div>
     );

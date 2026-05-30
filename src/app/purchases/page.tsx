@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { generatePurchaseOrderPDF } from "@/lib/generatePoPdf";
-import { ShoppingCart, Plus, RefreshCw, ArrowLeft, Download, Eye, CheckCircle, Upload, FileText, Camera } from "lucide-react";
+import { ShoppingCart, Plus, RefreshCw, ArrowLeft, Download, Eye, CheckCircle, Upload, FileText, Camera, Inbox } from "lucide-react";
 import Link from "next/link";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -32,6 +32,7 @@ export default function PurchasesPage() {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [receivingPO, setReceivingPO] = useState<string | null>(null);
+    const [pendingInboxCount, setPendingInboxCount] = useState(0);
 
     const fetchOrders = async () => {
         setIsLoading(true);
@@ -50,7 +51,15 @@ export default function PurchasesPage() {
         }
     };
 
-    useEffect(() => { fetchOrders(); }, []);
+    const fetchPendingInbox = async () => {
+        const { count } = await supabase
+            .from('invoice_inbox')
+            .select('id', { count: 'exact', head: true })
+            .eq('status', 'pending');
+        setPendingInboxCount(count || 0);
+    };
+
+    useEffect(() => { fetchOrders(); fetchPendingInbox(); }, []);
 
     const handleUploadPurchaseEvidence = async (poId: string, file: File) => {
         try {
@@ -162,9 +171,19 @@ export default function PurchasesPage() {
                             <p className="text-slate-400 text-sm mt-1">Órdenes de compra a proveedores</p>
                         </div>
                     </div>
-                    <Link href="/purchases/new" className="flex items-center justify-center gap-2 bg-violet-500 hover:bg-violet-600 text-white px-6 py-3 rounded-xl font-medium transition-all hover:shadow-[0_0_20px_rgba(139,92,246,0.4)] active:scale-95">
-                        <Plus className="w-5 h-5" /> Nueva Orden de Compra
-                    </Link>
+                    <div className="flex flex-col sm:flex-row gap-3">
+                        <Link href="/purchases/inbox" className="relative flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-white px-5 py-3 rounded-xl font-medium transition-all border border-slate-700">
+                            <Inbox className="w-5 h-5 text-violet-400" /> Bandeja IA
+                            {pendingInboxCount > 0 && (
+                                <span className="ml-1 inline-flex items-center justify-center min-w-[1.5rem] h-6 px-2 text-xs font-bold rounded-full bg-violet-500 text-white">
+                                    {pendingInboxCount}
+                                </span>
+                            )}
+                        </Link>
+                        <Link href="/purchases/new" className="flex items-center justify-center gap-2 bg-violet-500 hover:bg-violet-600 text-white px-6 py-3 rounded-xl font-medium transition-all hover:shadow-[0_0_20px_rgba(139,92,246,0.4)] active:scale-95">
+                            <Plus className="w-5 h-5" /> Nueva Orden de Compra
+                        </Link>
+                    </div>
                 </header>
 
                 <div className="bg-slate-800/40 border border-slate-700/50 rounded-3xl overflow-hidden backdrop-blur-sm">
