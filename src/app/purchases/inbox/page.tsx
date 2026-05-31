@@ -186,7 +186,7 @@ export default function InboxPage() {
 
     return (
         <div className="min-h-screen bg-[#0B1120] text-slate-200 p-6 md:p-10 font-[family-name:var(--font-sans)]">
-            <div className="max-w-7xl mx-auto space-y-8">
+            <div className="w-full space-y-8">
                 <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-slate-800/40 p-6 rounded-3xl border border-slate-700/50 backdrop-blur-sm">
                     <div className="flex items-center gap-4">
                         <Link href="/purchases" className="p-3 bg-slate-800 hover:bg-slate-700 rounded-xl transition-colors text-slate-400 hover:text-white border border-slate-700"><ArrowLeft className="w-5 h-5" /></Link>

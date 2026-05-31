@@ -187,7 +187,7 @@ export default function ClientsPage() {
 
     return (
         <div className="min-h-screen bg-[#0B1120] text-slate-200 p-6 md:p-10 font-[family-name:var(--font-sans)]">
-            <div className="max-w-7xl mx-auto space-y-8">
+            <div className="w-full space-y-8">
 
                 {/* Header */}
                 <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-slate-800/40 p-6 rounded-3xl border border-slate-700/50 backdrop-blur-sm">
