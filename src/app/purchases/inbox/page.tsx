@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, Inbox, RefreshCw, CheckCircle, X, FileText, FileCode, AlertCircle, Sparkles, Filter } from "lucide-react";
+import { ArrowLeft, Inbox, RefreshCw, CheckCircle, X, FileText, FileCode, AlertCircle, Sparkles, Filter, Search, CheckCheck, XCircle } from "lucide-react";
 import Link from "next/link";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -46,7 +46,9 @@ export default function InboxPage() {
     const [rows, setRows] = useState<InboxRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState<string>('pending');
+    const [search, setSearch] = useState<string>('');
     const [busyId, setBusyId] = useState<string | null>(null);
+    const [bulkBusy, setBulkBusy] = useState<{ kind: 'approve' | 'discard', done: number, total: number } | null>(null);
     const [msg, setMsg] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
     const fetchRows = async () => {
@@ -107,6 +109,79 @@ export default function InboxPage() {
         }
     };
 
+    const filteredRows = rows.filter(r => {
+        if (!search.trim()) return true;
+        const q = search.trim().toLowerCase();
+        return (
+            (r.supplier_name || '').toLowerCase().includes(q) ||
+            (r.supplier_rfc || '').toLowerCase().includes(q) ||
+            (r.invoice_folio || '').toLowerCase().includes(q) ||
+            (r.email_from || '').toLowerCase().includes(q) ||
+            (r.email_subject || '').toLowerCase().includes(q)
+        );
+    });
+
+    const bulkApproveAll = async () => {
+        const targets = filteredRows.filter(r => r.status === 'pending');
+        if (targets.length === 0) return;
+        if (!confirm(`¿Aprobar ${targets.length} factura(s) y registrarlas como órdenes de compra? Esto puede tardar unos segundos.`)) return;
+        setMsg(null);
+        let ok = 0, fail = 0;
+        const errors: string[] = [];
+        for (let i = 0; i < targets.length; i++) {
+            setBulkBusy({ kind: 'approve', done: i, total: targets.length });
+            try {
+                const res = await fetch('/api/invoice-inbox/approve', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ inboxId: targets[i].id }),
+                });
+                const data = await res.json();
+                if (!res.ok) { fail++; errors.push(`${targets[i].supplier_name || targets[i].id}: ${data.error}`); }
+                else ok++;
+            } catch (e: any) {
+                fail++; errors.push(`${targets[i].supplier_name || targets[i].id}: ${e.message}`);
+            }
+        }
+        setBulkBusy(null);
+        setMsg({
+            type: fail === 0 ? 'success' : 'error',
+            text: fail === 0
+                ? `${ok} factura(s) aprobadas y registradas en Compras.`
+                : `Aprobadas: ${ok}. Fallaron: ${fail}. ${errors.slice(0, 3).join(' · ')}${errors.length > 3 ? '…' : ''}`,
+        });
+        fetchRows();
+    };
+
+    const bulkDiscardAll = async () => {
+        const targets = filteredRows.filter(r => r.status === 'pending');
+        if (targets.length === 0) return;
+        if (!confirm(`¿Descartar ${targets.length} factura(s)? No se creará nada en Compras.`)) return;
+        setMsg(null);
+        let ok = 0, fail = 0;
+        for (let i = 0; i < targets.length; i++) {
+            setBulkBusy({ kind: 'discard', done: i, total: targets.length });
+            try {
+                const res = await fetch('/api/invoice-inbox/discard', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ inboxId: targets[i].id, reason: 'bulk_discard' }),
+                });
+                if (!res.ok) fail++; else ok++;
+            } catch {
+                fail++;
+            }
+        }
+        setBulkBusy(null);
+        setMsg({
+            type: fail === 0 ? 'success' : 'error',
+            text: fail === 0 ? `${ok} factura(s) descartadas.` : `Descartadas: ${ok}. Fallaron: ${fail}.`,
+        });
+        fetchRows();
+    };
+
+    const pendingInFilter = filteredRows.filter(r => r.status === 'pending').length;
+
     const fmt = (n: number | null) => n == null ? '—' : `$${Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
 
     return (
@@ -138,19 +213,57 @@ export default function InboxPage() {
                     </div>
                 )}
 
-                <div className="flex items-center gap-2 flex-wrap">
-                    <Filter className="w-4 h-4 text-slate-500" />
-                    {STATUS_FILTERS.map(f => (
-                        <button key={f.key} onClick={() => setFilter(f.key)}
-                            className={cn(
-                                "px-4 py-2 rounded-xl text-sm font-medium transition-all border",
-                                filter === f.key
-                                    ? "bg-violet-500/20 border-violet-500/40 text-violet-300"
-                                    : "bg-slate-800/40 border-slate-700/50 text-slate-400 hover:text-white hover:bg-slate-700/50"
-                            )}>
-                            {f.label}
-                        </button>
-                    ))}
+                <div className="flex flex-col lg:flex-row lg:items-center gap-4 lg:justify-between">
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <Filter className="w-4 h-4 text-slate-500" />
+                        {STATUS_FILTERS.map(f => (
+                            <button key={f.key} onClick={() => setFilter(f.key)}
+                                className={cn(
+                                    "px-4 py-2 rounded-xl text-sm font-medium transition-all border",
+                                    filter === f.key
+                                        ? "bg-violet-500/20 border-violet-500/40 text-violet-300"
+                                        : "bg-slate-800/40 border-slate-700/50 text-slate-400 hover:text-white hover:bg-slate-700/50"
+                                )}>
+                                {f.label}
+                            </button>
+                        ))}
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row gap-3 sm:items-center w-full lg:w-auto">
+                        <div className="relative flex-1 min-w-[240px]">
+                            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+                            <input
+                                type="text"
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                                placeholder="Buscar por proveedor, RFC, folio, asunto..."
+                                className="w-full bg-slate-800/40 border border-slate-700/50 rounded-xl pl-10 pr-9 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-violet-500/50 focus:ring-2 focus:ring-violet-500/20"
+                            />
+                            {search && (
+                                <button onClick={() => setSearch('')}
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white p-1 rounded-md hover:bg-slate-700/50">
+                                    <X className="w-3.5 h-3.5" />
+                                </button>
+                            )}
+                        </div>
+
+                        {filter === 'pending' && pendingInFilter > 0 && (
+                            <div className="flex gap-2">
+                                <button onClick={bulkApproveAll} disabled={!!bulkBusy}
+                                    className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-3 py-2 rounded-xl border border-emerald-500/30 disabled:opacity-50 whitespace-nowrap">
+                                    {bulkBusy?.kind === 'approve'
+                                        ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Aprobando {bulkBusy.done + 1}/{bulkBusy.total}…</>
+                                        : <><CheckCheck className="w-3.5 h-3.5" /> Aprobar todas ({pendingInFilter})</>}
+                                </button>
+                                <button onClick={bulkDiscardAll} disabled={!!bulkBusy}
+                                    className="inline-flex items-center gap-1.5 text-xs font-medium text-red-300 bg-red-500/10 hover:bg-red-500/20 px-3 py-2 rounded-xl border border-red-500/30 disabled:opacity-50 whitespace-nowrap">
+                                    {bulkBusy?.kind === 'discard'
+                                        ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Descartando {bulkBusy.done + 1}/{bulkBusy.total}…</>
+                                        : <><XCircle className="w-3.5 h-3.5" /> Descartar todas ({pendingInFilter})</>}
+                                </button>
+                            </div>
+                        )}
+                    </div>
                 </div>
 
                 <div className="bg-slate-800/40 border border-slate-700/50 rounded-3xl overflow-hidden backdrop-blur-sm">
@@ -174,14 +287,23 @@ export default function InboxPage() {
                             <tbody className="divide-y divide-slate-700/50">
                                 {loading ? (
                                     <tr><td colSpan={11} className="px-6 py-12 text-center text-slate-400"><RefreshCw className="w-6 h-6 animate-spin mx-auto mb-3 text-violet-500" />Cargando...</td></tr>
-                                ) : rows.length === 0 ? (
+                                ) : filteredRows.length === 0 ? (
                                     <tr><td colSpan={11} className="px-6 py-12 text-center text-slate-400">
                                         <div className="bg-slate-800/50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 border border-slate-700"><Inbox className="w-8 h-8 text-slate-500" /></div>
-                                        <p className="text-lg text-slate-300 font-medium">Nada en "{STATUS_FILTERS.find(s=>s.key===filter)?.label}"</p>
-                                        <p className="text-sm mt-1">Conecta Gmail en Configuración y corre el backfill para empezar.</p>
+                                        {search ? (
+                                            <>
+                                                <p className="text-lg text-slate-300 font-medium">Sin coincidencias para "{search}"</p>
+                                                <p className="text-sm mt-1">Prueba con otro término o limpia la búsqueda.</p>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <p className="text-lg text-slate-300 font-medium">Nada en "{STATUS_FILTERS.find(s=>s.key===filter)?.label}"</p>
+                                                <p className="text-sm mt-1">Conecta Gmail en Configuración y corre el backfill para empezar.</p>
+                                            </>
+                                        )}
                                     </td></tr>
                                 ) : (
-                                    rows.map(r => (
+                                    filteredRows.map(r => (
                                         <tr key={r.id} className="hover:bg-slate-800/80 transition-colors align-top">
                                             <td className="px-6 py-4">
                                                 {r.detected_source === 'cfdi' ? (
