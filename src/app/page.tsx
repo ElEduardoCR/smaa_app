@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
-import { Users, Server, LogOut, BarChart3 } from "lucide-react";
+import { Users, Server, LogOut, BarChart3, Receipt } from "lucide-react";
 import { logoutAction } from "@/app/actions/auth";
 import { useRouter } from "next/navigation";
 
@@ -240,6 +240,24 @@ export default function Home() {
                   Órdenes de compra, cotizaciones de proveedores y PDF de POs.
                 </p>
                 <div className="mt-6 font-medium text-sm text-violet-400 flex items-center group-hover:text-violet-300">
+                  Open Module
+                  <svg className="w-4 h-4 ml-1 transform group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
+              </div>
+            </Link>
+
+            <Link href="/issued-invoices" className="block group">
+              <div className="bg-slate-800/40 border border-slate-700/50 hover:border-teal-500/50 hover:bg-slate-800/80 transition-all duration-300 rounded-3xl p-6 h-full flex flex-col shadow-lg shadow-black/20 hover:shadow-teal-500/10 group-hover:-translate-y-1">
+                <div className="w-14 h-14 bg-gradient-to-br from-teal-500/20 to-emerald-500/20 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
+                  <Receipt className="w-7 h-7 text-teal-400 group-hover:text-teal-300" />
+                </div>
+                <h3 className="text-xl font-semibold text-white mb-2">Facturas Emitidas</h3>
+                <p className="text-slate-400 text-sm flex-1 leading-relaxed">
+                  Importa y consulta los CFDI que tu negocio ha emitido a clientes.
+                </p>
+                <div className="mt-6 font-medium text-sm text-teal-400 flex items-center group-hover:text-teal-300">
                   Open Module
                   <svg className="w-4 h-4 ml-1 transform group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
