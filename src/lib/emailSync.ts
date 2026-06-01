@@ -25,8 +25,10 @@ export function getServerSupabase(): SupabaseClient {
 
 export type SyncOptions = {
     integrationId: string;
-    afterDate?: Date;                     // límite inferior (para backfill)
+    afterDate?: Date;                     // límite inferior (backfill / día anterior)
+    beforeDate?: Date;                    // límite superior (cron diario = inicio de hoy)
     maxMessages?: number;                 // tope de seguridad
+    markSync?: boolean;                   // actualiza last_sync_at (solo cron diario)
 };
 
 export type SyncResult = {
@@ -76,7 +78,7 @@ export async function runEmailSync(opts: SyncOptions): Promise<SyncResult> {
 
         const afterDate = opts.afterDate
             ?? (integration.last_sync_at ? new Date(integration.last_sync_at) : undefined);
-        const query = buildInvoiceQuery(afterDate);
+        const query = buildInvoiceQuery(afterDate, opts.beforeDate);
 
         let pageToken: string | undefined = undefined;
         const max = opts.maxMessages ?? 2000;
@@ -110,14 +112,14 @@ export async function runEmailSync(opts: SyncOptions): Promise<SyncResult> {
             }
         } while (pageToken && result.scanned < max);
 
-        // Actualiza last_sync_at solo para cron diario (no para backfill arbitrario)
+        // Actualiza last_sync_at solo cuando se pide explícitamente (cron diario)
         const now = new Date().toISOString();
         const patch: any = {
             last_sync_status: 'ok',
             last_sync_processed: result.inserted,
             updated_at: now,
         };
-        if (!opts.afterDate) patch.last_sync_at = now;
+        if (opts.markSync) patch.last_sync_at = now;
         await supabase.from('email_integrations').update(patch).eq('id', integration.id);
 
         return result;

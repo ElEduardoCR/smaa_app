@@ -63,11 +63,12 @@ export async function getUserEmail(accessToken: string): Promise<string> {
 }
 
 // Query optimizado para facturas: solo correos con adjunto PDF o XML y keywords típicas
-export function buildInvoiceQuery(afterDate?: Date): string {
+export function buildInvoiceQuery(afterDate?: Date, beforeDate?: Date): string {
     const keywords = '(factura OR CFDI OR comprobante OR invoice OR "fiscal digital" OR "comprobante fiscal")';
     const attach = 'has:attachment (filename:pdf OR filename:xml)';
     const after = afterDate ? ` after:${Math.floor(afterDate.getTime() / 1000)}` : '';
-    return `${keywords} ${attach}${after}`;
+    const before = beforeDate ? ` before:${Math.floor(beforeDate.getTime() / 1000)}` : '';
+    return `${keywords} ${attach}${after}${before}`;
 }
 
 export async function listMessages(accessToken: string, query: string, pageToken?: string): Promise<{ messages: GmailMessageMeta[]; nextPageToken?: string }> {

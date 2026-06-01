@@ -23,6 +23,7 @@ type PO = {
     invoice_url: string | null;
     evidence_photo_url: string | null;
     created_at: string;
+    invoice_date: string | null;
     supplier: { business_name: string; rfc: string; email?: string; address?: string; };
 };
 
@@ -40,6 +41,7 @@ export default function PurchasesPage() {
             const { data, error } = await supabase
                 .from('purchase_orders')
                 .select('*, supplier:suppliers(business_name, rfc, email, address)')
+                .order('invoice_date', { ascending: false, nullsFirst: false })
                 .order('created_at', { ascending: false });
             if (error) throw error;
             const formatted = (data as any[]).map(po => ({ ...po, supplier: Array.isArray(po.supplier) ? po.supplier[0] : po.supplier }));
@@ -199,7 +201,7 @@ export default function PurchasesPage() {
                                 <tr>
                                     <th className="px-6 py-4 rounded-tl-xl">PO #</th>
                                     <th className="px-6 py-4">Proveedor</th>
-                                    <th className="px-6 py-4">Fecha</th>
+                                    <th className="px-6 py-4">Fecha Factura</th>
                                     <th className="px-6 py-4">Total</th>
                                     <th className="px-6 py-4">Status</th>
                                     <th className="px-6 py-4">Cotización Prov.</th>
@@ -221,7 +223,7 @@ export default function PurchasesPage() {
                                         <tr key={po.id} className="hover:bg-slate-800/80 transition-colors">
                                             <td className="px-6 py-4"><span className="font-mono font-medium text-violet-300 bg-violet-500/10 px-2.5 py-1 rounded-md border border-violet-500/20">{po.po_number}</span></td>
                                             <td className="px-6 py-4 font-medium text-slate-200">{po.supplier?.business_name}</td>
-                                            <td className="px-6 py-4 text-slate-400">{new Date(po.created_at).toLocaleDateString()}</td>
+                                            <td className="px-6 py-4 text-slate-400">{new Date(po.invoice_date || po.created_at).toLocaleDateString()}</td>
                                             <td className="px-6 py-4 font-medium text-emerald-400">{formatCurrency(po.total)}</td>
                                             <td className="px-6 py-4"><span className={cn("px-2.5 py-1 rounded-full text-xs font-semibold border", getStatusStyle(po.status))}>{po.status}</span></td>
                                             <td className="px-6 py-4">

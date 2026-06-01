@@ -61,6 +61,7 @@ export async function POST(req: NextRequest) {
             invoice_url: inbox.pdf_url,
             xml_url: inbox.xml_url,
             invoice_uuid: inbox.invoice_uuid,
+            invoice_date: inbox.invoice_date,
             email_message_id: inbox.email_message_id,
             source: 'email',
         })
