@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { generatePurchaseOrderPDF } from "@/lib/generatePoPdf";
-import { ShoppingCart, Plus, RefreshCw, ArrowLeft, Download, Eye, CheckCircle, Upload, FileText, Camera, Inbox } from "lucide-react";
+import { ShoppingCart, Plus, RefreshCw, ArrowLeft, Download, Eye, CheckCircle, Upload, FileText, Camera, Inbox, Search, X, Filter } from "lucide-react";
 import Link from "next/link";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -34,6 +34,12 @@ export default function PurchasesPage() {
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [receivingPO, setReceivingPO] = useState<string | null>(null);
     const [pendingInboxCount, setPendingInboxCount] = useState(0);
+
+    // Filtros
+    const [search, setSearch] = useState("");
+    const [minValue, setMinValue] = useState("");
+    const [maxValue, setMaxValue] = useState("");
+    const [statusFilter, setStatusFilter] = useState("all");
 
     const fetchOrders = async () => {
         setIsLoading(true);
@@ -162,6 +168,43 @@ export default function PurchasesPage() {
 
     const formatCurrency = (amt: number) => `$${Number(amt).toFixed(2)}`;
 
+    const min = minValue.trim() === "" ? null : Number(minValue);
+    const max = maxValue.trim() === "" ? null : Number(maxValue);
+
+    const filteredOrders = orders.filter((po) => {
+        // Filtro por texto: nombre del proveedor, # de PO o RFC
+        if (search.trim()) {
+            const q = search.trim().toLowerCase();
+            const hay = (
+                (po.supplier?.business_name || "").toLowerCase().includes(q) ||
+                (po.po_number || "").toLowerCase().includes(q) ||
+                (po.supplier?.rfc || "").toLowerCase().includes(q)
+            );
+            if (!hay) return false;
+        }
+        // Filtro por valor (total)
+        const total = Number(po.total) || 0;
+        if (min != null && !isNaN(min) && total < min) return false;
+        if (max != null && !isNaN(max) && total > max) return false;
+        // Filtro por status
+        if (statusFilter !== "all" && po.status !== statusFilter) return false;
+        return true;
+    });
+
+    const hasActiveFilters = search.trim() !== "" || minValue.trim() !== "" || maxValue.trim() !== "" || statusFilter !== "all";
+
+    const clearFilters = () => {
+        setSearch(""); setMinValue(""); setMaxValue(""); setStatusFilter("all");
+    };
+
+    const STATUS_OPTIONS = [
+        { value: "all", label: "Todos los estados" },
+        { value: "Draft", label: "Draft" },
+        { value: "Sent", label: "Sent" },
+        { value: "Approved", label: "Approved" },
+        { value: "Received", label: "Received" },
+    ];
+
     return (
         <div className="min-h-screen bg-[#0B1120] text-slate-200 p-6 md:p-10 font-[family-name:var(--font-sans)]">
             <div className="w-full space-y-8">
@@ -188,9 +231,75 @@ export default function PurchasesPage() {
                     </div>
                 </header>
 
+                {/* Barra de filtros */}
+                <div className="bg-slate-800/40 border border-slate-700/50 rounded-3xl p-5 backdrop-blur-sm">
+                    <div className="flex flex-col xl:flex-row xl:items-center gap-4">
+                        <div className="flex items-center gap-2 text-slate-400 text-sm font-medium flex-shrink-0">
+                            <Filter className="w-4 h-4" /> Filtros
+                        </div>
+                        <div className="flex flex-col sm:flex-row gap-3 flex-1 flex-wrap">
+                            {/* Búsqueda por nombre / PO / RFC */}
+                            <div className="relative flex-1 min-w-[240px]">
+                                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+                                <input
+                                    type="text"
+                                    value={search}
+                                    onChange={(e) => setSearch(e.target.value)}
+                                    placeholder="Buscar por proveedor, # PO o RFC..."
+                                    className="w-full bg-slate-900/60 border border-slate-700/50 rounded-xl pl-10 pr-9 py-2.5 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-violet-500/50 focus:ring-2 focus:ring-violet-500/20"
+                                />
+                                {search && (
+                                    <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white p-1 rounded-md hover:bg-slate-700/50">
+                                        <X className="w-3.5 h-3.5" />
+                                    </button>
+                                )}
+                            </div>
+                            {/* Rango de valor */}
+                            <div className="flex items-center gap-2">
+                                <span className="text-slate-500 text-sm">Valor</span>
+                                <input
+                                    type="number"
+                                    inputMode="decimal"
+                                    value={minValue}
+                                    onChange={(e) => setMinValue(e.target.value)}
+                                    placeholder="Mín"
+                                    className="w-24 bg-slate-900/60 border border-slate-700/50 rounded-xl px-3 py-2.5 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-violet-500/50 focus:ring-2 focus:ring-violet-500/20"
+                                />
+                                <span className="text-slate-600">–</span>
+                                <input
+                                    type="number"
+                                    inputMode="decimal"
+                                    value={maxValue}
+                                    onChange={(e) => setMaxValue(e.target.value)}
+                                    placeholder="Máx"
+                                    className="w-24 bg-slate-900/60 border border-slate-700/50 rounded-xl px-3 py-2.5 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-violet-500/50 focus:ring-2 focus:ring-violet-500/20"
+                                />
+                            </div>
+                            {/* Status */}
+                            <select
+                                value={statusFilter}
+                                onChange={(e) => setStatusFilter(e.target.value)}
+                                className="bg-slate-900/60 border border-slate-700/50 rounded-xl px-3 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-violet-500/50 focus:ring-2 focus:ring-violet-500/20 [color-scheme:dark]"
+                            >
+                                {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                            </select>
+                            {hasActiveFilters && (
+                                <button onClick={clearFilters} className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-white bg-slate-800/60 hover:bg-slate-700/60 px-3 py-2.5 rounded-xl border border-slate-700/50 whitespace-nowrap">
+                                    <X className="w-3.5 h-3.5" /> Limpiar
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+
                 <div className="bg-slate-800/40 border border-slate-700/50 rounded-3xl overflow-hidden backdrop-blur-sm">
                     <div className="p-6 border-b border-slate-700/50 flex justify-between items-center bg-slate-800/20">
-                        <h2 className="text-xl font-semibold text-white">Órdenes de Compra</h2>
+                        <h2 className="text-xl font-semibold text-white">
+                            Órdenes de Compra
+                            <span className="ml-2 text-sm font-normal text-slate-400">
+                                {hasActiveFilters ? `${filteredOrders.length} de ${orders.length}` : orders.length}
+                            </span>
+                        </h2>
                         <button onClick={fetchOrders} className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium" disabled={isLoading}>
                             <RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin text-violet-400")} /> Refresh
                         </button>
@@ -212,14 +321,23 @@ export default function PurchasesPage() {
                             <tbody className="divide-y divide-slate-700/50">
                                 {isLoading ? (
                                     <tr><td colSpan={8} className="px-6 py-12 text-center text-slate-400"><RefreshCw className="w-6 h-6 animate-spin mx-auto mb-3 text-violet-500" />Loading...</td></tr>
-                                ) : orders.length === 0 ? (
+                                ) : filteredOrders.length === 0 ? (
                                     <tr><td colSpan={8} className="px-6 py-12 text-center text-slate-400">
                                         <div className="bg-slate-800/50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 border border-slate-700"><ShoppingCart className="w-8 h-8 text-slate-500" /></div>
-                                        <p className="text-lg text-slate-300 font-medium">No hay órdenes de compra</p>
-                                        <p className="text-sm mt-1">Crea tu primera orden para verla aquí.</p>
+                                        {hasActiveFilters ? (
+                                            <>
+                                                <p className="text-lg text-slate-300 font-medium">Sin resultados para estos filtros</p>
+                                                <p className="text-sm mt-1">Ajusta la búsqueda o limpia los filtros.</p>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <p className="text-lg text-slate-300 font-medium">No hay órdenes de compra</p>
+                                                <p className="text-sm mt-1">Crea tu primera orden para verla aquí.</p>
+                                            </>
+                                        )}
                                     </td></tr>
                                 ) : (
-                                    orders.map((po) => (
+                                    filteredOrders.map((po) => (
                                         <tr key={po.id} className="hover:bg-slate-800/80 transition-colors">
                                             <td className="px-6 py-4"><span className="font-mono font-medium text-violet-300 bg-violet-500/10 px-2.5 py-1 rounded-md border border-violet-500/20">{po.po_number}</span></td>
                                             <td className="px-6 py-4 font-medium text-slate-200">{po.supplier?.business_name}</td>

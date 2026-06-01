@@ -221,13 +221,26 @@ async function processMessage(
 
     // Duplicado por UUID CFDI
     if (row.invoice_uuid) {
-        const { data: dup } = await supabase
-            .from('invoice_inbox')
-            .select('id')
+        // 1) ¿Ya está registrada como orden de compra? -> alerta "Factura igual a PO-XXXX"
+        const { data: poDup } = await supabase
+            .from('purchase_orders')
+            .select('po_number')
             .eq('invoice_uuid', row.invoice_uuid)
             .maybeSingle();
-        if (dup) {
+        if (poDup) {
             row.status = 'duplicate';
+            row.duplicate_po_number = poDup.po_number;
+        } else {
+            // 2) ¿Ya existe en la bandeja (otra detección del mismo CFDI)?
+            const { data: inboxDup } = await supabase
+                .from('invoice_inbox')
+                .select('id, duplicate_po_number')
+                .eq('invoice_uuid', row.invoice_uuid)
+                .maybeSingle();
+            if (inboxDup) {
+                row.status = 'duplicate';
+                if (inboxDup.duplicate_po_number) row.duplicate_po_number = inboxDup.duplicate_po_number;
+            }
         }
     }
 

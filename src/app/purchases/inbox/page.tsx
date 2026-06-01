@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, Inbox, RefreshCw, CheckCircle, X, FileText, FileCode, AlertCircle, Sparkles, Filter, Search, CheckCheck, XCircle } from "lucide-react";
+import { ArrowLeft, Inbox, RefreshCw, CheckCircle, X, FileText, FileCode, AlertCircle, Sparkles, Filter, Search, CheckCheck, XCircle, CalendarSearch, Link2 } from "lucide-react";
 import Link from "next/link";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -32,6 +32,7 @@ type InboxRow = {
     classification_confidence: number | null;
     status: string;
     purchase_order_id: string | null;
+    duplicate_po_number: string | null;
     created_at: string;
 };
 
@@ -50,14 +51,21 @@ export default function InboxPage() {
     const [busyId, setBusyId] = useState<string | null>(null);
     const [bulkBusy, setBulkBusy] = useState<{ kind: 'approve' | 'discard', done: number, total: number } | null>(null);
     const [msg, setMsg] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+    const [dayDate, setDayDate] = useState<string>(() => {
+        // Por defecto: ayer (CDMX aprox.)
+        const d = new Date();
+        d.setDate(d.getDate() - 1);
+        return d.toISOString().slice(0, 10);
+    });
+    const [daySyncing, setDaySyncing] = useState(false);
 
-    const fetchRows = async () => {
+    const fetchRows = async (statusOverride?: string) => {
         setLoading(true);
         try {
             const { data, error } = await supabase
                 .from('invoice_inbox')
                 .select('*')
-                .eq('status', filter)
+                .eq('status', statusOverride ?? filter)
                 .order('email_date', { ascending: false })
                 .limit(200);
             if (error) throw error;
@@ -106,6 +114,42 @@ export default function InboxPage() {
             setMsg({ type: 'error', text: e.message });
         } finally {
             setBusyId(null);
+        }
+    };
+
+    const searchDay = async () => {
+        if (!dayDate) return;
+        setDaySyncing(true); setMsg(null);
+        try {
+            const res = await fetch('/api/email-sync/day', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ date: dayDate }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Error al buscar facturas de ese día');
+
+            const fechaLabel = new Date(dayDate + 'T12:00:00').toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' });
+            const parts: string[] = [];
+            parts.push(`${data.inserted} factura(s) nueva(s) detectada(s)`);
+            if (data.duplicates > 0) parts.push(`${data.duplicates} duplicada(s) (ya registradas como PO)`);
+            if (data.scanned === 0) parts.push('no se encontraron correos con factura ese día');
+
+            setMsg({
+                type: 'success',
+                text: `Búsqueda del ${fechaLabel}: ${parts.join(' · ')}.${data.duplicates > 0 ? ' Revisa la pestaña "Duplicadas".' : ''}`,
+            });
+
+            // Lleva al filtro donde aparecerá lo nuevo
+            const target = (data.inserted > 0 || data.pending > 0)
+                ? 'pending'
+                : (data.duplicates > 0 ? 'duplicate' : filter);
+            setFilter(target);
+            fetchRows(target);
+        } catch (e: any) {
+            setMsg({ type: 'error', text: e.message });
+        } finally {
+            setDaySyncing(false);
         }
     };
 
@@ -198,10 +242,43 @@ export default function InboxPage() {
                             <p className="text-slate-400 text-sm mt-1">Revisa las facturas que la IA detectó en tu correo y apruébalas para registrarlas en Compras.</p>
                         </div>
                     </div>
-                    <button onClick={fetchRows} className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium" disabled={loading}>
+                    <button onClick={() => fetchRows()} className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium" disabled={loading}>
                         <RefreshCw className={cn("w-4 h-4", loading && "animate-spin text-violet-400")} /> Refresh
                     </button>
                 </header>
+
+                {/* Búsqueda por día específico */}
+                <div className="bg-slate-800/40 border border-slate-700/50 rounded-3xl p-6 backdrop-blur-sm">
+                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                        <div className="flex items-start gap-3">
+                            <div className="bg-sky-500/10 p-2.5 rounded-xl border border-sky-500/20">
+                                <CalendarSearch className="w-5 h-5 text-sky-400" />
+                            </div>
+                            <div>
+                                <h3 className="text-base font-semibold text-white">Buscar facturas de un día específico</h3>
+                                <p className="text-slate-400 text-sm mt-0.5">Elige una fecha y la IA revisará tu correo de ese día. Si una factura ya existe como orden de compra, te lo avisaremos.</p>
+                            </div>
+                        </div>
+                        <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+                            <input
+                                type="date"
+                                value={dayDate}
+                                max={new Date().toISOString().slice(0, 10)}
+                                onChange={(e) => setDayDate(e.target.value)}
+                                className="bg-slate-900/60 border border-slate-700/50 rounded-xl px-4 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-sky-500/50 focus:ring-2 focus:ring-sky-500/20 [color-scheme:dark]"
+                            />
+                            <button
+                                onClick={searchDay}
+                                disabled={daySyncing || !dayDate}
+                                className="inline-flex items-center justify-center gap-2 bg-sky-500 hover:bg-sky-600 text-white px-5 py-2.5 rounded-xl font-medium text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                            >
+                                {daySyncing
+                                    ? <><RefreshCw className="w-4 h-4 animate-spin" /> Buscando…</>
+                                    : <><CalendarSearch className="w-4 h-4" /> Buscar facturas</>}
+                            </button>
+                        </div>
+                    </div>
+                </div>
 
                 {msg && (
                     <div className={cn(
@@ -351,7 +428,15 @@ export default function InboxPage() {
                                                         Ver en Compras
                                                     </Link>
                                                 ) : r.status === 'duplicate' ? (
-                                                    <span className="text-xs text-amber-400">UUID ya registrado</span>
+                                                    r.duplicate_po_number ? (
+                                                        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-400 bg-amber-500/10 px-2.5 py-1.5 rounded-lg border border-amber-500/30">
+                                                            <Link2 className="w-3.5 h-3.5" /> Factura igual a {r.duplicate_po_number}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-400 bg-amber-500/10 px-2.5 py-1.5 rounded-lg border border-amber-500/30">
+                                                            <AlertCircle className="w-3.5 h-3.5" /> Factura ya registrada
+                                                        </span>
+                                                    )
                                                 ) : (
                                                     <span className="text-xs text-slate-500">—</span>
                                                 )}
