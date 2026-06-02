@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { parseCFDI } from "@/lib/cfdiParse";
 import {
     ArrowLeft, Receipt, RefreshCw, Search, X, Filter, FolderUp, FileCode,
-    UploadCloud, CheckCircle, AlertCircle, FileCheck,
+    UploadCloud, CheckCircle, AlertCircle, FileCheck, Check, Wallet,
 } from "lucide-react";
 import Link from "next/link";
 import clsx from "clsx";
@@ -34,6 +34,8 @@ type IssuedInvoice = {
     currency: string | null;
     xml_url: string | null;
     file_name: string | null;
+    paid: boolean | null;
+    paid_at: string | null;
     created_at: string;
 };
 
@@ -56,6 +58,8 @@ export default function IssuedInvoicesPage() {
     const [search, setSearch] = useState("");
     const [minValue, setMinValue] = useState("");
     const [maxValue, setMaxValue] = useState("");
+    const [paidFilter, setPaidFilter] = useState<"all" | "paid" | "unpaid">("all");
+    const [payingId, setPayingId] = useState<string | null>(null);
 
     // Importación
     const [importing, setImporting] = useState(false);
@@ -85,6 +89,24 @@ export default function IssuedInvoicesPage() {
     };
 
     useEffect(() => { fetchInvoices(); }, []);
+
+    const togglePaid = async (row: IssuedInvoice) => {
+        const newPaid = !row.paid;
+        const newPaidAt = newPaid ? new Date().toISOString() : null;
+        setPayingId(row.id);
+        // Actualización optimista
+        setRows(rs => rs.map(r => r.id === row.id ? { ...r, paid: newPaid, paid_at: newPaidAt } : r));
+        const { error } = await supabase
+            .from("issued_invoices")
+            .update({ paid: newPaid, paid_at: newPaidAt })
+            .eq("id", row.id);
+        if (error) {
+            // Revertir si falla
+            setRows(rs => rs.map(r => r.id === row.id ? { ...r, paid: row.paid, paid_at: row.paid_at } : r));
+            setMsg({ type: "error", text: `No se pudo actualizar el cobro: ${error.message}` });
+        }
+        setPayingId(null);
+    };
 
     // Trae todos los UUID ya registrados (paginado) para deduplicar antes de insertar
     const fetchExistingUuids = async (): Promise<Set<string>> => {
@@ -216,13 +238,23 @@ export default function IssuedInvoicesPage() {
         const total = Number(r.total) || 0;
         if (min != null && !isNaN(min) && total < min) return false;
         if (max != null && !isNaN(max) && total > max) return false;
+        if (paidFilter === "paid" && !r.paid) return false;
+        if (paidFilter === "unpaid" && r.paid) return false;
         return true;
     });
 
-    const hasActiveFilters = search.trim() !== "" || minValue.trim() !== "" || maxValue.trim() !== "";
-    const clearFilters = () => { setSearch(""); setMinValue(""); setMaxValue(""); };
+    const hasActiveFilters = search.trim() !== "" || minValue.trim() !== "" || maxValue.trim() !== "" || paidFilter !== "all";
+    const clearFilters = () => { setSearch(""); setMinValue(""); setMaxValue(""); setPaidFilter("all"); };
 
     const sumFiltered = filteredRows.reduce((acc, r) => acc + (Number(r.total) || 0), 0);
+    const sumCobrado = filteredRows.filter(r => r.paid).reduce((acc, r) => acc + (Number(r.total) || 0), 0);
+    const sumPorCobrar = sumFiltered - sumCobrado;
+
+    const PAID_FILTERS: { key: "all" | "paid" | "unpaid"; label: string }[] = [
+        { key: "all", label: "Todas" },
+        { key: "paid", label: "Cobradas" },
+        { key: "unpaid", label: "Por cobrar" },
+    ];
 
     return (
         <div className="min-h-screen bg-[#0B1120] text-slate-200 p-6 md:p-10 font-[family-name:var(--font-sans)]">
@@ -372,6 +404,22 @@ export default function IssuedInvoicesPage() {
                                 <input type="number" inputMode="decimal" value={maxValue} onChange={(e) => setMaxValue(e.target.value)} placeholder="Máx"
                                     className="w-24 bg-slate-900/60 border border-slate-700/50 rounded-xl px-3 py-2.5 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-teal-500/50 focus:ring-2 focus:ring-teal-500/20" />
                             </div>
+                            <div className="flex items-center gap-1 bg-slate-900/60 border border-slate-700/50 rounded-xl p-1">
+                                {PAID_FILTERS.map(f => (
+                                    <button
+                                        key={f.key}
+                                        onClick={() => setPaidFilter(f.key)}
+                                        className={cn(
+                                            "px-3 py-1.5 rounded-lg text-sm font-medium transition-colors",
+                                            paidFilter === f.key
+                                                ? "bg-teal-500/20 text-teal-300"
+                                                : "text-slate-400 hover:text-white"
+                                        )}
+                                    >
+                                        {f.label}
+                                    </button>
+                                ))}
+                            </div>
                             {hasActiveFilters && (
                                 <button onClick={clearFilters} className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-white bg-slate-800/60 hover:bg-slate-700/60 px-3 py-2.5 rounded-xl border border-slate-700/50 whitespace-nowrap">
                                     <X className="w-3.5 h-3.5" /> Limpiar
@@ -383,16 +431,24 @@ export default function IssuedInvoicesPage() {
 
                 {/* Tabla */}
                 <div className="bg-slate-800/40 border border-slate-700/50 rounded-3xl overflow-hidden backdrop-blur-sm">
-                    <div className="p-6 border-b border-slate-700/50 flex flex-wrap justify-between items-center gap-3 bg-slate-800/20">
+                    <div className="p-6 border-b border-slate-700/50 flex flex-wrap justify-between items-center gap-4 bg-slate-800/20">
                         <h2 className="text-xl font-semibold text-white">
                             Facturas
                             <span className="ml-2 text-sm font-normal text-slate-400">
                                 {hasActiveFilters ? `${filteredRows.length} de ${rows.length}` : rows.length}
                             </span>
                         </h2>
-                        <span className="text-sm text-slate-400">
-                            Total {hasActiveFilters ? "filtrado" : "emitido"}: <span className="text-teal-300 font-semibold">{fmtMoney(sumFiltered)}</span>
-                        </span>
+                        <div className="flex flex-wrap items-center gap-4 text-sm">
+                            <span className="text-slate-400">
+                                {hasActiveFilters ? "Filtrado" : "Emitido"}: <span className="text-slate-200 font-semibold">{fmtMoney(sumFiltered)}</span>
+                            </span>
+                            <span className="text-slate-400">
+                                Cobrado: <span className="text-emerald-300 font-semibold">{fmtMoney(sumCobrado)}</span>
+                            </span>
+                            <span className="text-slate-400 inline-flex items-center gap-1">
+                                <Wallet className="w-4 h-4 text-amber-400" /> Por cobrar: <span className="text-amber-300 font-semibold">{fmtMoney(sumPorCobrar)}</span>
+                            </span>
+                        </div>
                     </div>
                     <div className="overflow-x-auto">
                         <table className="w-full text-left text-sm whitespace-nowrap">
@@ -405,15 +461,16 @@ export default function IssuedInvoicesPage() {
                                     <th className="px-6 py-4">Subtotal</th>
                                     <th className="px-6 py-4">IVA</th>
                                     <th className="px-6 py-4">Total</th>
+                                    <th className="px-6 py-4 text-center">Pagado</th>
                                     <th className="px-6 py-4">UUID</th>
                                     <th className="px-6 py-4 text-right">XML</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-700/50">
                                 {loading ? (
-                                    <tr><td colSpan={9} className="px-6 py-12 text-center text-slate-400"><RefreshCw className="w-6 h-6 animate-spin mx-auto mb-3 text-teal-500" />Cargando...</td></tr>
+                                    <tr><td colSpan={10} className="px-6 py-12 text-center text-slate-400"><RefreshCw className="w-6 h-6 animate-spin mx-auto mb-3 text-teal-500" />Cargando...</td></tr>
                                 ) : filteredRows.length === 0 ? (
-                                    <tr><td colSpan={9} className="px-6 py-12 text-center text-slate-400">
+                                    <tr><td colSpan={10} className="px-6 py-12 text-center text-slate-400">
                                         <div className="bg-slate-800/50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 border border-slate-700"><Receipt className="w-8 h-8 text-slate-500" /></div>
                                         {hasActiveFilters ? (
                                             <>
@@ -437,6 +494,31 @@ export default function IssuedInvoicesPage() {
                                             <td className="px-6 py-4 text-slate-400">{fmtMoney(r.subtotal)}</td>
                                             <td className="px-6 py-4 text-slate-400">{fmtMoney(r.vat_total)}</td>
                                             <td className="px-6 py-4 font-medium text-emerald-400">{fmtMoney(r.total)}</td>
+                                            <td className="px-6 py-4 text-center">
+                                                <button
+                                                    onClick={() => togglePaid(r)}
+                                                    disabled={payingId === r.id}
+                                                    title={r.paid ? "Marcada como cobrada — clic para revertir" : "Marcar como cobrada"}
+                                                    className={cn(
+                                                        "inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all disabled:opacity-50 disabled:cursor-wait",
+                                                        r.paid
+                                                            ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25"
+                                                            : "bg-slate-800/60 border-slate-600/40 text-slate-400 hover:bg-amber-500/10 hover:border-amber-500/30 hover:text-amber-300"
+                                                    )}
+                                                >
+                                                    {payingId === r.id ? (
+                                                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                                    ) : (
+                                                        <span className={cn(
+                                                            "w-4 h-4 rounded flex items-center justify-center border",
+                                                            r.paid ? "bg-emerald-500 border-emerald-500" : "border-slate-500"
+                                                        )}>
+                                                            {r.paid && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
+                                                        </span>
+                                                    )}
+                                                    {r.paid ? "Cobrada" : "Por cobrar"}
+                                                </button>
+                                            </td>
                                             <td className="px-6 py-4 font-mono text-[11px] text-slate-500 max-w-[160px] truncate" title={r.uuid || ""}>{r.uuid || "—"}</td>
                                             <td className="px-6 py-4 text-right">
                                                 {r.xml_url ? (
