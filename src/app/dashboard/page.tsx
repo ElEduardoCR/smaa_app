@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import {
     ArrowLeft, BarChart3, RefreshCw, TrendingUp, Calendar, ShoppingCart,
-    Coins, Wallet, Receipt, ExternalLink, Link2, FileSpreadsheet,
+    Coins, Wallet, Receipt, ExternalLink, Link2, FileSpreadsheet, Check, RotateCcw,
 } from "lucide-react";
 import Link from "next/link";
 import clsx from "clsx";
@@ -106,6 +106,9 @@ export default function DashboardPage() {
     const [approvedQuotes, setApprovedQuotes] = useState<QuoteLite[]>([]);
     const [quotationItems, setQuotationItems] = useState<QItemLite[]>([]);
     const [confirmedItemIds, setConfirmedItemIds] = useState<Set<string>>(new Set());
+    const [manuallyBilledIds, setManuallyBilledIds] = useState<Set<string>>(new Set());
+    const [markingId, setMarkingId] = useState<string | null>(null);
+    const [markError, setMarkError] = useState<string | null>(null);
     const [billingNote, setBillingNote] = useState<string | null>(null);
 
     const fetchData = async () => {
@@ -182,6 +185,24 @@ export default function DashboardPage() {
                 }
                 setConfirmedItemIds(set);
             }
+
+            // Cotizaciones marcadas manualmente como ya facturadas (resiliente si falta la columna)
+            try {
+                const { data: mb, error: mbErr } = await supabase
+                    .from('quotations')
+                    .select('id, billed_manually')
+                    .eq('status', 'Approved')
+                    .gte('created_at', yStart)
+                    .lt('created_at', yEnd);
+                if (mbErr) throw mbErr;
+                const s = new Set<string>();
+                for (const r of (mb as { id: string; billed_manually: boolean | null }[]) || []) {
+                    if (r.billed_manually) s.add(r.id);
+                }
+                setManuallyBilledIds(s);
+            } catch {
+                setManuallyBilledIds(new Set());
+            }
         } catch {
             setApprovedQuotes([]);
             setQuotationItems([]);
@@ -189,6 +210,30 @@ export default function DashboardPage() {
         }
 
         setLoading(false);
+    };
+
+    // Marca/desmarca una cotización como ya facturada manualmente (sale del "por facturar")
+    const markBilled = async (quoteId: string, value: boolean) => {
+        setMarkingId(quoteId);
+        setMarkError(null);
+        setManuallyBilledIds(prev => {
+            const n = new Set(prev);
+            if (value) n.add(quoteId); else n.delete(quoteId);
+            return n;
+        });
+        const { error } = await supabase
+            .from('quotations')
+            .update({ billed_manually: value, billed_manually_at: value ? new Date().toISOString() : null })
+            .eq('id', quoteId);
+        if (error) {
+            setManuallyBilledIds(prev => {
+                const n = new Set(prev);
+                if (value) n.delete(quoteId); else n.add(quoteId);
+                return n;
+            });
+            setMarkError(`No se pudo actualizar: ${error.message}. ¿Ya corriste la migración 'billed_manually'?`);
+        }
+        setMarkingId(null);
     };
 
     useEffect(() => { fetchData(); }, []);
@@ -229,7 +274,7 @@ export default function DashboardPage() {
     // ===== Por facturar vs por cobrar (solo BILLING_YEAR) =====
     const facturacion = useMemo(() => {
         const quoteById = new Map(approvedQuotes.map(q => [q.id, q]));
-        const perQuote = new Map<string, { number: string; client: string | null; pendingAmount: number; pendingCount: number }>();
+        const perQuote = new Map<string, { id: string; number: string; client: string | null; pendingAmount: number; pendingCount: number }>();
         let porFacturar = 0;
         let facturado = 0;
 
@@ -237,17 +282,24 @@ export default function DashboardPage() {
             const q = quoteById.get(it.quotation_id);
             if (!q) continue;
             const amt = Number(it.line_total) || 0;
-            if (confirmedItemIds.has(it.id)) {
+            // Confirmada por la IA o marcada manualmente como facturada → cuenta como facturado
+            if (confirmedItemIds.has(it.id) || manuallyBilledIds.has(q.id)) {
                 facturado += amt;
             } else {
                 porFacturar += amt;
-                const e = perQuote.get(q.id) || { number: q.quotation_number, client: q.client_name, pendingAmount: 0, pendingCount: 0 };
+                const e = perQuote.get(q.id) || { id: q.id, number: q.quotation_number, client: q.client_name, pendingAmount: 0, pendingCount: 0 };
                 e.pendingAmount += amt;
                 e.pendingCount += 1;
                 perQuote.set(q.id, e);
             }
         }
         const pendingList = Array.from(perQuote.values()).sort((a, b) => b.pendingAmount - a.pendingAmount);
+
+        // Cotizaciones marcadas manualmente como ya facturadas (para deshacer)
+        const manualList = approvedQuotes
+            .filter(q => manuallyBilledIds.has(q.id))
+            .map(q => ({ id: q.id, number: q.quotation_number, client: q.client_name, total: Number(q.total) || 0 }))
+            .sort((a, b) => b.total - a.total);
 
         const inYear = (iso: string) => {
             const d = new Date(iso);
@@ -260,11 +312,12 @@ export default function DashboardPage() {
             porFacturar,
             facturado,
             pendingList,
+            manualList,
             approvedCount: approvedQuotes.length,
             porCobrarYear,
             porCobrarYearCount: unpaid.length,
         };
-    }, [approvedQuotes, quotationItems, confirmedItemIds, issuedRows]);
+    }, [approvedQuotes, quotationItems, confirmedItemIds, manuallyBilledIds, issuedRows]);
 
     const activeStats = view === 'ventas' ? ventasStats : comprasStats;
     const accent = view === 'ventas'
@@ -529,6 +582,11 @@ export default function DashboardPage() {
                             {billingNote}
                         </div>
                     )}
+                    {markError && (
+                        <div className="p-4 rounded-xl border bg-red-500/10 border-red-500/30 text-red-400 text-sm">
+                            {markError}
+                        </div>
+                    )}
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                         <div className="bg-gradient-to-br from-violet-500/10 to-indigo-500/10 border border-violet-500/30 rounded-3xl p-6 flex flex-col justify-between shadow-lg shadow-black/20">
@@ -566,7 +624,7 @@ export default function DashboardPage() {
                         <p className="text-slate-500 text-sm bg-slate-800/40 border border-slate-700/50 rounded-2xl p-6">
                             {facturacion.approvedCount === 0
                                 ? `No hay cotizaciones aprobadas en ${BILLING_YEAR}.`
-                                : "Todas las partidas de las cotizaciones aprobadas ya están facturadas (según los matches confirmados). 🎉"}
+                                : "Todas las partidas de las cotizaciones aprobadas ya están facturadas (por IA confirmada o marcadas manualmente). 🎉"}
                         </p>
                     ) : (
                         <div className="bg-slate-800/40 border border-slate-700/50 rounded-3xl overflow-hidden backdrop-blur-sm">
@@ -578,21 +636,58 @@ export default function DashboardPage() {
                                             <th className="px-6 py-4">Cliente</th>
                                             <th className="px-6 py-4 text-center">Partidas pendientes</th>
                                             <th className="px-6 py-4 text-right">Por facturar</th>
+                                            <th className="px-6 py-4 text-right">Acción</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-700/50">
-                                        {facturacion.pendingList.map((q, i) => (
-                                            <tr key={i} className="hover:bg-slate-800/80 transition-colors">
+                                        {facturacion.pendingList.map((q) => (
+                                            <tr key={q.id} className="hover:bg-slate-800/80 transition-colors">
                                                 <td className="px-6 py-4">
                                                     <span className="font-mono font-medium text-emerald-300 bg-emerald-500/10 px-2.5 py-1 rounded-md border border-emerald-500/20">{q.number}</span>
                                                 </td>
                                                 <td className="px-6 py-4 font-medium text-slate-200 max-w-[280px] truncate">{q.client || "—"}</td>
                                                 <td className="px-6 py-4 text-center text-slate-400">{q.pendingCount}</td>
                                                 <td className="px-6 py-4 text-right font-medium text-violet-300">{fmtMoney(q.pendingAmount)}</td>
+                                                <td className="px-6 py-4 text-right">
+                                                    <button
+                                                        onClick={() => markBilled(q.id, true)}
+                                                        disabled={markingId === q.id}
+                                                        title="Esta cotización ya está entregada y facturada — quitar de 'por facturar'"
+                                                        className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-3 py-1.5 rounded-lg border border-emerald-500/20 disabled:opacity-50 disabled:cursor-wait whitespace-nowrap"
+                                                    >
+                                                        {markingId === q.id ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Ya facturada
+                                                    </button>
+                                                </td>
                                             </tr>
                                         ))}
                                     </tbody>
                                 </table>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Marcadas manualmente como facturadas (deshacer) */}
+                    {facturacion.manualList.length > 0 && (
+                        <div className="bg-slate-800/30 border border-slate-700/40 rounded-2xl p-4">
+                            <p className="text-xs text-slate-400 uppercase tracking-wide font-semibold mb-3 flex items-center gap-2">
+                                <Check className="w-3.5 h-3.5 text-emerald-400" /> Marcadas manualmente como facturadas ({facturacion.manualList.length})
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                                {facturacion.manualList.map(q => (
+                                    <span key={q.id} className="inline-flex items-center gap-2 bg-slate-900/50 border border-slate-700/50 rounded-lg pl-3 pr-1.5 py-1.5 text-xs">
+                                        <span className="font-mono text-emerald-300">{q.number}</span>
+                                        <span className="text-slate-400 max-w-[160px] truncate">{q.client || "—"}</span>
+                                        <span className="text-slate-300 font-medium">{fmtMoney(q.total)}</span>
+                                        <button
+                                            onClick={() => markBilled(q.id, false)}
+                                            disabled={markingId === q.id}
+                                            title="Deshacer: volver a contar como 'por facturar'"
+                                            className="inline-flex items-center gap-1 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 px-2 py-1 rounded-md border border-slate-700 disabled:opacity-50"
+                                        >
+                                            {markingId === q.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />} Deshacer
+                                        </button>
+                                    </span>
+                                ))}
                             </div>
                         </div>
                     )}
