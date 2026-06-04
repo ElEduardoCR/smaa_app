@@ -9,6 +9,7 @@ import {
 import Link from "next/link";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
+import QuotationItemsModal from "./QuotationItemsModal";
 
 function cn(...inputs: (string | undefined | null | false)[]) {
     return twMerge(clsx(inputs));
@@ -110,6 +111,7 @@ export default function DashboardPage() {
     const [markingId, setMarkingId] = useState<string | null>(null);
     const [markError, setMarkError] = useState<string | null>(null);
     const [billingNote, setBillingNote] = useState<string | null>(null);
+    const [selectedQuote, setSelectedQuote] = useState<{ id: string; number: string; client: string | null } | null>(null);
 
     const fetchData = async () => {
         setLoading(true);
@@ -574,7 +576,7 @@ export default function DashboardPage() {
                     </div>
 
                     <p className="text-sm text-slate-400 -mt-1">
-                        Compara la <span className="text-violet-300">venta aprobada que falta por facturar</span> (cotizaciones aprobadas sin su CFDI) contra las <span className="text-amber-300">facturas que faltan por cobrar</span>.
+                        Compara la <span className="text-violet-300">venta aprobada que falta por facturar</span> (cotizaciones aprobadas sin su CFDI) contra las <span className="text-amber-300">facturas que faltan por cobrar</span>. Haz clic en una cotización para ver sus partidas.
                     </p>
 
                     {billingNote && (
@@ -641,7 +643,11 @@ export default function DashboardPage() {
                                     </thead>
                                     <tbody className="divide-y divide-slate-700/50">
                                         {facturacion.pendingList.map((q) => (
-                                            <tr key={q.id} className="hover:bg-slate-800/80 transition-colors">
+                                            <tr
+                                                key={q.id}
+                                                onClick={() => setSelectedQuote({ id: q.id, number: q.number, client: q.client })}
+                                                className="hover:bg-slate-800/80 transition-colors cursor-pointer"
+                                            >
                                                 <td className="px-6 py-4">
                                                     <span className="font-mono font-medium text-emerald-300 bg-emerald-500/10 px-2.5 py-1 rounded-md border border-emerald-500/20">{q.number}</span>
                                                 </td>
@@ -650,7 +656,7 @@ export default function DashboardPage() {
                                                 <td className="px-6 py-4 text-right font-medium text-violet-300">{fmtMoney(q.pendingAmount)}</td>
                                                 <td className="px-6 py-4 text-right">
                                                     <button
-                                                        onClick={() => markBilled(q.id, true)}
+                                                        onClick={(e) => { e.stopPropagation(); markBilled(q.id, true); }}
                                                         disabled={markingId === q.id}
                                                         title="Esta cotización ya está entregada y facturada — quitar de 'por facturar'"
                                                         className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-3 py-1.5 rounded-lg border border-emerald-500/20 disabled:opacity-50 disabled:cursor-wait whitespace-nowrap"
@@ -675,7 +681,7 @@ export default function DashboardPage() {
                             <div className="flex flex-wrap gap-2">
                                 {facturacion.manualList.map(q => (
                                     <span key={q.id} className="inline-flex items-center gap-2 bg-slate-900/50 border border-slate-700/50 rounded-lg pl-3 pr-1.5 py-1.5 text-xs">
-                                        <span className="font-mono text-emerald-300">{q.number}</span>
+                                        <button onClick={() => setSelectedQuote({ id: q.id, number: q.number, client: q.client })} className="font-mono text-emerald-300 hover:text-emerald-200 hover:underline" title="Ver partidas">{q.number}</button>
                                         <span className="text-slate-400 max-w-[160px] truncate">{q.client || "—"}</span>
                                         <span className="text-slate-300 font-medium">{fmtMoney(q.total)}</span>
                                         <button
@@ -764,6 +770,17 @@ export default function DashboardPage() {
                     )}
                 </section>
             </div>
+
+            {selectedQuote && (
+                <QuotationItemsModal
+                    quote={selectedQuote}
+                    confirmedItemIds={confirmedItemIds}
+                    manuallyBilled={manuallyBilledIds.has(selectedQuote.id)}
+                    marking={markingId === selectedQuote.id}
+                    onToggleBilled={(value) => markBilled(selectedQuote.id, value)}
+                    onClose={() => setSelectedQuote(null)}
+                />
+            )}
         </div>
     );
 }
