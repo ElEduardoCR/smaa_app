@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import {
     ArrowLeft, BarChart3, RefreshCw, TrendingUp, Calendar, ShoppingCart,
-    Coins, Wallet, Receipt, ExternalLink,
+    Coins, Wallet, Receipt, ExternalLink, Link2, FileSpreadsheet,
 } from "lucide-react";
 import Link from "next/link";
 import clsx from "clsx";
@@ -35,7 +35,23 @@ type IssuedRow = {
     folio: string | null;
 };
 
+type QuoteLite = {
+    id: string;
+    quotation_number: string;
+    total: number | null;
+    created_at: string;
+    client_name: string | null;
+};
+
+type QItemLite = {
+    id: string;
+    quotation_id: string;
+    line_total: number | null;
+};
+
 type View = "ventas" | "compras";
+
+const BILLING_YEAR = 2026;
 
 const MONTH_NAMES = [
     'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -86,6 +102,12 @@ export default function DashboardPage() {
     const [view, setView] = useState<View>("ventas");
     const [selectedYear, setSelectedYear] = useState<number | null>(null);
 
+    // Facturación (cotizaciones aprobadas ↔ facturas emitidas)
+    const [approvedQuotes, setApprovedQuotes] = useState<QuoteLite[]>([]);
+    const [quotationItems, setQuotationItems] = useState<QItemLite[]>([]);
+    const [confirmedItemIds, setConfirmedItemIds] = useState<Set<string>>(new Set());
+    const [billingNote, setBillingNote] = useState<string | null>(null);
+
     const fetchData = async () => {
         setLoading(true);
         setError(null);
@@ -112,6 +134,58 @@ export default function DashboardPage() {
         } catch (e: any) {
             setIssuedRows([]);
             setSalesNote("No se pudieron cargar las ventas. Si es la primera vez, corre la migración de 'issued_invoices' (paid).");
+        }
+
+        // Cotizaciones aprobadas del año + partidas + matches confirmados (para "por facturar")
+        setBillingNote(null);
+        try {
+            const yStart = `${BILLING_YEAR}-01-01T00:00:00.000Z`;
+            const yEnd = `${BILLING_YEAR + 1}-01-01T00:00:00.000Z`;
+            const { data: q, error: qErr } = await supabase
+                .from('quotations')
+                .select('id, quotation_number, total, created_at, client:clients(business_name)')
+                .eq('status', 'Approved')
+                .gte('created_at', yStart)
+                .lt('created_at', yEnd);
+            if (qErr) throw qErr;
+            const quotes: QuoteLite[] = ((q as any[]) || []).map(x => ({
+                id: x.id,
+                quotation_number: x.quotation_number,
+                total: x.total,
+                created_at: x.created_at,
+                client_name: Array.isArray(x.client) ? (x.client[0]?.business_name ?? null) : (x.client?.business_name ?? null),
+            }));
+            setApprovedQuotes(quotes);
+
+            const ids = quotes.map(x => x.id);
+            if (ids.length) {
+                const { data: items } = await supabase
+                    .from('quotation_items')
+                    .select('id, quotation_id, line_total')
+                    .in('quotation_id', ids);
+                setQuotationItems((items as QItemLite[]) || []);
+            } else {
+                setQuotationItems([]);
+            }
+
+            const { data: confirmed, error: cmErr } = await supabase
+                .from('quotation_billing_matches')
+                .select('quotation_item_id')
+                .eq('status', 'confirmed');
+            if (cmErr) {
+                setBillingNote("Para activar la facturación con IA, corre la migración 'quotation_billing_matches'.");
+                setConfirmedItemIds(new Set());
+            } else {
+                const set = new Set<string>();
+                for (const c of (confirmed as { quotation_item_id: string | null }[]) || []) {
+                    if (c.quotation_item_id) set.add(c.quotation_item_id);
+                }
+                setConfirmedItemIds(set);
+            }
+        } catch {
+            setApprovedQuotes([]);
+            setQuotationItems([]);
+            setConfirmedItemIds(new Set());
         }
 
         setLoading(false);
@@ -151,6 +225,46 @@ export default function DashboardPage() {
         });
         return { total, count: unpaid.length, list };
     }, [issuedRows]);
+
+    // ===== Por facturar vs por cobrar (solo BILLING_YEAR) =====
+    const facturacion = useMemo(() => {
+        const quoteById = new Map(approvedQuotes.map(q => [q.id, q]));
+        const perQuote = new Map<string, { number: string; client: string | null; pendingAmount: number; pendingCount: number }>();
+        let porFacturar = 0;
+        let facturado = 0;
+
+        for (const it of quotationItems) {
+            const q = quoteById.get(it.quotation_id);
+            if (!q) continue;
+            const amt = Number(it.line_total) || 0;
+            if (confirmedItemIds.has(it.id)) {
+                facturado += amt;
+            } else {
+                porFacturar += amt;
+                const e = perQuote.get(q.id) || { number: q.quotation_number, client: q.client_name, pendingAmount: 0, pendingCount: 0 };
+                e.pendingAmount += amt;
+                e.pendingCount += 1;
+                perQuote.set(q.id, e);
+            }
+        }
+        const pendingList = Array.from(perQuote.values()).sort((a, b) => b.pendingAmount - a.pendingAmount);
+
+        const inYear = (iso: string) => {
+            const d = new Date(iso);
+            return !isNaN(d.getTime()) && d.getFullYear() === BILLING_YEAR;
+        };
+        const unpaid = issuedRows.filter(r => !r.paid && inYear(r.invoice_date || r.created_at));
+        const porCobrarYear = unpaid.reduce((acc, r) => acc + (Number(r.total) || 0), 0);
+
+        return {
+            porFacturar,
+            facturado,
+            pendingList,
+            approvedCount: approvedQuotes.length,
+            porCobrarYear,
+            porCobrarYearCount: unpaid.length,
+        };
+    }, [approvedQuotes, quotationItems, confirmedItemIds, issuedRows]);
 
     const activeStats = view === 'ventas' ? ventasStats : comprasStats;
     const accent = view === 'ventas'
@@ -389,6 +503,96 @@ export default function DashboardPage() {
                                         <span className="w-20 text-right text-xs text-slate-500 flex-shrink-0">{m.count} fact.</span>
                                     </div>
                                 ))}
+                            </div>
+                        </div>
+                    )}
+                </section>
+
+                {/* Por facturar vs por cobrar (año objetivo) */}
+                <section className="space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                        <h2 className="text-xl font-semibold text-slate-200 flex items-center gap-2">
+                            <Link2 className="w-5 h-5 text-fuchsia-400" /> Por facturar vs por cobrar
+                            <span className="text-fuchsia-300">· {BILLING_YEAR}</span>
+                        </h2>
+                        <Link href="/sales/billing-inbox" className="inline-flex items-center gap-1.5 text-sm text-fuchsia-300 hover:text-fuchsia-200 bg-fuchsia-500/10 hover:bg-fuchsia-500/20 px-3 py-1.5 rounded-lg border border-fuchsia-500/20">
+                            <Link2 className="w-3.5 h-3.5" /> Revisar facturación IA <ExternalLink className="w-3 h-3" />
+                        </Link>
+                    </div>
+
+                    <p className="text-sm text-slate-400 -mt-1">
+                        Compara la <span className="text-violet-300">venta aprobada que falta por facturar</span> (cotizaciones aprobadas sin su CFDI) contra las <span className="text-amber-300">facturas que faltan por cobrar</span>.
+                    </p>
+
+                    {billingNote && (
+                        <div className="p-4 rounded-xl border bg-amber-500/10 border-amber-500/30 text-amber-300 text-sm">
+                            {billingNote}
+                        </div>
+                    )}
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div className="bg-gradient-to-br from-violet-500/10 to-indigo-500/10 border border-violet-500/30 rounded-3xl p-6 flex flex-col justify-between shadow-lg shadow-black/20">
+                            <div className="flex items-center gap-3 text-violet-300/80 text-sm font-semibold uppercase tracking-wider">
+                                <FileSpreadsheet className="w-5 h-5" /> Venta aprobada por facturar
+                            </div>
+                            <div className="mt-4">
+                                <p className="text-4xl font-bold text-white tracking-tight">{fmtMoney(facturacion.porFacturar)}</p>
+                                <p className="text-slate-400 text-sm mt-2">{facturacion.pendingList.length} cotización(es) con partidas pendientes</p>
+                            </div>
+                        </div>
+
+                        <div className="bg-gradient-to-br from-amber-500/10 to-orange-500/5 border border-amber-500/30 rounded-3xl p-6 flex flex-col justify-between shadow-lg shadow-black/20">
+                            <div className="flex items-center gap-3 text-amber-300/80 text-sm font-semibold uppercase tracking-wider">
+                                <Wallet className="w-5 h-5" /> Facturas por cobrar
+                            </div>
+                            <div className="mt-4">
+                                <p className="text-4xl font-bold text-white tracking-tight">{fmtMoney(facturacion.porCobrarYear)}</p>
+                                <p className="text-slate-400 text-sm mt-2">{facturacion.porCobrarYearCount} factura(s) emitida(s) sin cobrar</p>
+                            </div>
+                        </div>
+
+                        <div className="bg-slate-800/40 border border-slate-700/50 rounded-3xl p-6 flex flex-col justify-between shadow-lg shadow-black/20">
+                            <div className="flex items-center gap-3 text-emerald-300/80 text-sm font-semibold uppercase tracking-wider">
+                                <Coins className="w-5 h-5" /> Ya facturado de lo aprobado
+                            </div>
+                            <div className="mt-4">
+                                <p className="text-4xl font-bold text-white tracking-tight">{fmtMoney(facturacion.facturado)}</p>
+                                <p className="text-slate-400 text-sm mt-2">{facturacion.approvedCount} cotización(es) aprobada(s) en {BILLING_YEAR}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {loading ? null : facturacion.pendingList.length === 0 ? (
+                        <p className="text-slate-500 text-sm bg-slate-800/40 border border-slate-700/50 rounded-2xl p-6">
+                            {facturacion.approvedCount === 0
+                                ? `No hay cotizaciones aprobadas en ${BILLING_YEAR}.`
+                                : "Todas las partidas de las cotizaciones aprobadas ya están facturadas (según los matches confirmados). 🎉"}
+                        </p>
+                    ) : (
+                        <div className="bg-slate-800/40 border border-slate-700/50 rounded-3xl overflow-hidden backdrop-blur-sm">
+                            <div className="overflow-x-auto max-h-[420px] overflow-y-auto">
+                                <table className="w-full text-left text-sm whitespace-nowrap">
+                                    <thead className="bg-slate-900/50 text-slate-400 uppercase text-xs font-semibold tracking-wider sticky top-0">
+                                        <tr>
+                                            <th className="px-6 py-4">Cotización</th>
+                                            <th className="px-6 py-4">Cliente</th>
+                                            <th className="px-6 py-4 text-center">Partidas pendientes</th>
+                                            <th className="px-6 py-4 text-right">Por facturar</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-700/50">
+                                        {facturacion.pendingList.map((q, i) => (
+                                            <tr key={i} className="hover:bg-slate-800/80 transition-colors">
+                                                <td className="px-6 py-4">
+                                                    <span className="font-mono font-medium text-emerald-300 bg-emerald-500/10 px-2.5 py-1 rounded-md border border-emerald-500/20">{q.number}</span>
+                                                </td>
+                                                <td className="px-6 py-4 font-medium text-slate-200 max-w-[280px] truncate">{q.client || "—"}</td>
+                                                <td className="px-6 py-4 text-center text-slate-400">{q.pendingCount}</td>
+                                                <td className="px-6 py-4 text-right font-medium text-violet-300">{fmtMoney(q.pendingAmount)}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
                     )}

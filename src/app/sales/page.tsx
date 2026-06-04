@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { FileText, Plus, RefreshCw, ArrowLeft, Download, FileSpreadsheet, Edit3, CheckCircle, Upload, Eye } from "lucide-react";
+import { FileText, Plus, RefreshCw, ArrowLeft, Download, FileSpreadsheet, Edit3, CheckCircle, Upload, Eye, Link2 } from "lucide-react";
 import Link from "next/link";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -39,6 +39,15 @@ export default function SalesPage() {
     const [quotations, setQuotations] = useState<Quotation[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [selectedQuote, setSelectedQuote] = useState<Quotation | null>(null);
+    const [pendingMatches, setPendingMatches] = useState(0);
+
+    const fetchPendingMatches = async () => {
+        const { count } = await supabase
+            .from('quotation_billing_matches')
+            .select('id', { count: 'exact', head: true })
+            .eq('status', 'pending');
+        setPendingMatches(count || 0);
+    };
 
     const fetchQuotations = async () => {
         setIsLoading(true);
@@ -81,6 +90,7 @@ export default function SalesPage() {
 
     useEffect(() => {
         fetchQuotations();
+        fetchPendingMatches();
     }, []);
 
     const formatCurrency = (amount: number) => {
@@ -215,12 +225,25 @@ export default function SalesPage() {
                         </div>
                     </div>
 
-                    <Link
-                        href="/sales/new"
-                        className="flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white px-6 py-3 rounded-xl font-medium transition-all hover:shadow-[0_0_20px_rgba(16,185,129,0.4)] active:scale-95"
-                    >
-                        <Plus className="w-5 h-5" /> Nueva Cotización
-                    </Link>
+                    <div className="flex items-center gap-3">
+                        <Link
+                            href="/sales/billing-inbox"
+                            className="relative flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 px-5 py-3 rounded-xl font-medium transition-all border border-slate-700 active:scale-95"
+                        >
+                            <Link2 className="w-5 h-5 text-fuchsia-400" /> Facturación IA
+                            {pendingMatches > 0 && (
+                                <span className="absolute -top-2 -right-2 bg-fuchsia-500 text-white text-xs font-bold rounded-full min-w-[20px] h-5 px-1.5 flex items-center justify-center">
+                                    {pendingMatches}
+                                </span>
+                            )}
+                        </Link>
+                        <Link
+                            href="/sales/new"
+                            className="flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white px-6 py-3 rounded-xl font-medium transition-all hover:shadow-[0_0_20px_rgba(16,185,129,0.4)] active:scale-95"
+                        >
+                            <Plus className="w-5 h-5" /> Nueva Cotización
+                        </Link>
+                    </div>
                 </header>
 
                 {/* Quotations Table */}
