@@ -5,43 +5,84 @@ import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, Save, Plus, Trash2, Calculator, AlertCircle, RefreshCw } from "lucide-react";
+import { ArrowLeft, Save, Plus, Trash2, Calculator, AlertCircle, RefreshCw, Clock, Package, Wrench } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
+import ServiceConceptsModal, { ServiceConcept } from "@/app/sales/ServiceConceptsModal";
 
 function cn(...inputs: (string | undefined | null | false)[]) {
     return twMerge(clsx(inputs));
 }
 
 // Zod Schema
-const itemSchema = z.object({
-    description: z.string().min(1, "Description is required"),
-    quantity: z.coerce.number().min(1, "Min 1"),
-    unit_price: z.coerce.number().min(0, "Invalid price"),
+const conceptSchema = z.object({
+    concept: z.string(),
+    rate: z.coerce.number(),
+    hours: z.coerce.number(),
 });
+
+const itemSchema = z
+    .object({
+        item_type: z.enum(["product", "service"]).default("product"),
+        description: z.string().optional().or(z.literal("")),
+        quantity: z.coerce.number().optional(),
+        unit_price: z.coerce.number().optional(),
+        service_concepts: z.array(conceptSchema).optional().default([]),
+    })
+    .superRefine((val, ctx) => {
+        if (val.item_type === "service") {
+            if (!val.service_concepts || val.service_concepts.length === 0) {
+                ctx.addIssue({ code: "custom", path: ["service_concepts"], message: "Agrega al menos un concepto" });
+            }
+        } else {
+            if (!val.description || val.description.trim() === "") {
+                ctx.addIssue({ code: "custom", path: ["description"], message: "Descripción requerida" });
+            }
+            if (val.quantity === undefined || isNaN(val.quantity) || val.quantity < 1) {
+                ctx.addIssue({ code: "custom", path: ["quantity"], message: "Mínimo 1" });
+            }
+            if (val.unit_price === undefined || isNaN(val.unit_price) || val.unit_price < 0) {
+                ctx.addIssue({ code: "custom", path: ["unit_price"], message: "Inválido" });
+            }
+        }
+    });
 
 const quotationSchema = z.object({
     client_id: z.string().min(1, "Please select a client"),
-    seller: z.string().optional().or(z.literal('')),
-    delivery_time: z.string().optional().or(z.literal('')),
-    terms_conditions: z.string().optional().or(z.literal('')),
+    seller: z.string().optional().or(z.literal("")),
+    delivery_time: z.string().optional().or(z.literal("")),
+    terms_conditions: z.string().optional().or(z.literal("")),
     items: z.array(itemSchema).min(1, "At least one item is required"),
 });
 
 type QuotationFormValues = z.infer<typeof quotationSchema>;
 
+const emptyProduct = { item_type: "product" as const, description: "", quantity: 1, unit_price: 0, service_concepts: [] as ServiceConcept[] };
+
+// Importe de una línea según su tipo
+function lineAmount(item: any): number {
+    if (item?.item_type === "service") {
+        return (item.service_concepts || []).reduce(
+            (acc: number, c: any) => acc + (Number(c.rate) || 0) * (Number(c.hours) || 0),
+            0
+        );
+    }
+    return (Number(item?.quantity) || 0) * (Number(item?.unit_price) || 0);
+}
+
 function QuotationForm() {
     const router = useRouter();
     const searchParams = useSearchParams();
-    const editId = searchParams.get('id');
+    const editId = searchParams.get("id");
     const isEditing = !!editId;
 
-    const [clients, setClients] = useState<{ id: string, business_name: string }[]>([]);
+    const [clients, setClients] = useState<{ id: string; business_name: string }[]>([]);
     const [isLoadingClients, setIsLoadingClients] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
+    const [serviceModalIndex, setServiceModalIndex] = useState<number | null>(null);
 
     const {
         register,
@@ -49,7 +90,8 @@ function QuotationForm() {
         handleSubmit,
         watch,
         reset,
-        formState: { errors }
+        setValue,
+        formState: { errors },
     } = useForm<QuotationFormValues>({
         resolver: zodResolver(quotationSchema) as any,
         defaultValues: {
@@ -57,33 +99,37 @@ function QuotationForm() {
             seller: "",
             delivery_time: "",
             terms_conditions: "",
-            items: [{ description: "", quantity: 1, unit_price: 0 }]
-        }
+            items: [{ ...emptyProduct }],
+        },
     });
 
-    const { fields, append, remove } = useFieldArray({
-        control,
-        name: "items"
-    });
+    const { fields, append, remove } = useFieldArray({ control, name: "items" });
 
     const watchItems = watch("items");
 
     // Calculations
-    const subtotal = watchItems.reduce((acc, item) => acc + ((item.quantity || 0) * (item.unit_price || 0)), 0);
+    const subtotal = (watchItems || []).reduce((acc, item) => acc + lineAmount(item), 0);
     const vatTotal = subtotal * 0.16; // 16% IVA
     const total = subtotal + vatTotal;
 
     const formatCurrency = (amount: number) => {
-        return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount || 0);
+        return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount || 0);
+    };
+
+    const setItemType = (index: number, type: "product" | "service") => {
+        setValue(`items.${index}.item_type`, type, { shouldDirty: true, shouldValidate: false });
+        if (type === "service" && !watchItems?.[index]?.service_concepts) {
+            setValue(`items.${index}.service_concepts`, [], { shouldDirty: true });
+        }
     };
 
     useEffect(() => {
         async function fetchClients() {
             try {
                 const { data, error } = await supabase
-                    .from('clients')
-                    .select('id, business_name')
-                    .order('business_name', { ascending: true });
+                    .from("clients")
+                    .select("id, business_name")
+                    .order("business_name", { ascending: true });
 
                 if (error) throw error;
                 setClients(data || []);
@@ -101,31 +147,32 @@ function QuotationForm() {
             if (!editId) return;
             try {
                 const { data: quote, error: quoteError } = await supabase
-                    .from('quotations')
-                    .select('*')
-                    .eq('id', editId)
+                    .from("quotations")
+                    .select("*")
+                    .eq("id", editId)
                     .single();
 
                 if (quoteError) throw quoteError;
 
                 const { data: items, error: itemsError } = await supabase
-                    .from('quotation_items')
-                    .select('*')
-                    .eq('quotation_id', editId);
+                    .from("quotation_items")
+                    .select("*")
+                    .eq("quotation_id", editId);
 
                 if (itemsError) throw itemsError;
 
-                // Reset form with fetched data
                 reset({
                     client_id: quote.client_id,
                     seller: quote.seller || "",
                     delivery_time: quote.delivery_time || "",
                     terms_conditions: quote.terms_conditions || "",
-                    items: items.map((i: any) => ({
-                        description: i.description,
+                    items: (items || []).map((i: any) => ({
+                        item_type: i.item_type === "service" ? "service" : "product",
+                        description: i.description || "",
                         quantity: i.quantity,
-                        unit_price: i.unit_price
-                    }))
+                        unit_price: i.unit_price,
+                        service_concepts: Array.isArray(i.service_concepts) ? i.service_concepts : [],
+                    })),
                 });
             } catch (err) {
                 console.error("Failed to load quotation for editing", err);
@@ -142,9 +189,8 @@ function QuotationForm() {
             let currentQuoteId = editId;
 
             if (isEditing) {
-                // Update existing quote
                 const { error: quoteError } = await supabase
-                    .from('quotations')
+                    .from("quotations")
                     .update({
                         client_id: data.client_id,
                         seller: data.seller || null,
@@ -153,22 +199,19 @@ function QuotationForm() {
                         subtotal,
                         vat_total: vatTotal,
                         total,
-                        updated_at: new Date().toISOString()
+                        updated_at: new Date().toISOString(),
                     })
-                    .eq('id', editId);
+                    .eq("id", editId);
 
                 if (quoteError) throw quoteError;
 
-                // Delete old items
                 const { error: delError } = await supabase
-                    .from('quotation_items')
+                    .from("quotation_items")
                     .delete()
-                    .eq('quotation_id', editId);
+                    .eq("quotation_id", editId);
 
                 if (delError) throw delError;
-
             } else {
-                // Insert new quote
                 const quoteData = {
                     client_id: data.client_id,
                     seller: data.seller || null,
@@ -177,11 +220,11 @@ function QuotationForm() {
                     subtotal,
                     vat_total: vatTotal,
                     total,
-                    status: 'Draft'
+                    status: "Draft",
                 };
 
                 const { data: insertedQuote, error: quoteError } = await supabase
-                    .from('quotations')
+                    .from("quotations")
                     .insert([quoteData])
                     .select()
                     .single();
@@ -190,24 +233,45 @@ function QuotationForm() {
                 currentQuoteId = insertedQuote.id;
             }
 
-            // Insert new or replaced items
-            const itemsToInsert = data.items.map(item => ({
-                quotation_id: currentQuoteId,
-                description: item.description,
-                quantity: item.quantity,
-                unit_price: item.unit_price,
-                line_total: item.quantity * item.unit_price
-            }));
+            // Map form items to DB rows (product = fixed cost, service = sum of concepts)
+            const itemsToInsert = data.items.map((item) => {
+                if (item.item_type === "service") {
+                    const concepts = (item.service_concepts || []).map((c) => ({
+                        concept: c.concept,
+                        rate: Number(c.rate) || 0,
+                        hours: Number(c.hours) || 0,
+                    }));
+                    const amount = concepts.reduce((a, c) => a + c.rate * c.hours, 0);
+                    const name = item.description && item.description.trim() ? item.description.trim() : "";
+                    const description = name || `Servicio: ${concepts.map((c) => c.concept).join(", ")}` || "Servicio";
+                    return {
+                        quotation_id: currentQuoteId,
+                        description,
+                        quantity: 1,
+                        unit_price: amount,
+                        line_total: amount,
+                        item_type: "service",
+                        service_concepts: concepts,
+                    };
+                }
+                const qty = Number(item.quantity) || 0;
+                const price = Number(item.unit_price) || 0;
+                return {
+                    quotation_id: currentQuoteId,
+                    description: item.description || "",
+                    quantity: qty,
+                    unit_price: price,
+                    line_total: qty * price,
+                    item_type: "product",
+                    service_concepts: null,
+                };
+            });
 
-            const { error: itemsError } = await supabase
-                .from('quotation_items')
-                .insert(itemsToInsert);
+            const { error: itemsError } = await supabase.from("quotation_items").insert(itemsToInsert);
 
             if (itemsError) throw itemsError;
 
-            // Navigate back to sales list on success
-            router.push('/sales');
-
+            router.push("/sales");
         } catch (error: any) {
             console.error("Error saving quotation:", error);
             setErrorMsg(error.message || "Failed to save quotation");
@@ -256,7 +320,7 @@ function QuotationForm() {
                                     disabled={isLoadingClients}
                                 >
                                     <option value="" disabled>Choose a client...</option>
-                                    {clients.map(c => (
+                                    {clients.map((c) => (
                                         <option key={c.id} value={c.id}>{c.business_name}</option>
                                     ))}
                                 </select>
@@ -302,83 +366,162 @@ function QuotationForm() {
                     {/* Items Array */}
                     <div className="bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
                         <div className="flex justify-between items-center mb-6">
-                            <h2 className="text-lg font-semibold text-white">Products / Services</h2>
+                            <h2 className="text-lg font-semibold text-white">Productos / Servicios</h2>
                             <button
                                 type="button"
-                                onClick={() => append({ description: "", quantity: 1, unit_price: 0 })}
+                                onClick={() => append({ ...emptyProduct })}
                                 className="flex items-center gap-2 text-sm text-emerald-400 hover:text-emerald-300 font-medium bg-emerald-500/10 hover:bg-emerald-500/20 px-4 py-2 rounded-lg transition-colors border border-emerald-500/20"
                             >
-                                <Plus className="w-4 h-4" /> Add Line
+                                <Plus className="w-4 h-4" /> Agregar línea
                             </button>
                         </div>
 
                         <div className="space-y-4">
-                            {/* Desktop Headers */}
-                            <div className="hidden md:grid grid-cols-12 gap-4 text-xs font-semibold text-neutral-400 uppercase tracking-wider px-2">
-                                <div className="col-span-6">Description</div>
-                                <div className="col-span-2">Quantity</div>
-                                <div className="col-span-3">Unit Price</div>
-                                <div className="col-span-1 text-center"></div>
-                            </div>
+                            {fields.map((field, index) => {
+                                const item = watchItems?.[index];
+                                const isService = item?.item_type === "service";
+                                const concepts: ServiceConcept[] = (item?.service_concepts as ServiceConcept[]) || [];
+                                const amount = lineAmount(item);
 
-                            {fields.map((field, index) => (
-                                <div key={field.id} className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start bg-neutral-900/30 p-4 md:p-2 rounded-xl border border-neutral-700/30 md:border-none focus-within:bg-neutral-800/60 transition-colors">
-                                    <div className="md:col-span-6 space-y-1">
-                                        <label className="md:hidden text-xs text-neutral-400 ml-1">Description</label>
-                                        <input
-                                            {...register(`items.${index}.description` as const)}
-                                            className={cn(
-                                                "w-full bg-neutral-900/80 border rounded-lg px-3 py-2 text-white placeholder-neutral-600 focus:outline-none focus:ring-1 transition-all",
-                                                errors.items?.[index]?.description ? "border-red-500 focus:border-red-500 focus:ring-red-500" : "border-neutral-700 focus:border-emerald-500 focus:ring-emerald-500"
-                                            )}
-                                            placeholder="Item description..."
-                                        />
-                                        {errors.items?.[index]?.description && <p className="text-red-400 text-xs ml-1">{errors.items[index]?.description?.message}</p>}
-                                    </div>
-
-                                    <div className="grid grid-cols-2 md:grid-cols-5 md:col-span-5 gap-4">
-                                        <div className="md:col-span-2 space-y-1">
-                                            <label className="md:hidden text-xs text-neutral-400 ml-1">Quantity</label>
-                                            <input
-                                                type="number"
-                                                step="any"
-                                                {...register(`items.${index}.quantity` as const, { valueAsNumber: true })}
-                                                className={cn(
-                                                    "w-full bg-neutral-900/80 border rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-1 transition-all",
-                                                    errors.items?.[index]?.quantity ? "border-red-500 focus:border-red-500 focus:ring-red-500" : "border-neutral-700 focus:border-emerald-500 focus:ring-emerald-500"
-                                                )}
-                                            />
-                                            {errors.items?.[index]?.quantity && <p className="text-red-400 text-xs ml-1">{errors.items[index]?.quantity?.message}</p>}
+                                return (
+                                    <div key={field.id} className="bg-neutral-900/30 p-4 rounded-xl border border-neutral-700/40 space-y-4">
+                                        {/* Tipo + eliminar */}
+                                        <div className="flex justify-between items-center gap-4">
+                                            <div className="inline-flex rounded-lg border border-neutral-700 overflow-hidden text-sm">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setItemType(index, "product")}
+                                                    className={cn(
+                                                        "flex items-center gap-1.5 px-3 py-1.5 font-medium transition-colors",
+                                                        !isService ? "bg-emerald-500/20 text-emerald-300" : "text-neutral-400 hover:text-white"
+                                                    )}
+                                                >
+                                                    <Package className="w-4 h-4" /> Producto
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setItemType(index, "service")}
+                                                    className={cn(
+                                                        "flex items-center gap-1.5 px-3 py-1.5 font-medium transition-colors border-l border-neutral-700",
+                                                        isService ? "bg-emerald-500/20 text-emerald-300" : "text-neutral-400 hover:text-white"
+                                                    )}
+                                                >
+                                                    <Wrench className="w-4 h-4" /> Servicio
+                                                </button>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => remove(index)}
+                                                disabled={fields.length === 1}
+                                                className="text-neutral-500 hover:text-red-400 disabled:opacity-30 disabled:hover:text-neutral-500 transition-colors p-2 rounded-lg hover:bg-neutral-800"
+                                                title="Eliminar línea"
+                                            >
+                                                <Trash2 className="w-5 h-5" />
+                                            </button>
                                         </div>
 
-                                        <div className="md:col-span-3 space-y-1">
-                                            <label className="md:hidden text-xs text-neutral-400 ml-1">Unit Price ($)</label>
-                                            <input
-                                                type="number"
-                                                step="any"
-                                                {...register(`items.${index}.unit_price` as const, { valueAsNumber: true })}
-                                                className={cn(
-                                                    "w-full bg-neutral-900/80 border rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-1 transition-all",
-                                                    errors.items?.[index]?.unit_price ? "border-red-500 focus:border-red-500 focus:ring-red-500" : "border-neutral-700 focus:border-emerald-500 focus:ring-emerald-500"
-                                                )}
-                                            />
-                                            {errors.items?.[index]?.unit_price && <p className="text-red-400 text-xs ml-1">{errors.items[index]?.unit_price?.message}</p>}
-                                        </div>
-                                    </div>
+                                        {!isService ? (
+                                            /* PRODUCTO */
+                                            <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
+                                                <div className="md:col-span-6 space-y-1">
+                                                    <label className="text-xs text-neutral-400 ml-1">Descripción</label>
+                                                    <input
+                                                        {...register(`items.${index}.description` as const)}
+                                                        className={cn(
+                                                            "w-full bg-neutral-900/80 border rounded-lg px-3 py-2 text-white placeholder-neutral-600 focus:outline-none focus:ring-1 transition-all",
+                                                            errors.items?.[index]?.description ? "border-red-500 focus:border-red-500 focus:ring-red-500" : "border-neutral-700 focus:border-emerald-500 focus:ring-emerald-500"
+                                                        )}
+                                                        placeholder="Descripción del producto..."
+                                                    />
+                                                    {errors.items?.[index]?.description && <p className="text-red-400 text-xs ml-1">{errors.items[index]?.description?.message as string}</p>}
+                                                </div>
+                                                <div className="grid grid-cols-2 md:grid-cols-6 md:col-span-6 gap-4">
+                                                    <div className="md:col-span-2 space-y-1">
+                                                        <label className="text-xs text-neutral-400 ml-1">Cantidad</label>
+                                                        <input
+                                                            type="number"
+                                                            step="any"
+                                                            {...register(`items.${index}.quantity` as const, { valueAsNumber: true })}
+                                                            className={cn(
+                                                                "w-full bg-neutral-900/80 border rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-1 transition-all",
+                                                                errors.items?.[index]?.quantity ? "border-red-500 focus:border-red-500 focus:ring-red-500" : "border-neutral-700 focus:border-emerald-500 focus:ring-emerald-500"
+                                                            )}
+                                                        />
+                                                        {errors.items?.[index]?.quantity && <p className="text-red-400 text-xs ml-1">{errors.items[index]?.quantity?.message as string}</p>}
+                                                    </div>
+                                                    <div className="md:col-span-2 space-y-1">
+                                                        <label className="text-xs text-neutral-400 ml-1">Costo unitario ($)</label>
+                                                        <input
+                                                            type="number"
+                                                            step="any"
+                                                            {...register(`items.${index}.unit_price` as const, { valueAsNumber: true })}
+                                                            className={cn(
+                                                                "w-full bg-neutral-900/80 border rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-1 transition-all",
+                                                                errors.items?.[index]?.unit_price ? "border-red-500 focus:border-red-500 focus:ring-red-500" : "border-neutral-700 focus:border-emerald-500 focus:ring-emerald-500"
+                                                            )}
+                                                        />
+                                                        {errors.items?.[index]?.unit_price && <p className="text-red-400 text-xs ml-1">{errors.items[index]?.unit_price?.message as string}</p>}
+                                                    </div>
+                                                    <div className="md:col-span-2 space-y-1">
+                                                        <label className="text-xs text-neutral-400 ml-1">Importe</label>
+                                                        <div className="w-full bg-neutral-900/40 border border-neutral-800 rounded-lg px-3 py-2 text-emerald-400 font-semibold">
+                                                            {formatCurrency(amount)}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            /* SERVICIO */
+                                            <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
+                                                <div className="md:col-span-5 space-y-1">
+                                                    <label className="text-xs text-neutral-400 ml-1">Nombre del servicio (opcional)</label>
+                                                    <input
+                                                        {...register(`items.${index}.description` as const)}
+                                                        className="w-full bg-neutral-900/80 border border-neutral-700 rounded-lg px-3 py-2 text-white placeholder-neutral-600 focus:outline-none focus:ring-1 focus:border-emerald-500 focus:ring-emerald-500 transition-all"
+                                                        placeholder="Ej: Fabricación de estructura"
+                                                    />
+                                                </div>
+                                                <div className="md:col-span-4 space-y-1">
+                                                    <label className="text-xs text-neutral-400 ml-1">Conceptos / horas</label>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setServiceModalIndex(index)}
+                                                        className={cn(
+                                                            "w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border font-medium transition-colors",
+                                                            concepts.length > 0
+                                                                ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/20"
+                                                                : "bg-neutral-900/80 border-neutral-700 text-neutral-300 hover:border-emerald-500"
+                                                        )}
+                                                    >
+                                                        <Clock className="w-4 h-4" />
+                                                        {concepts.length > 0 ? `${concepts.length} concepto${concepts.length > 1 ? "s" : ""}` : "Agregar conceptos"}
+                                                    </button>
+                                                    {errors.items?.[index]?.service_concepts && (
+                                                        <p className="text-red-400 text-xs ml-1">{(errors.items[index]?.service_concepts as any)?.message || "Agrega al menos un concepto"}</p>
+                                                    )}
+                                                </div>
+                                                <div className="md:col-span-3 space-y-1">
+                                                    <label className="text-xs text-neutral-400 ml-1">Importe</label>
+                                                    <div className="w-full bg-neutral-900/40 border border-neutral-800 rounded-lg px-3 py-2 text-emerald-400 font-semibold">
+                                                        {formatCurrency(amount)}
+                                                    </div>
+                                                </div>
 
-                                    <div className="md:col-span-1 flex items-center justify-end md:justify-center md:h-[40px] pt-2 md:pt-0">
-                                        <button
-                                            type="button"
-                                            onClick={() => remove(index)}
-                                            disabled={fields.length === 1}
-                                            className="text-neutral-500 hover:text-red-400 disabled:opacity-30 disabled:hover:text-neutral-500 transition-colors p-2 rounded-lg hover:bg-neutral-800"
-                                            title="Remove line"
-                                        >
-                                            <Trash2 className="w-5 h-5" />
-                                        </button>
+                                                {concepts.length > 0 && (
+                                                    <div className="md:col-span-12 flex flex-wrap gap-2 pt-1">
+                                                        {concepts.map((c, ci) => (
+                                                            <span key={ci} className="text-xs bg-neutral-800/70 border border-neutral-700 rounded-md px-2 py-1 text-neutral-300">
+                                                                {c.concept}: {Number(c.hours) || 0} h × {formatCurrency(Number(c.rate) || 0)}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
-                                </div>
-                            ))}
+                                );
+                            })}
+                            {typeof errors.items?.message === "string" && <p className="text-red-400 text-xs ml-1">{errors.items.message}</p>}
                         </div>
                     </div>
 
@@ -413,20 +556,32 @@ function QuotationForm() {
                             </div>
                         </div>
                     </div>
-
                 </form>
             </div>
+
+            {serviceModalIndex !== null && (
+                <ServiceConceptsModal
+                    initialConcepts={(watchItems?.[serviceModalIndex]?.service_concepts as ServiceConcept[]) || []}
+                    onClose={() => setServiceModalIndex(null)}
+                    onSave={(concepts) => {
+                        setValue(`items.${serviceModalIndex}.service_concepts`, concepts, { shouldDirty: true, shouldValidate: true });
+                        setServiceModalIndex(null);
+                    }}
+                />
+            )}
         </div>
     );
 }
 
 export default function NewQuotationPage() {
     return (
-        <Suspense fallback={
-            <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center p-10 font-[family-name:var(--font-sans)]">
-                <RefreshCw className="w-8 h-8 animate-spin text-emerald-400" />
-            </div>
-        }>
+        <Suspense
+            fallback={
+                <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center p-10 font-[family-name:var(--font-sans)]">
+                    <RefreshCw className="w-8 h-8 animate-spin text-emerald-400" />
+                </div>
+            }
+        >
             <QuotationForm />
         </Suspense>
     );
