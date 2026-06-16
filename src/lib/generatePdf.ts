@@ -37,7 +37,8 @@ export const generateQuotationPDF = async (data: QuotationData) => {
     const pageWidth = doc.internal.pageSize.getWidth();
 
     // Helper for currency formatting
-    const formatCurrency = (amt: number) => `$ ${amt.toFixed(2)}`;
+    const formatCurrency = (amt: number) =>
+        `$ ${Number(amt || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
     // --- Header Section ---
 

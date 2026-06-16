@@ -25,7 +25,8 @@ type POData = {
 export const generatePurchaseOrderPDF = async (data: POData) => {
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
-    const formatCurrency = (amt: number) => `$ ${amt.toFixed(2)}`;
+    const formatCurrency = (amt: number) =>
+        `$ ${Number(amt || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
     // Fetch company settings for header
     let company: any = null;
