@@ -12,7 +12,7 @@ CREATE TABLE public.company_settings (
 
 -- Insert default row
 INSERT INTO public.company_settings (company_name, email, phone, address)
-VALUES ('VOXA', 'contacto@voxa.com', '555-000-0000', 'Ciudad de México, México');
+VALUES ('SMAA', 'contacto@smaa.com', '555-000-0000', 'Ciudad de México, México');
 
 -- Enable RLS
 ALTER TABLE public.company_settings ENABLE ROW LEVEL SECURITY;

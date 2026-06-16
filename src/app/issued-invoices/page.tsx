@@ -257,20 +257,20 @@ export default function IssuedInvoicesPage() {
     ];
 
     return (
-        <div className="min-h-screen bg-[#0B1120] text-slate-200 p-6 md:p-10 font-[family-name:var(--font-sans)]">
+        <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 p-6 md:p-10 font-[family-name:var(--font-sans)]">
             <div className="w-full space-y-8">
-                <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-slate-800/40 p-6 rounded-3xl border border-slate-700/50 backdrop-blur-sm">
+                <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
                     <div className="flex items-center gap-4">
-                        <Link href="/" className="p-3 bg-slate-800 hover:bg-slate-700 rounded-xl transition-colors text-slate-400 hover:text-white border border-slate-700"><ArrowLeft className="w-5 h-5" /></Link>
+                        <Link href="/" className="p-3 bg-neutral-800 hover:bg-neutral-700 rounded-xl transition-colors text-neutral-400 hover:text-white border border-neutral-700"><ArrowLeft className="w-5 h-5" /></Link>
                         <div>
                             <h1 className="text-3xl font-bold text-white flex items-center gap-3">
                                 <Receipt className="w-8 h-8 text-teal-400" />
                                 Facturas Emitidas
                             </h1>
-                            <p className="text-slate-400 text-sm mt-1">CFDI que tu negocio ha emitido a clientes. Sube tu carpeta de XML para importarlas.</p>
+                            <p className="text-neutral-400 text-sm mt-1">CFDI que tu negocio ha emitido a clientes. Sube tu carpeta de XML para importarlas.</p>
                         </div>
                     </div>
-                    <button onClick={fetchInvoices} className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium" disabled={loading}>
+                    <button onClick={fetchInvoices} className="p-2 text-neutral-400 hover:text-white hover:bg-neutral-700 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium" disabled={loading}>
                         <RefreshCw className={cn("w-4 h-4", loading && "animate-spin text-teal-400")} /> Refresh
                     </button>
                 </header>
@@ -286,7 +286,7 @@ export default function IssuedInvoicesPage() {
                 )}
 
                 {/* Cargador masivo */}
-                <div className="bg-slate-800/40 border border-slate-700/50 rounded-3xl p-6 backdrop-blur-sm">
+                <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-3xl p-6 backdrop-blur-sm">
                     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
                         <div className="flex items-start gap-3">
                             <div className="bg-teal-500/10 p-2.5 rounded-xl border border-teal-500/20">
@@ -294,7 +294,7 @@ export default function IssuedInvoicesPage() {
                             </div>
                             <div>
                                 <h3 className="text-base font-semibold text-white">Importar facturas (XML CFDI)</h3>
-                                <p className="text-slate-400 text-sm mt-0.5 max-w-xl">
+                                <p className="text-neutral-400 text-sm mt-0.5 max-w-xl">
                                     Selecciona la carpeta completa con tus XML o varios archivos a la vez. Leo el UUID, cliente, fecha, IVA y total de cada uno. No se duplican: si un CFDI ya existe, se omite automáticamente.
                                 </p>
                             </div>
@@ -310,7 +310,7 @@ export default function IssuedInvoicesPage() {
                             <button
                                 onClick={() => filesRef.current?.click()}
                                 disabled={importing}
-                                className="inline-flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-white px-5 py-2.5 rounded-xl font-medium text-sm transition-all border border-slate-700 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                                className="inline-flex items-center justify-center gap-2 bg-neutral-800 hover:bg-neutral-700 text-white px-5 py-2.5 rounded-xl font-medium text-sm transition-all border border-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
                             >
                                 <FileCode className="w-4 h-4 text-teal-400" /> Subir archivos
                             </button>
@@ -338,11 +338,11 @@ export default function IssuedInvoicesPage() {
                     {/* Progreso */}
                     {progress && (
                         <div className="mt-5">
-                            <div className="flex items-center justify-between text-sm text-slate-400 mb-2">
+                            <div className="flex items-center justify-between text-sm text-neutral-400 mb-2">
                                 <span className="flex items-center gap-2"><RefreshCw className="w-4 h-4 animate-spin text-teal-400" /> Procesando facturas…</span>
-                                <span className="font-medium text-slate-200">{progress.done} / {progress.total}</span>
+                                <span className="font-medium text-neutral-200">{progress.done} / {progress.total}</span>
                             </div>
-                            <div className="h-2.5 bg-slate-900/60 rounded-full overflow-hidden">
+                            <div className="h-2.5 bg-neutral-900/60 rounded-full overflow-hidden">
                                 <div
                                     className="h-full bg-gradient-to-r from-teal-500 to-emerald-500 transition-all duration-300"
                                     style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%` }}
@@ -362,8 +362,8 @@ export default function IssuedInvoicesPage() {
                                 <p className="text-xs text-amber-300/80 uppercase tracking-wide">Duplicadas</p>
                                 <p className="text-2xl font-bold text-white mt-1">{report.duplicates}</p>
                             </div>
-                            <div className="bg-slate-700/30 border border-slate-600/30 rounded-xl p-3">
-                                <p className="text-xs text-slate-400 uppercase tracking-wide">No válidas</p>
+                            <div className="bg-neutral-700/30 border border-neutral-600/30 rounded-xl p-3">
+                                <p className="text-xs text-neutral-400 uppercase tracking-wide">No válidas</p>
                                 <p className="text-2xl font-bold text-white mt-1">{report.invalid}</p>
                             </div>
                             <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-3">
@@ -375,36 +375,36 @@ export default function IssuedInvoicesPage() {
                 </div>
 
                 {/* Filtros */}
-                <div className="bg-slate-800/40 border border-slate-700/50 rounded-3xl p-5 backdrop-blur-sm">
+                <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-3xl p-5 backdrop-blur-sm">
                     <div className="flex flex-col xl:flex-row xl:items-center gap-4">
-                        <div className="flex items-center gap-2 text-slate-400 text-sm font-medium flex-shrink-0">
+                        <div className="flex items-center gap-2 text-neutral-400 text-sm font-medium flex-shrink-0">
                             <Filter className="w-4 h-4" /> Filtros
                         </div>
                         <div className="flex flex-col sm:flex-row gap-3 flex-1 flex-wrap">
                             <div className="relative flex-1 min-w-[240px]">
-                                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+                                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 pointer-events-none" />
                                 <input
                                     type="text"
                                     value={search}
                                     onChange={(e) => setSearch(e.target.value)}
                                     placeholder="Buscar por cliente, RFC, folio o UUID..."
-                                    className="w-full bg-slate-900/60 border border-slate-700/50 rounded-xl pl-10 pr-9 py-2.5 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-teal-500/50 focus:ring-2 focus:ring-teal-500/20"
+                                    className="w-full bg-neutral-900/60 border border-neutral-700/50 rounded-xl pl-10 pr-9 py-2.5 text-sm text-neutral-200 placeholder:text-neutral-500 focus:outline-none focus:border-teal-500/50 focus:ring-2 focus:ring-teal-500/20"
                                 />
                                 {search && (
-                                    <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white p-1 rounded-md hover:bg-slate-700/50">
+                                    <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-white p-1 rounded-md hover:bg-neutral-700/50">
                                         <X className="w-3.5 h-3.5" />
                                     </button>
                                 )}
                             </div>
                             <div className="flex items-center gap-2">
-                                <span className="text-slate-500 text-sm">Valor</span>
+                                <span className="text-neutral-500 text-sm">Valor</span>
                                 <input type="number" inputMode="decimal" value={minValue} onChange={(e) => setMinValue(e.target.value)} placeholder="Mín"
-                                    className="w-24 bg-slate-900/60 border border-slate-700/50 rounded-xl px-3 py-2.5 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-teal-500/50 focus:ring-2 focus:ring-teal-500/20" />
-                                <span className="text-slate-600">–</span>
+                                    className="w-24 bg-neutral-900/60 border border-neutral-700/50 rounded-xl px-3 py-2.5 text-sm text-neutral-200 placeholder:text-neutral-500 focus:outline-none focus:border-teal-500/50 focus:ring-2 focus:ring-teal-500/20" />
+                                <span className="text-neutral-600">–</span>
                                 <input type="number" inputMode="decimal" value={maxValue} onChange={(e) => setMaxValue(e.target.value)} placeholder="Máx"
-                                    className="w-24 bg-slate-900/60 border border-slate-700/50 rounded-xl px-3 py-2.5 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-teal-500/50 focus:ring-2 focus:ring-teal-500/20" />
+                                    className="w-24 bg-neutral-900/60 border border-neutral-700/50 rounded-xl px-3 py-2.5 text-sm text-neutral-200 placeholder:text-neutral-500 focus:outline-none focus:border-teal-500/50 focus:ring-2 focus:ring-teal-500/20" />
                             </div>
-                            <div className="flex items-center gap-1 bg-slate-900/60 border border-slate-700/50 rounded-xl p-1">
+                            <div className="flex items-center gap-1 bg-neutral-900/60 border border-neutral-700/50 rounded-xl p-1">
                                 {PAID_FILTERS.map(f => (
                                     <button
                                         key={f.key}
@@ -413,7 +413,7 @@ export default function IssuedInvoicesPage() {
                                             "px-3 py-1.5 rounded-lg text-sm font-medium transition-colors",
                                             paidFilter === f.key
                                                 ? "bg-teal-500/20 text-teal-300"
-                                                : "text-slate-400 hover:text-white"
+                                                : "text-neutral-400 hover:text-white"
                                         )}
                                     >
                                         {f.label}
@@ -421,7 +421,7 @@ export default function IssuedInvoicesPage() {
                                 ))}
                             </div>
                             {hasActiveFilters && (
-                                <button onClick={clearFilters} className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-white bg-slate-800/60 hover:bg-slate-700/60 px-3 py-2.5 rounded-xl border border-slate-700/50 whitespace-nowrap">
+                                <button onClick={clearFilters} className="inline-flex items-center gap-1.5 text-sm text-neutral-400 hover:text-white bg-neutral-800/60 hover:bg-neutral-700/60 px-3 py-2.5 rounded-xl border border-neutral-700/50 whitespace-nowrap">
                                     <X className="w-3.5 h-3.5" /> Limpiar
                                 </button>
                             )}
@@ -430,29 +430,29 @@ export default function IssuedInvoicesPage() {
                 </div>
 
                 {/* Tabla */}
-                <div className="bg-slate-800/40 border border-slate-700/50 rounded-3xl overflow-hidden backdrop-blur-sm">
-                    <div className="p-6 border-b border-slate-700/50 flex flex-wrap justify-between items-center gap-4 bg-slate-800/20">
+                <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-3xl overflow-hidden backdrop-blur-sm">
+                    <div className="p-6 border-b border-neutral-700/50 flex flex-wrap justify-between items-center gap-4 bg-neutral-800/20">
                         <h2 className="text-xl font-semibold text-white">
                             Facturas
-                            <span className="ml-2 text-sm font-normal text-slate-400">
+                            <span className="ml-2 text-sm font-normal text-neutral-400">
                                 {hasActiveFilters ? `${filteredRows.length} de ${rows.length}` : rows.length}
                             </span>
                         </h2>
                         <div className="flex flex-wrap items-center gap-4 text-sm">
-                            <span className="text-slate-400">
-                                {hasActiveFilters ? "Filtrado" : "Emitido"}: <span className="text-slate-200 font-semibold">{fmtMoney(sumFiltered)}</span>
+                            <span className="text-neutral-400">
+                                {hasActiveFilters ? "Filtrado" : "Emitido"}: <span className="text-neutral-200 font-semibold">{fmtMoney(sumFiltered)}</span>
                             </span>
-                            <span className="text-slate-400">
+                            <span className="text-neutral-400">
                                 Cobrado: <span className="text-emerald-300 font-semibold">{fmtMoney(sumCobrado)}</span>
                             </span>
-                            <span className="text-slate-400 inline-flex items-center gap-1">
+                            <span className="text-neutral-400 inline-flex items-center gap-1">
                                 <Wallet className="w-4 h-4 text-amber-400" /> Por cobrar: <span className="text-amber-300 font-semibold">{fmtMoney(sumPorCobrar)}</span>
                             </span>
                         </div>
                     </div>
                     <div className="overflow-x-auto">
                         <table className="w-full text-left text-sm whitespace-nowrap">
-                            <thead className="bg-slate-900/50 text-slate-400 uppercase text-xs font-semibold tracking-wider">
+                            <thead className="bg-neutral-900/50 text-neutral-400 uppercase text-xs font-semibold tracking-wider">
                                 <tr>
                                     <th className="px-6 py-4">Serie-Folio</th>
                                     <th className="px-6 py-4">Cliente</th>
@@ -466,33 +466,33 @@ export default function IssuedInvoicesPage() {
                                     <th className="px-6 py-4 text-right">XML</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-700/50">
+                            <tbody className="divide-y divide-neutral-700/50">
                                 {loading ? (
-                                    <tr><td colSpan={10} className="px-6 py-12 text-center text-slate-400"><RefreshCw className="w-6 h-6 animate-spin mx-auto mb-3 text-teal-500" />Cargando...</td></tr>
+                                    <tr><td colSpan={10} className="px-6 py-12 text-center text-neutral-400"><RefreshCw className="w-6 h-6 animate-spin mx-auto mb-3 text-teal-500" />Cargando...</td></tr>
                                 ) : filteredRows.length === 0 ? (
-                                    <tr><td colSpan={10} className="px-6 py-12 text-center text-slate-400">
-                                        <div className="bg-slate-800/50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 border border-slate-700"><Receipt className="w-8 h-8 text-slate-500" /></div>
+                                    <tr><td colSpan={10} className="px-6 py-12 text-center text-neutral-400">
+                                        <div className="bg-neutral-800/50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 border border-neutral-700"><Receipt className="w-8 h-8 text-neutral-500" /></div>
                                         {hasActiveFilters ? (
                                             <>
-                                                <p className="text-lg text-slate-300 font-medium">Sin resultados para estos filtros</p>
+                                                <p className="text-lg text-neutral-300 font-medium">Sin resultados para estos filtros</p>
                                                 <p className="text-sm mt-1">Ajusta la búsqueda o limpia los filtros.</p>
                                             </>
                                         ) : (
                                             <>
-                                                <p className="text-lg text-slate-300 font-medium">Aún no hay facturas emitidas</p>
+                                                <p className="text-lg text-neutral-300 font-medium">Aún no hay facturas emitidas</p>
                                                 <p className="text-sm mt-1">Usa "Subir carpeta" para importar tus XML.</p>
                                             </>
                                         )}
                                     </td></tr>
                                 ) : (
                                     filteredRows.map((r) => (
-                                        <tr key={r.id} className="hover:bg-slate-800/80 transition-colors">
+                                        <tr key={r.id} className="hover:bg-neutral-800/80 transition-colors">
                                             <td className="px-6 py-4 font-mono text-xs text-teal-300">{[r.serie, r.folio].filter(Boolean).join("-") || "—"}</td>
-                                            <td className="px-6 py-4 font-medium text-slate-200 max-w-[240px] truncate">{r.receptor_nombre || "—"}</td>
-                                            <td className="px-6 py-4 font-mono text-xs text-slate-400">{r.receptor_rfc || "—"}</td>
-                                            <td className="px-6 py-4 text-slate-400">{r.invoice_date ? new Date(r.invoice_date).toLocaleDateString() : "—"}</td>
-                                            <td className="px-6 py-4 text-slate-400">{fmtMoney(r.subtotal)}</td>
-                                            <td className="px-6 py-4 text-slate-400">{fmtMoney(r.vat_total)}</td>
+                                            <td className="px-6 py-4 font-medium text-neutral-200 max-w-[240px] truncate">{r.receptor_nombre || "—"}</td>
+                                            <td className="px-6 py-4 font-mono text-xs text-neutral-400">{r.receptor_rfc || "—"}</td>
+                                            <td className="px-6 py-4 text-neutral-400">{r.invoice_date ? new Date(r.invoice_date).toLocaleDateString() : "—"}</td>
+                                            <td className="px-6 py-4 text-neutral-400">{fmtMoney(r.subtotal)}</td>
+                                            <td className="px-6 py-4 text-neutral-400">{fmtMoney(r.vat_total)}</td>
                                             <td className="px-6 py-4 font-medium text-emerald-400">{fmtMoney(r.total)}</td>
                                             <td className="px-6 py-4 text-center">
                                                 <button
@@ -503,7 +503,7 @@ export default function IssuedInvoicesPage() {
                                                         "inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all disabled:opacity-50 disabled:cursor-wait",
                                                         r.paid
                                                             ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25"
-                                                            : "bg-slate-800/60 border-slate-600/40 text-slate-400 hover:bg-amber-500/10 hover:border-amber-500/30 hover:text-amber-300"
+                                                            : "bg-neutral-800/60 border-neutral-600/40 text-neutral-400 hover:bg-amber-500/10 hover:border-amber-500/30 hover:text-amber-300"
                                                     )}
                                                 >
                                                     {payingId === r.id ? (
@@ -511,7 +511,7 @@ export default function IssuedInvoicesPage() {
                                                     ) : (
                                                         <span className={cn(
                                                             "w-4 h-4 rounded flex items-center justify-center border",
-                                                            r.paid ? "bg-emerald-500 border-emerald-500" : "border-slate-500"
+                                                            r.paid ? "bg-emerald-500 border-emerald-500" : "border-neutral-500"
                                                         )}>
                                                             {r.paid && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
                                                         </span>
@@ -519,11 +519,11 @@ export default function IssuedInvoicesPage() {
                                                     {r.paid ? "Cobrada" : "Por cobrar"}
                                                 </button>
                                             </td>
-                                            <td className="px-6 py-4 font-mono text-[11px] text-slate-500 max-w-[160px] truncate" title={r.uuid || ""}>{r.uuid || "—"}</td>
+                                            <td className="px-6 py-4 font-mono text-[11px] text-neutral-500 max-w-[160px] truncate" title={r.uuid || ""}>{r.uuid || "—"}</td>
                                             <td className="px-6 py-4 text-right">
                                                 {r.xml_url ? (
                                                     <a href={r.xml_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 px-2.5 py-1.5 rounded-lg border border-emerald-500/20"><FileCode className="w-3.5 h-3.5" /> XML</a>
-                                                ) : <span className="text-slate-600 text-xs">—</span>}
+                                                ) : <span className="text-neutral-600 text-xs">—</span>}
                                             </td>
                                         </tr>
                                     ))

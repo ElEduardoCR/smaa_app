@@ -125,14 +125,14 @@ export default function SuppliersPage() {
     };
 
     return (
-        <div className="min-h-screen bg-[#0B1120] text-slate-200 p-6 md:p-10 font-[family-name:var(--font-sans)]">
+        <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 p-6 md:p-10 font-[family-name:var(--font-sans)]">
             <div className="w-full space-y-8">
-                <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-slate-800/40 p-6 rounded-3xl border border-slate-700/50 backdrop-blur-sm">
+                <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
                     <div className="flex items-center gap-4">
-                        <Link href="/" className="p-3 bg-slate-800 hover:bg-slate-700 rounded-xl transition-colors text-slate-400 hover:text-white border border-slate-700"><ArrowLeft className="w-5 h-5" /></Link>
+                        <Link href="/" className="p-3 bg-neutral-800 hover:bg-neutral-700 rounded-xl transition-colors text-neutral-400 hover:text-white border border-neutral-700"><ArrowLeft className="w-5 h-5" /></Link>
                         <div>
                             <h1 className="text-3xl font-bold text-white flex items-center gap-3"><Truck className="w-8 h-8 text-rose-400" />Proveedores</h1>
-                            <p className="text-slate-400 text-sm mt-1">Administra tus proveedores y sus datos fiscales</p>
+                            <p className="text-neutral-400 text-sm mt-1">Administra tus proveedores y sus datos fiscales</p>
                         </div>
                     </div>
                     <button onClick={isFormOpen ? handleCloseForm : () => setIsFormOpen(true)} className="flex items-center justify-center gap-2 bg-rose-500 hover:bg-rose-600 text-white px-6 py-3 rounded-xl font-medium transition-all hover:shadow-[0_0_20px_rgba(244,63,94,0.4)] active:scale-95">
@@ -148,61 +148,61 @@ export default function SuppliersPage() {
                 )}
 
                 {isFormOpen && (
-                    <div className="bg-slate-800/60 border border-slate-700 shadow-xl rounded-3xl p-6 md:p-8">
-                        <h2 className="text-xl font-semibold text-white mb-6 flex items-center gap-2 border-b border-slate-700 pb-4">
+                    <div className="bg-neutral-800/60 border border-neutral-700 shadow-xl rounded-3xl p-6 md:p-8">
+                        <h2 className="text-xl font-semibold text-white mb-6 flex items-center gap-2 border-b border-neutral-700 pb-4">
                             <FileText className="w-5 h-5 text-rose-400" />{editingId ? "Editar Proveedor" : "Nuevo Proveedor"}
                         </h2>
                         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                                 <div className="space-y-2">
-                                    <label className="text-sm font-medium text-slate-300 ml-1">RFC *</label>
+                                    <label className="text-sm font-medium text-neutral-300 ml-1">RFC *</label>
                                     <div className="relative">
-                                        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none"><Hash className="h-4 w-4 text-slate-500" /></div>
-                                        <input {...register("rfc")} className={cn("w-full bg-slate-900/50 border rounded-xl pl-11 pr-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:ring-2 transition-all uppercase", errors.rfc ? "border-red-500/50 focus:ring-red-500/20" : "border-slate-700 focus:border-rose-500 focus:ring-rose-500/20")} placeholder="XAXX010101000" maxLength={13} />
+                                        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none"><Hash className="h-4 w-4 text-neutral-500" /></div>
+                                        <input {...register("rfc")} className={cn("w-full bg-neutral-900/50 border rounded-xl pl-11 pr-4 py-3 text-white placeholder-neutral-500 focus:outline-none focus:ring-2 transition-all uppercase", errors.rfc ? "border-red-500/50 focus:ring-red-500/20" : "border-neutral-700 focus:border-rose-500 focus:ring-rose-500/20")} placeholder="XAXX010101000" maxLength={13} />
                                     </div>
                                     {errors.rfc && <p className="text-red-400 text-xs ml-1">{errors.rfc.message}</p>}
                                 </div>
                                 <div className="space-y-2">
-                                    <label className="text-sm font-medium text-slate-300 ml-1">Razón Social *</label>
+                                    <label className="text-sm font-medium text-neutral-300 ml-1">Razón Social *</label>
                                     <div className="relative">
-                                        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none"><Truck className="h-4 w-4 text-slate-500" /></div>
-                                        <input {...register("business_name")} className={cn("w-full bg-slate-900/50 border rounded-xl pl-11 pr-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:ring-2 transition-all", errors.business_name ? "border-red-500/50 focus:ring-red-500/20" : "border-slate-700 focus:border-rose-500 focus:ring-rose-500/20")} placeholder="PROVEEDOR S.A. DE C.V." />
+                                        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none"><Truck className="h-4 w-4 text-neutral-500" /></div>
+                                        <input {...register("business_name")} className={cn("w-full bg-neutral-900/50 border rounded-xl pl-11 pr-4 py-3 text-white placeholder-neutral-500 focus:outline-none focus:ring-2 transition-all", errors.business_name ? "border-red-500/50 focus:ring-red-500/20" : "border-neutral-700 focus:border-rose-500 focus:ring-rose-500/20")} placeholder="PROVEEDOR S.A. DE C.V." />
                                     </div>
                                     {errors.business_name && <p className="text-red-400 text-xs ml-1">{errors.business_name.message}</p>}
                                 </div>
                                 <div className="space-y-2">
-                                    <label className="text-sm font-medium text-slate-300 ml-1">Régimen Fiscal</label>
-                                    <input {...register("fiscal_regime")} className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20 transition-all" placeholder="601" />
+                                    <label className="text-sm font-medium text-neutral-300 ml-1">Régimen Fiscal</label>
+                                    <input {...register("fiscal_regime")} className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-4 py-3 text-white placeholder-neutral-500 focus:outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20 transition-all" placeholder="601" />
                                 </div>
                                 <div className="space-y-2">
-                                    <label className="text-sm font-medium text-slate-300 ml-1">C.P. Fiscal</label>
-                                    <input {...register("fiscal_zip_code")} className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20 transition-all" placeholder="00000" maxLength={5} />
+                                    <label className="text-sm font-medium text-neutral-300 ml-1">C.P. Fiscal</label>
+                                    <input {...register("fiscal_zip_code")} className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-4 py-3 text-white placeholder-neutral-500 focus:outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20 transition-all" placeholder="00000" maxLength={5} />
                                 </div>
                                 <div className="space-y-2">
-                                    <label className="text-sm font-medium text-slate-300 ml-1">Email</label>
+                                    <label className="text-sm font-medium text-neutral-300 ml-1">Email</label>
                                     <div className="relative">
-                                        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none"><Mail className="h-4 w-4 text-slate-500" /></div>
-                                        <input type="email" {...register("email")} className="w-full bg-slate-900/50 border border-slate-700 rounded-xl pl-11 pr-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20 transition-all" placeholder="proveedor@email.com" />
+                                        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none"><Mail className="h-4 w-4 text-neutral-500" /></div>
+                                        <input type="email" {...register("email")} className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl pl-11 pr-4 py-3 text-white placeholder-neutral-500 focus:outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20 transition-all" placeholder="proveedor@email.com" />
                                     </div>
                                 </div>
                                 <div className="space-y-2">
-                                    <label className="text-sm font-medium text-slate-300 ml-1">Teléfono</label>
+                                    <label className="text-sm font-medium text-neutral-300 ml-1">Teléfono</label>
                                     <div className="relative">
-                                        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none"><Phone className="h-4 w-4 text-slate-500" /></div>
-                                        <input {...register("phone")} className="w-full bg-slate-900/50 border border-slate-700 rounded-xl pl-11 pr-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20 transition-all" placeholder="55 1234 5678" />
+                                        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none"><Phone className="h-4 w-4 text-neutral-500" /></div>
+                                        <input {...register("phone")} className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl pl-11 pr-4 py-3 text-white placeholder-neutral-500 focus:outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20 transition-all" placeholder="55 1234 5678" />
                                     </div>
                                 </div>
                                 <div className="space-y-2 md:col-span-2 lg:col-span-3">
-                                    <label className="text-sm font-medium text-slate-300 ml-1">Constancia de Situación Fiscal (PDF)</label>
-                                    <input type="file" accept=".pdf" onChange={(e) => setSelectedFile(e.target.files?.[0] || null)} className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-rose-500/20 file:text-rose-400 hover:file:bg-rose-500/30 transition-all focus:outline-none cursor-pointer" />
+                                    <label className="text-sm font-medium text-neutral-300 ml-1">Constancia de Situación Fiscal (PDF)</label>
+                                    <input type="file" accept=".pdf" onChange={(e) => setSelectedFile(e.target.files?.[0] || null)} className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-4 py-3 text-white file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-rose-500/20 file:text-rose-400 hover:file:bg-rose-500/30 transition-all focus:outline-none cursor-pointer" />
                                 </div>
                                 <div className="space-y-2 md:col-span-2 lg:col-span-3">
-                                    <label className="text-sm font-medium text-slate-300 ml-1">Dirección</label>
-                                    <textarea {...register("address")} className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20 transition-all min-h-[80px] focus:outline-none" placeholder="Calle, Ciudad, Estado..." />
+                                    <label className="text-sm font-medium text-neutral-300 ml-1">Dirección</label>
+                                    <textarea {...register("address")} className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-4 py-3 text-white placeholder-neutral-500 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20 transition-all min-h-[80px] focus:outline-none" placeholder="Calle, Ciudad, Estado..." />
                                 </div>
                             </div>
-                            <div className="flex justify-end gap-3 pt-4 border-t border-slate-700">
-                                <button type="button" onClick={handleCloseForm} className="px-6 py-3 rounded-xl font-medium text-slate-300 hover:text-white hover:bg-slate-700 transition-colors">Cancelar</button>
+                            <div className="flex justify-end gap-3 pt-4 border-t border-neutral-700">
+                                <button type="button" onClick={handleCloseForm} className="px-6 py-3 rounded-xl font-medium text-neutral-300 hover:text-white hover:bg-neutral-700 transition-colors">Cancelar</button>
                                 <button type="submit" disabled={isSubmitting} className="bg-rose-500 hover:bg-rose-600 disabled:bg-rose-500/50 text-white px-8 py-3 rounded-xl font-medium transition-all shadow-[0_0_15px_rgba(244,63,94,0.2)] hover:shadow-[0_0_20px_rgba(244,63,94,0.4)] flex items-center gap-2">
                                     {isSubmitting ? <><RefreshCw className="w-5 h-5 animate-spin" /> Guardando...</> : editingId ? "Actualizar" : "Guardar"}
                                 </button>
@@ -211,16 +211,16 @@ export default function SuppliersPage() {
                     </div>
                 )}
 
-                <div className="bg-slate-800/40 border border-slate-700/50 rounded-3xl overflow-hidden backdrop-blur-sm">
-                    <div className="p-6 border-b border-slate-700/50 flex justify-between items-center bg-slate-800/20">
+                <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-3xl overflow-hidden backdrop-blur-sm">
+                    <div className="p-6 border-b border-neutral-700/50 flex justify-between items-center bg-neutral-800/20">
                         <h2 className="text-xl font-semibold text-white">Proveedores Registrados</h2>
-                        <button onClick={fetchSuppliers} className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium" disabled={isLoading}>
+                        <button onClick={fetchSuppliers} className="p-2 text-neutral-400 hover:text-white hover:bg-neutral-700 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium" disabled={isLoading}>
                             <RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin text-rose-400")} /> Refresh
                         </button>
                     </div>
                     <div className="overflow-x-auto">
                         <table className="w-full text-left text-sm whitespace-nowrap">
-                            <thead className="bg-slate-900/50 text-slate-400 uppercase text-xs font-semibold tracking-wider">
+                            <thead className="bg-neutral-900/50 text-neutral-400 uppercase text-xs font-semibold tracking-wider">
                                 <tr>
                                     <th className="px-6 py-4 rounded-tl-xl">RFC</th>
                                     <th className="px-6 py-4">Razón Social</th>
@@ -230,31 +230,31 @@ export default function SuppliersPage() {
                                     <th className="px-6 py-4 rounded-tr-xl text-right">Acciones</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-700/50">
+                            <tbody className="divide-y divide-neutral-700/50">
                                 {isLoading ? (
-                                    <tr><td colSpan={6} className="px-6 py-12 text-center text-slate-400"><RefreshCw className="w-6 h-6 animate-spin mx-auto mb-3 text-rose-500" />Loading...</td></tr>
+                                    <tr><td colSpan={6} className="px-6 py-12 text-center text-neutral-400"><RefreshCw className="w-6 h-6 animate-spin mx-auto mb-3 text-rose-500" />Loading...</td></tr>
                                 ) : suppliers.length === 0 ? (
-                                    <tr><td colSpan={6} className="px-6 py-12 text-center text-slate-400">
-                                        <div className="bg-slate-800/50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 border border-slate-700"><Truck className="w-8 h-8 text-slate-500" /></div>
-                                        <p className="text-lg text-slate-300 font-medium">No hay proveedores</p>
+                                    <tr><td colSpan={6} className="px-6 py-12 text-center text-neutral-400">
+                                        <div className="bg-neutral-800/50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 border border-neutral-700"><Truck className="w-8 h-8 text-neutral-500" /></div>
+                                        <p className="text-lg text-neutral-300 font-medium">No hay proveedores</p>
                                         <p className="text-sm mt-1">Agrega tu primer proveedor.</p>
                                     </td></tr>
                                 ) : (
                                     suppliers.map((s) => (
-                                        <tr key={s.id} className="hover:bg-slate-800/80 transition-colors">
+                                        <tr key={s.id} className="hover:bg-neutral-800/80 transition-colors">
                                             <td className="px-6 py-4"><span className="font-mono font-medium text-rose-300 bg-rose-500/10 px-2 py-1 rounded-md border border-rose-500/20">{s.rfc}</span></td>
-                                            <td className="px-6 py-4 font-medium text-slate-200">{s.business_name}</td>
-                                            <td className="px-6 py-4 text-slate-400">{s.email || '—'}</td>
-                                            <td className="px-6 py-4 text-slate-400">{s.phone || '—'}</td>
+                                            <td className="px-6 py-4 font-medium text-neutral-200">{s.business_name}</td>
+                                            <td className="px-6 py-4 text-neutral-400">{s.email || '—'}</td>
+                                            <td className="px-6 py-4 text-neutral-400">{s.phone || '—'}</td>
                                             <td className="px-6 py-4">
                                                 {s.constancia_pdf_url ? (
                                                     <a href={s.constancia_pdf_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-2.5 py-1.5 rounded-lg border border-emerald-500/20"><FileCheck className="w-3.5 h-3.5" /> Ver PDF</a>
-                                                ) : <span className="text-slate-600 text-xs italic">No subida</span>}
+                                                ) : <span className="text-neutral-600 text-xs italic">No subida</span>}
                                             </td>
                                             <td className="px-6 py-4 text-right">
                                                 <div className="flex items-center justify-end gap-2">
                                                     <button onClick={() => handleEditClick(s)} className="p-2 text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-500 transition-colors rounded-lg border border-rose-500/20" title="Editar"><Edit2 className="w-4 h-4" /></button>
-                                                    <button onClick={() => handleDelete(s.id)} className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors rounded-lg border border-slate-700" title="Eliminar"><Trash2 className="w-4 h-4" /></button>
+                                                    <button onClick={() => handleDelete(s.id)} className="p-2 text-neutral-500 hover:text-red-400 hover:bg-red-500/10 transition-colors rounded-lg border border-neutral-700" title="Eliminar"><Trash2 className="w-4 h-4" /></button>
                                                 </div>
                                             </td>
                                         </tr>

@@ -15,7 +15,7 @@ function LoginForm() {
     const [error, setError] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
 
-    let moduleName = "el Sistema Voxa";
+    let moduleName = "el Sistema SMAA";
     if (redirectUrl.startsWith('/purchases')) moduleName = "Compras";
     if (redirectUrl.startsWith('/sales')) moduleName = "Ventas";
     if (redirectUrl.startsWith('/settings')) moduleName = "Configuración";
@@ -42,21 +42,21 @@ function LoginForm() {
     };
 
     return (
-        <div className="min-h-screen bg-[#0B1120] text-slate-200 flex items-center justify-center p-6 font-[family-name:var(--font-sans)] relative overflow-hidden">
+        <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 flex items-center justify-center p-6 font-[family-name:var(--font-sans)] relative overflow-hidden">
             {/* Background elements */}
-            <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-violet-500/10 rounded-full blur-[120px] mix-blend-screen pointer-events-none"></div>
-            <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-[120px] mix-blend-screen pointer-events-none"></div>
+            <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-orange-500/10 rounded-full blur-[120px] mix-blend-screen pointer-events-none"></div>
+            <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-orange-500/10 rounded-full blur-[120px] mix-blend-screen pointer-events-none"></div>
 
-            <div className="w-full max-w-md bg-slate-800/40 p-10 rounded-[2rem] border border-slate-700/50 backdrop-blur-xl shadow-2xl relative z-10">
+            <div className="w-full max-w-md bg-neutral-800/40 p-10 rounded-[2rem] border border-neutral-700/50 backdrop-blur-xl shadow-2xl relative z-10">
                 <div className="flex justify-center mb-8">
-                    <div className="w-16 h-16 bg-gradient-to-br from-violet-500 to-fuchsia-500 rounded-2xl flex items-center justify-center shadow-lg shadow-violet-500/25">
+                    <div className="w-16 h-16 bg-gradient-to-br from-orange-500 to-orange-500 rounded-2xl flex items-center justify-center shadow-lg shadow-orange-500/25">
                         <KeyRound className="w-8 h-8 text-white" />
                     </div>
                 </div>
 
                 <div className="text-center mb-10">
-                    <h1 className="text-3xl font-bold text-white mb-2">Voxa ERP</h1>
-                    <p className="text-slate-400 text-sm">
+                    <h1 className="text-3xl font-bold text-white mb-2">SMAA ERP</h1>
+                    <p className="text-neutral-400 text-sm">
                         Ingresa la clave para acceder a <strong className="text-white">{moduleName}</strong>
                     </p>
                 </div>
@@ -64,13 +64,13 @@ function LoginForm() {
                 <form onSubmit={handleSubmit} className="space-y-6">
                     <div>
                         <div className="relative">
-                            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-400" />
                             <input
                                 type="password"
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
                                 placeholder="Contraseña de acceso"
-                                className="w-full bg-slate-900/50 border border-slate-700 rounded-xl py-4 pl-12 pr-4 text-white placeholder-slate-500 focus:outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 transition-all font-mono"
+                                className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl py-4 pl-12 pr-4 text-white placeholder-neutral-500 focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition-all font-mono"
                                 autoFocus
                             />
                         </div>
@@ -82,7 +82,7 @@ function LoginForm() {
                     <button
                         type="submit"
                         disabled={isLoading || !password}
-                        className="w-full bg-violet-500 hover:bg-violet-600 disabled:opacity-50 disabled:cursor-not-allowed text-white py-4 rounded-xl font-bold transition-all shadow-[0_0_15px_rgba(139,92,246,0.2)] hover:shadow-[0_0_20px_rgba(139,92,246,0.4)] flex items-center justify-center gap-2 group"
+                        className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white py-4 rounded-xl font-bold transition-all shadow-[0_0_15px_rgba(249,115,22,0.2)] hover:shadow-[0_0_20px_rgba(249,115,22,0.4)] flex items-center justify-center gap-2 group"
                     >
                         {isLoading ? (
                             <Loader2 className="w-5 h-5 animate-spin" />
@@ -102,8 +102,8 @@ function LoginForm() {
 export default function LoginPage() {
     return (
         <Suspense fallback={
-            <div className="min-h-screen bg-[#0B1120] flex items-center justify-center">
-                <Loader2 className="w-8 h-8 text-violet-500 animate-spin" />
+            <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
+                <Loader2 className="w-8 h-8 text-orange-500 animate-spin" />
             </div>
         }>
             <LoginForm />

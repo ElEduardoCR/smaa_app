@@ -90,8 +90,8 @@ function NewWorkOrderForm() {
             const selectedQ = quotations.find(q => q.id === data.quotation_id);
             if (!selectedQ) throw new Error("Quotation not found");
 
-            // Derive OT number: VOXA00001 -> OT00001
-            const digits = selectedQ.quotation_number.replace('VOXA', '');
+            // Derive OT number: SMAA00001 -> OT00001
+            const digits = selectedQ.quotation_number.replace('SMAA', '');
             const orderNumber = `OT${digits}`;
 
             // Insert Work Order
@@ -134,18 +134,18 @@ function NewWorkOrderForm() {
     };
 
     return (
-        <div className="min-h-screen bg-[#0B1120] text-slate-200 p-6 md:p-10 font-[family-name:var(--font-sans)]">
+        <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 p-6 md:p-10 font-[family-name:var(--font-sans)]">
             <div className="max-w-5xl mx-auto space-y-8">
-                <header className="flex items-center gap-4 bg-slate-800/40 p-6 rounded-3xl border border-slate-700/50 backdrop-blur-sm">
-                    <Link href="/manufacturing" className="p-3 bg-slate-800 hover:bg-slate-700 rounded-xl transition-colors text-slate-400 hover:text-white border border-slate-700">
+                <header className="flex items-center gap-4 bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
+                    <Link href="/manufacturing" className="p-3 bg-neutral-800 hover:bg-neutral-700 rounded-xl transition-colors text-neutral-400 hover:text-white border border-neutral-700">
                         <ArrowLeft className="w-5 h-5" />
                     </Link>
                     <div>
                         <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-                            <Factory className="w-8 h-8 text-cyan-400" />
+                            <Factory className="w-8 h-8 text-orange-400" />
                             Nueva Orden de Trabajo
                         </h1>
-                        <p className="text-slate-400 text-sm mt-1">Create a work order linked to an approved quotation</p>
+                        <p className="text-neutral-400 text-sm mt-1">Create a work order linked to an approved quotation</p>
                     </div>
                 </header>
 
@@ -158,15 +158,15 @@ function NewWorkOrderForm() {
 
                 <form onSubmit={handleSubmit(onSubmit as any)} className="space-y-8">
                     {/* Quotation Selection */}
-                    <div className="bg-slate-800/40 p-6 rounded-3xl border border-slate-700/50 backdrop-blur-sm">
+                    <div className="bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
                         <h2 className="text-lg font-semibold text-white mb-4">Cotización Asociada</h2>
                         <div className="space-y-2 max-w-xl">
-                            <label className="text-sm font-medium text-slate-300 ml-1">Seleccionar Cotización Aprobada *</label>
+                            <label className="text-sm font-medium text-neutral-300 ml-1">Seleccionar Cotización Aprobada *</label>
                             <select
                                 {...register("quotation_id")}
                                 className={cn(
-                                    "w-full bg-slate-900/50 border rounded-xl px-4 py-3 text-white appearance-none focus:outline-none focus:ring-2 transition-all",
-                                    errors.quotation_id ? "border-red-500 focus:ring-red-500/20" : "border-slate-700 focus:border-cyan-500 focus:ring-cyan-500/20"
+                                    "w-full bg-neutral-900/50 border rounded-xl px-4 py-3 text-white appearance-none focus:outline-none focus:ring-2 transition-all",
+                                    errors.quotation_id ? "border-red-500 focus:ring-red-500/20" : "border-neutral-700 focus:border-orange-500 focus:ring-orange-500/20"
                                 )}
                                 disabled={isLoadingQuotations}
                             >
@@ -180,29 +180,29 @@ function NewWorkOrderForm() {
                             {errors.quotation_id && <p className="text-red-400 text-xs ml-1">{errors.quotation_id.message}</p>}
                         </div>
                         <div className="mt-4 max-w-xl space-y-2">
-                            <label className="text-sm font-medium text-slate-300 ml-1">Notas (opcional)</label>
+                            <label className="text-sm font-medium text-neutral-300 ml-1">Notas (opcional)</label>
                             <textarea
                                 {...register("notes")}
-                                className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 transition-all min-h-[80px]"
+                                className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition-all min-h-[80px]"
                                 placeholder="Notes about this work order..."
                             />
                         </div>
                     </div>
 
                     {/* Operations */}
-                    <div className="bg-slate-800/40 p-6 rounded-3xl border border-slate-700/50 backdrop-blur-sm">
+                    <div className="bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
                         <div className="flex justify-between items-center mb-6">
                             <h2 className="text-lg font-semibold text-white">Operaciones (Routing)</h2>
                             <button type="button"
                                 onClick={() => append({ operation_type: "", description: "" })}
-                                className="flex items-center gap-2 text-sm text-cyan-400 hover:text-cyan-300 font-medium bg-cyan-500/10 hover:bg-cyan-500/20 px-4 py-2 rounded-lg transition-colors border border-cyan-500/20"
+                                className="flex items-center gap-2 text-sm text-orange-400 hover:text-orange-300 font-medium bg-orange-500/10 hover:bg-orange-500/20 px-4 py-2 rounded-lg transition-colors border border-orange-500/20"
                             >
                                 <Plus className="w-4 h-4" /> Agregar Operación
                             </button>
                         </div>
 
                         <div className="space-y-4">
-                            <div className="hidden md:grid grid-cols-12 gap-4 text-xs font-semibold text-slate-400 uppercase tracking-wider px-2">
+                            <div className="hidden md:grid grid-cols-12 gap-4 text-xs font-semibold text-neutral-400 uppercase tracking-wider px-2">
                                 <div className="col-span-1">#</div>
                                 <div className="col-span-4">Tipo de Operación</div>
                                 <div className="col-span-6">Descripción</div>
@@ -210,18 +210,18 @@ function NewWorkOrderForm() {
                             </div>
 
                             {fields.map((field, index) => (
-                                <div key={field.id} className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start bg-slate-900/30 p-4 md:p-3 rounded-xl border border-slate-700/30 md:border-none focus-within:bg-slate-800/60 transition-colors">
+                                <div key={field.id} className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start bg-neutral-900/30 p-4 md:p-3 rounded-xl border border-neutral-700/30 md:border-none focus-within:bg-neutral-800/60 transition-colors">
                                     <div className="md:col-span-1 flex items-center justify-center">
-                                        <span className="text-slate-500 font-mono text-sm bg-slate-800/50 px-2 py-1 rounded">{index + 1}</span>
+                                        <span className="text-neutral-500 font-mono text-sm bg-neutral-800/50 px-2 py-1 rounded">{index + 1}</span>
                                     </div>
 
                                     <div className="md:col-span-4 space-y-1">
-                                        <label className="md:hidden text-xs text-slate-400 ml-1">Tipo</label>
+                                        <label className="md:hidden text-xs text-neutral-400 ml-1">Tipo</label>
                                         <select
                                             {...register(`operations.${index}.operation_type` as const)}
                                             className={cn(
-                                                "w-full bg-slate-900/80 border rounded-lg px-3 py-2 text-white appearance-none focus:outline-none focus:ring-1 transition-all",
-                                                errors.operations?.[index]?.operation_type ? "border-red-500 focus:ring-red-500" : "border-slate-700 focus:border-cyan-500 focus:ring-cyan-500"
+                                                "w-full bg-neutral-900/80 border rounded-lg px-3 py-2 text-white appearance-none focus:outline-none focus:ring-1 transition-all",
+                                                errors.operations?.[index]?.operation_type ? "border-red-500 focus:ring-red-500" : "border-neutral-700 focus:border-orange-500 focus:ring-orange-500"
                                             )}
                                         >
                                             <option value="" disabled>Seleccionar...</option>
@@ -232,17 +232,17 @@ function NewWorkOrderForm() {
                                     </div>
 
                                     <div className="md:col-span-6 space-y-1">
-                                        <label className="md:hidden text-xs text-slate-400 ml-1">Descripción</label>
+                                        <label className="md:hidden text-xs text-neutral-400 ml-1">Descripción</label>
                                         <input
                                             {...register(`operations.${index}.description` as const)}
-                                            className="w-full bg-slate-900/80 border border-slate-700 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:border-cyan-500 focus:ring-cyan-500 transition-all"
+                                            className="w-full bg-neutral-900/80 border border-neutral-700 rounded-lg px-3 py-2 text-white placeholder-neutral-600 focus:outline-none focus:ring-1 focus:border-orange-500 focus:ring-orange-500 transition-all"
                                             placeholder="Details about this operation..."
                                         />
                                     </div>
 
                                     <div className="md:col-span-1 flex items-center justify-end md:justify-center">
                                         <button type="button" onClick={() => remove(index)} disabled={fields.length === 1}
-                                            className="text-slate-500 hover:text-red-400 disabled:opacity-30 transition-colors p-2 rounded-lg hover:bg-slate-800"
+                                            className="text-neutral-500 hover:text-red-400 disabled:opacity-30 transition-colors p-2 rounded-lg hover:bg-neutral-800"
                                         >
                                             <Trash2 className="w-5 h-5" />
                                         </button>
@@ -255,7 +255,7 @@ function NewWorkOrderForm() {
                     {/* Submit */}
                     <div className="flex justify-end">
                         <button type="submit" disabled={isSubmitting}
-                            className="w-full md:w-auto bg-cyan-500 hover:bg-cyan-600 disabled:bg-cyan-500/50 text-white px-10 py-4 rounded-xl font-bold transition-all shadow-[0_0_15px_rgba(6,182,212,0.2)] hover:shadow-[0_0_20px_rgba(6,182,212,0.4)] flex items-center justify-center gap-2 text-lg"
+                            className="w-full md:w-auto bg-orange-500 hover:bg-orange-600 disabled:bg-orange-500/50 text-white px-10 py-4 rounded-xl font-bold transition-all shadow-[0_0_15px_rgba(249,115,22,0.2)] hover:shadow-[0_0_20px_rgba(249,115,22,0.4)] flex items-center justify-center gap-2 text-lg"
                         >
                             {isSubmitting ? (
                                 <><RefreshCw className="w-5 h-5 animate-spin" /> Creando...</>
@@ -273,8 +273,8 @@ function NewWorkOrderForm() {
 export default function NewWorkOrderPage() {
     return (
         <Suspense fallback={
-            <div className="min-h-screen bg-[#0B1120] flex items-center justify-center">
-                <RefreshCw className="w-8 h-8 animate-spin text-cyan-400" />
+            <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
+                <RefreshCw className="w-8 h-8 animate-spin text-orange-400" />
             </div>
         }>
             <NewWorkOrderForm />

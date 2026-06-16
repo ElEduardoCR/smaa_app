@@ -126,13 +126,13 @@ function NewPOForm() {
     };
 
     return (
-        <div className="min-h-screen bg-[#0B1120] text-slate-200 p-6 md:p-10 font-[family-name:var(--font-sans)]">
+        <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 p-6 md:p-10 font-[family-name:var(--font-sans)]">
             <div className="max-w-5xl mx-auto space-y-8">
-                <header className="flex items-center gap-4 bg-slate-800/40 p-6 rounded-3xl border border-slate-700/50 backdrop-blur-sm">
-                    <Link href="/purchases" className="p-3 bg-slate-800 hover:bg-slate-700 rounded-xl transition-colors text-slate-400 hover:text-white border border-slate-700"><ArrowLeft className="w-5 h-5" /></Link>
+                <header className="flex items-center gap-4 bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
+                    <Link href="/purchases" className="p-3 bg-neutral-800 hover:bg-neutral-700 rounded-xl transition-colors text-neutral-400 hover:text-white border border-neutral-700"><ArrowLeft className="w-5 h-5" /></Link>
                     <div>
-                        <h1 className="text-3xl font-bold text-white flex items-center gap-3"><ShoppingCart className="w-8 h-8 text-violet-400" />Nueva Orden de Compra</h1>
-                        <p className="text-slate-400 text-sm mt-1">Selecciona un proveedor y agrega los artículos</p>
+                        <h1 className="text-3xl font-bold text-white flex items-center gap-3"><ShoppingCart className="w-8 h-8 text-orange-400" />Nueva Orden de Compra</h1>
+                        <p className="text-neutral-400 text-sm mt-1">Selecciona un proveedor y agrega los artículos</p>
                     </div>
                 </header>
 
@@ -142,14 +142,14 @@ function NewPOForm() {
 
                 <form onSubmit={handleSubmit(onSubmit as any)} className="space-y-8">
                     {/* Supplier Selection */}
-                    <div className="bg-slate-800/40 p-6 rounded-3xl border border-slate-700/50 backdrop-blur-sm">
+                    <div className="bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
                         <h2 className="text-lg font-semibold text-white mb-4">Proveedor</h2>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-slate-300 ml-1">Seleccionar Proveedor *</label>
+                                <label className="text-sm font-medium text-neutral-300 ml-1">Seleccionar Proveedor *</label>
                                 <select {...register("supplier_id")}
-                                    className={cn("w-full bg-slate-900/50 border rounded-xl px-4 py-3 text-white appearance-none focus:outline-none focus:ring-2 transition-all",
-                                        errors.supplier_id ? "border-red-500 focus:ring-red-500/20" : "border-slate-700 focus:border-violet-500 focus:ring-violet-500/20"
+                                    className={cn("w-full bg-neutral-900/50 border rounded-xl px-4 py-3 text-white appearance-none focus:outline-none focus:ring-2 transition-all",
+                                        errors.supplier_id ? "border-red-500 focus:ring-red-500/20" : "border-neutral-700 focus:border-orange-500 focus:ring-orange-500/20"
                                     )} disabled={isLoadingSuppliers}>
                                     <option value="" disabled>Elige un proveedor...</option>
                                     {suppliers.map(s => (<option key={s.id} value={s.id}>{s.business_name} ({s.rfc})</option>))}
@@ -157,10 +157,10 @@ function NewPOForm() {
                                 {errors.supplier_id && <p className="text-red-400 text-xs ml-1">{errors.supplier_id.message}</p>}
                             </div>
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-slate-300 ml-1">Cotización del Proveedor (archivo)</label>
+                                <label className="text-sm font-medium text-neutral-300 ml-1">Cotización del Proveedor (archivo)</label>
                                 <input ref={fileRef} type="file" accept=".pdf,image/*"
                                     onChange={(e) => setSupplierQuoteFile(e.target.files?.[0] || null)}
-                                    className="w-full text-slate-400 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-violet-500/20 file:text-violet-400 hover:file:bg-violet-500/30 file:transition-colors bg-slate-900/50 border border-slate-700 rounded-xl"
+                                    className="w-full text-neutral-400 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-orange-500/20 file:text-orange-400 hover:file:bg-orange-500/30 file:transition-colors bg-neutral-900/50 border border-neutral-700 rounded-xl"
                                 />
                                 {supplierQuoteFile && <p className="text-xs text-emerald-400 ml-1">✓ {supplierQuoteFile.name}</p>}
                             </div>
@@ -168,17 +168,17 @@ function NewPOForm() {
                     </div>
 
                     {/* Line Items */}
-                    <div className="bg-slate-800/40 p-6 rounded-3xl border border-slate-700/50 backdrop-blur-sm">
+                    <div className="bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
                         <div className="flex justify-between items-center mb-6">
                             <h2 className="text-lg font-semibold text-white">Artículos</h2>
                             <button type="button" onClick={() => append({ description: "", quantity: 1, unit_price: 0 })}
-                                className="flex items-center gap-2 text-sm text-violet-400 hover:text-violet-300 font-medium bg-violet-500/10 hover:bg-violet-500/20 px-4 py-2 rounded-lg transition-colors border border-violet-500/20">
+                                className="flex items-center gap-2 text-sm text-orange-400 hover:text-orange-300 font-medium bg-orange-500/10 hover:bg-orange-500/20 px-4 py-2 rounded-lg transition-colors border border-orange-500/20">
                                 <Plus className="w-4 h-4" /> Agregar Línea
                             </button>
                         </div>
 
                         <div className="space-y-3">
-                            <div className="hidden md:grid grid-cols-12 gap-4 text-xs font-semibold text-slate-400 uppercase tracking-wider px-2">
+                            <div className="hidden md:grid grid-cols-12 gap-4 text-xs font-semibold text-neutral-400 uppercase tracking-wider px-2">
                                 <div className="col-span-5">Descripción</div>
                                 <div className="col-span-2">Cantidad</div>
                                 <div className="col-span-2">Precio Unit.</div>
@@ -191,30 +191,30 @@ function NewPOForm() {
                                 const price = watchedItems?.[index]?.unit_price || 0;
                                 const lineTotal = calculateLineTotal(qty, price);
                                 return (
-                                    <div key={field.id} className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start bg-slate-900/30 p-4 md:p-3 rounded-xl border border-slate-700/30 md:border-none">
+                                    <div key={field.id} className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start bg-neutral-900/30 p-4 md:p-3 rounded-xl border border-neutral-700/30 md:border-none">
                                         <div className="md:col-span-5 space-y-1">
-                                            <label className="md:hidden text-xs text-slate-400 ml-1">Descripción</label>
+                                            <label className="md:hidden text-xs text-neutral-400 ml-1">Descripción</label>
                                             <input {...register(`items.${index}.description` as const)}
-                                                className={cn("w-full bg-slate-900/80 border rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-1 transition-all",
-                                                    errors.items?.[index]?.description ? "border-red-500 focus:ring-red-500" : "border-slate-700 focus:border-violet-500 focus:ring-violet-500"
+                                                className={cn("w-full bg-neutral-900/80 border rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-1 transition-all",
+                                                    errors.items?.[index]?.description ? "border-red-500 focus:ring-red-500" : "border-neutral-700 focus:border-orange-500 focus:ring-orange-500"
                                                 )} placeholder="Descripción del artículo" />
                                         </div>
                                         <div className="md:col-span-2 space-y-1">
-                                            <label className="md:hidden text-xs text-slate-400 ml-1">Cantidad</label>
+                                            <label className="md:hidden text-xs text-neutral-400 ml-1">Cantidad</label>
                                             <input type="number" step="0.01" {...register(`items.${index}.quantity` as const)}
-                                                className="w-full bg-slate-900/80 border border-slate-700 rounded-lg px-3 py-2 text-white text-center focus:outline-none focus:ring-1 focus:border-violet-500 focus:ring-violet-500 transition-all" />
+                                                className="w-full bg-neutral-900/80 border border-neutral-700 rounded-lg px-3 py-2 text-white text-center focus:outline-none focus:ring-1 focus:border-orange-500 focus:ring-orange-500 transition-all" />
                                         </div>
                                         <div className="md:col-span-2 space-y-1">
-                                            <label className="md:hidden text-xs text-slate-400 ml-1">Precio Unit.</label>
+                                            <label className="md:hidden text-xs text-neutral-400 ml-1">Precio Unit.</label>
                                             <input type="number" step="0.01" {...register(`items.${index}.unit_price` as const)}
-                                                className="w-full bg-slate-900/80 border border-slate-700 rounded-lg px-3 py-2 text-white text-right focus:outline-none focus:ring-1 focus:border-violet-500 focus:ring-violet-500 transition-all" />
+                                                className="w-full bg-neutral-900/80 border border-neutral-700 rounded-lg px-3 py-2 text-white text-right focus:outline-none focus:ring-1 focus:border-orange-500 focus:ring-orange-500 transition-all" />
                                         </div>
                                         <div className="md:col-span-2 flex items-center justify-end">
                                             <span className="font-medium text-emerald-400">{formatCurrency(lineTotal)}</span>
                                         </div>
                                         <div className="md:col-span-1 flex items-center justify-end md:justify-center">
                                             <button type="button" onClick={() => remove(index)} disabled={fields.length === 1}
-                                                className="text-slate-500 hover:text-red-400 disabled:opacity-30 transition-colors p-2 rounded-lg hover:bg-slate-800">
+                                                className="text-neutral-500 hover:text-red-400 disabled:opacity-30 transition-colors p-2 rounded-lg hover:bg-neutral-800">
                                                 <Trash2 className="w-5 h-5" />
                                             </button>
                                         </div>
@@ -225,17 +225,17 @@ function NewPOForm() {
                     </div>
 
                     {/* Totals */}
-                    <div className="bg-slate-800/40 p-6 rounded-3xl border border-slate-700/50 backdrop-blur-sm">
+                    <div className="bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
                         <div className="max-w-xs ml-auto space-y-3">
-                            <div className="flex justify-between text-sm"><span className="text-slate-400">Subtotal</span><span className="text-white font-medium">{formatCurrency(subtotal)}</span></div>
-                            <div className="flex justify-between text-sm"><span className="text-slate-400">IVA (16%)</span><span className="text-white font-medium">{formatCurrency(vatTotal)}</span></div>
-                            <div className="border-t border-slate-700 pt-3 flex justify-between"><span className="text-lg font-bold text-white">Total</span><span className="text-lg font-bold text-emerald-400">{formatCurrency(total)}</span></div>
+                            <div className="flex justify-between text-sm"><span className="text-neutral-400">Subtotal</span><span className="text-white font-medium">{formatCurrency(subtotal)}</span></div>
+                            <div className="flex justify-between text-sm"><span className="text-neutral-400">IVA (16%)</span><span className="text-white font-medium">{formatCurrency(vatTotal)}</span></div>
+                            <div className="border-t border-neutral-700 pt-3 flex justify-between"><span className="text-lg font-bold text-white">Total</span><span className="text-lg font-bold text-emerald-400">{formatCurrency(total)}</span></div>
                         </div>
                     </div>
 
                     <div className="flex justify-end">
                         <button type="submit" disabled={isSubmitting}
-                            className="w-full md:w-auto bg-violet-500 hover:bg-violet-600 disabled:bg-violet-500/50 text-white px-10 py-4 rounded-xl font-bold transition-all shadow-[0_0_15px_rgba(139,92,246,0.2)] hover:shadow-[0_0_20px_rgba(139,92,246,0.4)] flex items-center justify-center gap-2 text-lg">
+                            className="w-full md:w-auto bg-orange-500 hover:bg-orange-600 disabled:bg-orange-500/50 text-white px-10 py-4 rounded-xl font-bold transition-all shadow-[0_0_15px_rgba(249,115,22,0.2)] hover:shadow-[0_0_20px_rgba(249,115,22,0.4)] flex items-center justify-center gap-2 text-lg">
                             {isSubmitting ? <><RefreshCw className="w-5 h-5 animate-spin" /> Creando...</> : <><Save className="w-5 h-5" /> Crear Orden de Compra</>}
                         </button>
                     </div>
@@ -247,7 +247,7 @@ function NewPOForm() {
 
 export default function NewPurchasePage() {
     return (
-        <Suspense fallback={<div className="min-h-screen bg-[#0B1120] flex items-center justify-center"><RefreshCw className="w-8 h-8 animate-spin text-violet-400" /></div>}>
+        <Suspense fallback={<div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center"><RefreshCw className="w-8 h-8 animate-spin text-orange-400" /></div>}>
             <NewPOForm />
         </Suspense>
     );

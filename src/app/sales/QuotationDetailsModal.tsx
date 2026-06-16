@@ -61,11 +61,11 @@ export default function QuotationDetailsModal({ quote, onClose }: QuotationDetai
 
     const getStatusStyle = (status: string) => {
         switch (status) {
-            case 'Draft': return "bg-slate-500/10 text-slate-400 border-slate-500/20";
-            case 'Sent': return "bg-blue-500/10 text-blue-400 border-blue-500/20";
+            case 'Draft': return "bg-neutral-500/10 text-neutral-400 border-neutral-500/20";
+            case 'Sent': return "bg-orange-500/10 text-orange-400 border-orange-500/20";
             case 'Approved': return "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
             case 'Rejected': return "bg-red-500/10 text-red-400 border-red-500/20";
-            default: return "bg-slate-500/10 text-slate-400 border-slate-500/20";
+            default: return "bg-neutral-500/10 text-neutral-400 border-neutral-500/20";
         }
     };
 
@@ -73,15 +73,15 @@ export default function QuotationDetailsModal({ quote, onClose }: QuotationDetai
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             {/* Backdrop */}
             <div 
-                className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm transition-opacity"
+                className="absolute inset-0 bg-neutral-900/80 backdrop-blur-sm transition-opacity"
                 onClick={onClose}
             ></div>
             
             {/* Modal */}
-            <div className="relative bg-[#0F172A] w-full max-w-4xl max-h-[90vh] rounded-2xl shadow-2xl border border-slate-700/50 flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="relative bg-[#0F172A] w-full max-w-4xl max-h-[90vh] rounded-2xl shadow-2xl border border-neutral-700/50 flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
                 
                 {/* Header */}
-                <div className="flex items-center justify-between p-6 border-b border-slate-800 bg-slate-800/20">
+                <div className="flex items-center justify-between p-6 border-b border-neutral-800 bg-neutral-800/20">
                     <div>
                         <div className="flex items-center gap-3">
                             <h2 className="text-2xl font-bold text-white flex items-center gap-2">
@@ -95,34 +95,34 @@ export default function QuotationDetailsModal({ quote, onClose }: QuotationDetai
                                 {quote.status}
                             </span>
                         </div>
-                        <p className="text-slate-400 mt-1">
-                            Cliente: <span className="text-slate-200 font-medium">{quote.client?.business_name || 'Desconocido'}</span>  |  Fecha: <span className="text-slate-200">{new Date(quote.created_at).toLocaleDateString()}</span>
+                        <p className="text-neutral-400 mt-1">
+                            Cliente: <span className="text-neutral-200 font-medium">{quote.client?.business_name || 'Desconocido'}</span>  |  Fecha: <span className="text-neutral-200">{new Date(quote.created_at).toLocaleDateString()}</span>
                         </p>
                     </div>
                     
                     <button 
                         onClick={onClose}
-                        className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-lg transition-colors border border-slate-700"
+                        className="p-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-white rounded-lg transition-colors border border-neutral-700"
                     >
                         <X className="w-5 h-5" />
                     </button>
                 </div>
 
                 {/* Body (Items Table) */}
-                <div className="flex-1 overflow-y-auto p-6 bg-slate-900/50">
+                <div className="flex-1 overflow-y-auto p-6 bg-neutral-900/50">
                     {isLoading ? (
-                        <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+                        <div className="flex flex-col items-center justify-center py-12 text-neutral-400">
                             <RefreshCw className="w-8 h-8 animate-spin mb-4 text-emerald-400" />
                             <p>Cargando partidas...</p>
                         </div>
                     ) : items.length === 0 ? (
-                        <div className="text-center py-12 text-slate-400">
+                        <div className="text-center py-12 text-neutral-400">
                             <p>No se encontraron partidas en esta cotización.</p>
                         </div>
                     ) : (
-                        <div className="border border-slate-700/50 rounded-xl overflow-hidden">
+                        <div className="border border-neutral-700/50 rounded-xl overflow-hidden">
                             <table className="w-full text-left text-sm whitespace-nowrap">
-                                <thead className="bg-slate-800 text-slate-300 uppercase text-xs font-semibold">
+                                <thead className="bg-neutral-800 text-neutral-300 uppercase text-xs font-semibold">
                                     <tr>
                                         <th className="px-6 py-4">Descripción</th>
                                         <th className="px-6 py-4 text-center">Cant.</th>
@@ -130,16 +130,16 @@ export default function QuotationDetailsModal({ quote, onClose }: QuotationDetai
                                         <th className="px-6 py-4 text-right">Total</th>
                                     </tr>
                                 </thead>
-                                <tbody className="divide-y divide-slate-700/50 bg-slate-800/20">
+                                <tbody className="divide-y divide-neutral-700/50 bg-neutral-800/20">
                                     {items.map((item) => (
-                                        <tr key={item.id} className="hover:bg-slate-800/40 transition-colors">
-                                            <td className="px-6 py-4 whitespace-normal min-w-[300px] text-slate-200">
+                                        <tr key={item.id} className="hover:bg-neutral-800/40 transition-colors">
+                                            <td className="px-6 py-4 whitespace-normal min-w-[300px] text-neutral-200">
                                                 {item.description}
                                             </td>
-                                            <td className="px-6 py-4 text-center text-slate-300">
+                                            <td className="px-6 py-4 text-center text-neutral-300">
                                                 {item.quantity}
                                             </td>
-                                            <td className="px-6 py-4 text-right text-slate-300">
+                                            <td className="px-6 py-4 text-right text-neutral-300">
                                                 {formatCurrency(item.unit_price)}
                                             </td>
                                             <td className="px-6 py-4 text-right font-medium text-emerald-400">
@@ -154,18 +154,18 @@ export default function QuotationDetailsModal({ quote, onClose }: QuotationDetai
                 </div>
 
                 {/* Footer (Totals) */}
-                <div className="p-6 border-t border-slate-800 bg-slate-800/40 flex justify-end">
+                <div className="p-6 border-t border-neutral-800 bg-neutral-800/40 flex justify-end">
                     <div className="w-full max-w-sm space-y-3">
-                        <div className="flex justify-between text-slate-400">
+                        <div className="flex justify-between text-neutral-400">
                             <span>Subtotal</span>
-                            <span className="text-slate-200">{formatCurrency(quote.subtotal)}</span>
+                            <span className="text-neutral-200">{formatCurrency(quote.subtotal)}</span>
                         </div>
-                        <div className="flex justify-between text-slate-400">
+                        <div className="flex justify-between text-neutral-400">
                             <span>IVA (16%)</span>
-                            <span className="text-slate-200">{formatCurrency(quote.vat_total)}</span>
+                            <span className="text-neutral-200">{formatCurrency(quote.vat_total)}</span>
                         </div>
-                        <div className="flex justify-between items-center text-lg font-bold border-t border-slate-700/50 pt-3">
-                            <span className="text-slate-300">Total</span>
+                        <div className="flex justify-between items-center text-lg font-bold border-t border-neutral-700/50 pt-3">
+                            <span className="text-neutral-300">Total</span>
                             <span className="text-emerald-400">{formatCurrency(quote.total)}</span>
                         </div>
                     </div>

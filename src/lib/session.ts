@@ -2,7 +2,7 @@ import 'server-only';
 import { SignJWT, jwtVerify } from 'jose';
 import { cookies } from 'next/headers';
 
-const secretKey = process.env.SESSION_SECRET || 'voxa-default-secret-key-change-me-in-production';
+const secretKey = process.env.SESSION_SECRET || 'smaa-default-secret-key-change-me-in-production';
 const encodedKey = new TextEncoder().encode(secretKey);
 
 export type SessionPayload = {
@@ -31,7 +31,7 @@ export async function decrypt(session: string | undefined = '') {
 
 export async function getSession() {
     const cookieStore = await cookies();
-    const sessionCookie = cookieStore.get('voxa_session')?.value;
+    const sessionCookie = cookieStore.get('smaa_session')?.value;
     if (!sessionCookie) return null;
     return await decrypt(sessionCookie);
 }
@@ -54,7 +54,7 @@ export async function updateSession(newPermissions: string[]) {
     const sessionString = await encrypt(sessionData);
 
     const cookieStore = await cookies();
-    cookieStore.set('voxa_session', sessionString, {
+    cookieStore.set('smaa_session', sessionString, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         expires: expiresAt,
@@ -65,5 +65,5 @@ export async function updateSession(newPermissions: string[]) {
 
 export async function destroySession() {
     const cookieStore = await cookies();
-    cookieStore.delete('voxa_session');
+    cookieStore.delete('smaa_session');
 }

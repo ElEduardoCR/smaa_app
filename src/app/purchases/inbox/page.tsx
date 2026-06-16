@@ -229,34 +229,34 @@ export default function InboxPage() {
     const fmt = (n: number | null) => n == null ? '—' : `$${Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
 
     return (
-        <div className="min-h-screen bg-[#0B1120] text-slate-200 p-6 md:p-10 font-[family-name:var(--font-sans)]">
+        <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 p-6 md:p-10 font-[family-name:var(--font-sans)]">
             <div className="w-full space-y-8">
-                <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-slate-800/40 p-6 rounded-3xl border border-slate-700/50 backdrop-blur-sm">
+                <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
                     <div className="flex items-center gap-4">
-                        <Link href="/purchases" className="p-3 bg-slate-800 hover:bg-slate-700 rounded-xl transition-colors text-slate-400 hover:text-white border border-slate-700"><ArrowLeft className="w-5 h-5" /></Link>
+                        <Link href="/purchases" className="p-3 bg-neutral-800 hover:bg-neutral-700 rounded-xl transition-colors text-neutral-400 hover:text-white border border-neutral-700"><ArrowLeft className="w-5 h-5" /></Link>
                         <div>
                             <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-                                <Inbox className="w-8 h-8 text-violet-400" />
+                                <Inbox className="w-8 h-8 text-orange-400" />
                                 Bandeja IA · Facturas detectadas
                             </h1>
-                            <p className="text-slate-400 text-sm mt-1">Revisa las facturas que la IA detectó en tu correo y apruébalas para registrarlas en Compras.</p>
+                            <p className="text-neutral-400 text-sm mt-1">Revisa las facturas que la IA detectó en tu correo y apruébalas para registrarlas en Compras.</p>
                         </div>
                     </div>
-                    <button onClick={() => fetchRows()} className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium" disabled={loading}>
-                        <RefreshCw className={cn("w-4 h-4", loading && "animate-spin text-violet-400")} /> Refresh
+                    <button onClick={() => fetchRows()} className="p-2 text-neutral-400 hover:text-white hover:bg-neutral-700 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium" disabled={loading}>
+                        <RefreshCw className={cn("w-4 h-4", loading && "animate-spin text-orange-400")} /> Refresh
                     </button>
                 </header>
 
                 {/* Búsqueda por día específico */}
-                <div className="bg-slate-800/40 border border-slate-700/50 rounded-3xl p-6 backdrop-blur-sm">
+                <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-3xl p-6 backdrop-blur-sm">
                     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                         <div className="flex items-start gap-3">
-                            <div className="bg-sky-500/10 p-2.5 rounded-xl border border-sky-500/20">
-                                <CalendarSearch className="w-5 h-5 text-sky-400" />
+                            <div className="bg-orange-500/10 p-2.5 rounded-xl border border-orange-500/20">
+                                <CalendarSearch className="w-5 h-5 text-orange-400" />
                             </div>
                             <div>
                                 <h3 className="text-base font-semibold text-white">Buscar facturas de un día específico</h3>
-                                <p className="text-slate-400 text-sm mt-0.5">Elige una fecha y la IA revisará tu correo de ese día. Si una factura ya existe como orden de compra, te lo avisaremos.</p>
+                                <p className="text-neutral-400 text-sm mt-0.5">Elige una fecha y la IA revisará tu correo de ese día. Si una factura ya existe como orden de compra, te lo avisaremos.</p>
                             </div>
                         </div>
                         <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
@@ -265,12 +265,12 @@ export default function InboxPage() {
                                 value={dayDate}
                                 max={new Date().toISOString().slice(0, 10)}
                                 onChange={(e) => setDayDate(e.target.value)}
-                                className="bg-slate-900/60 border border-slate-700/50 rounded-xl px-4 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-sky-500/50 focus:ring-2 focus:ring-sky-500/20 [color-scheme:dark]"
+                                className="bg-neutral-900/60 border border-neutral-700/50 rounded-xl px-4 py-2.5 text-sm text-neutral-200 focus:outline-none focus:border-orange-500/50 focus:ring-2 focus:ring-orange-500/20 [color-scheme:dark]"
                             />
                             <button
                                 onClick={searchDay}
                                 disabled={daySyncing || !dayDate}
-                                className="inline-flex items-center justify-center gap-2 bg-sky-500 hover:bg-sky-600 text-white px-5 py-2.5 rounded-xl font-medium text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                                className="inline-flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-5 py-2.5 rounded-xl font-medium text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
                             >
                                 {daySyncing
                                     ? <><RefreshCw className="w-4 h-4 animate-spin" /> Buscando…</>
@@ -292,14 +292,14 @@ export default function InboxPage() {
 
                 <div className="flex flex-col lg:flex-row lg:items-center gap-4 lg:justify-between">
                     <div className="flex items-center gap-2 flex-wrap">
-                        <Filter className="w-4 h-4 text-slate-500" />
+                        <Filter className="w-4 h-4 text-neutral-500" />
                         {STATUS_FILTERS.map(f => (
                             <button key={f.key} onClick={() => setFilter(f.key)}
                                 className={cn(
                                     "px-4 py-2 rounded-xl text-sm font-medium transition-all border",
                                     filter === f.key
-                                        ? "bg-violet-500/20 border-violet-500/40 text-violet-300"
-                                        : "bg-slate-800/40 border-slate-700/50 text-slate-400 hover:text-white hover:bg-slate-700/50"
+                                        ? "bg-orange-500/20 border-orange-500/40 text-orange-300"
+                                        : "bg-neutral-800/40 border-neutral-700/50 text-neutral-400 hover:text-white hover:bg-neutral-700/50"
                                 )}>
                                 {f.label}
                             </button>
@@ -308,17 +308,17 @@ export default function InboxPage() {
 
                     <div className="flex flex-col sm:flex-row gap-3 sm:items-center w-full lg:w-auto">
                         <div className="relative flex-1 min-w-[240px]">
-                            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+                            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 pointer-events-none" />
                             <input
                                 type="text"
                                 value={search}
                                 onChange={(e) => setSearch(e.target.value)}
                                 placeholder="Buscar por proveedor, RFC, folio, asunto..."
-                                className="w-full bg-slate-800/40 border border-slate-700/50 rounded-xl pl-10 pr-9 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-violet-500/50 focus:ring-2 focus:ring-violet-500/20"
+                                className="w-full bg-neutral-800/40 border border-neutral-700/50 rounded-xl pl-10 pr-9 py-2 text-sm text-neutral-200 placeholder:text-neutral-500 focus:outline-none focus:border-orange-500/50 focus:ring-2 focus:ring-orange-500/20"
                             />
                             {search && (
                                 <button onClick={() => setSearch('')}
-                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white p-1 rounded-md hover:bg-slate-700/50">
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-white p-1 rounded-md hover:bg-neutral-700/50">
                                     <X className="w-3.5 h-3.5" />
                                 </button>
                             )}
@@ -343,10 +343,10 @@ export default function InboxPage() {
                     </div>
                 </div>
 
-                <div className="bg-slate-800/40 border border-slate-700/50 rounded-3xl overflow-hidden backdrop-blur-sm">
+                <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-3xl overflow-hidden backdrop-blur-sm">
                     <div className="overflow-x-auto">
                         <table className="w-full text-left text-sm whitespace-nowrap">
-                            <thead className="bg-slate-900/50 text-slate-400 uppercase text-xs font-semibold tracking-wider">
+                            <thead className="bg-neutral-900/50 text-neutral-400 uppercase text-xs font-semibold tracking-wider">
                                 <tr>
                                     <th className="px-6 py-4">Fuente</th>
                                     <th className="px-6 py-4">Proveedor</th>
@@ -361,55 +361,55 @@ export default function InboxPage() {
                                     <th className="px-6 py-4 text-right">Acciones</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-700/50">
+                            <tbody className="divide-y divide-neutral-700/50">
                                 {loading ? (
-                                    <tr><td colSpan={11} className="px-6 py-12 text-center text-slate-400"><RefreshCw className="w-6 h-6 animate-spin mx-auto mb-3 text-violet-500" />Cargando...</td></tr>
+                                    <tr><td colSpan={11} className="px-6 py-12 text-center text-neutral-400"><RefreshCw className="w-6 h-6 animate-spin mx-auto mb-3 text-orange-500" />Cargando...</td></tr>
                                 ) : filteredRows.length === 0 ? (
-                                    <tr><td colSpan={11} className="px-6 py-12 text-center text-slate-400">
-                                        <div className="bg-slate-800/50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 border border-slate-700"><Inbox className="w-8 h-8 text-slate-500" /></div>
+                                    <tr><td colSpan={11} className="px-6 py-12 text-center text-neutral-400">
+                                        <div className="bg-neutral-800/50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 border border-neutral-700"><Inbox className="w-8 h-8 text-neutral-500" /></div>
                                         {search ? (
                                             <>
-                                                <p className="text-lg text-slate-300 font-medium">Sin coincidencias para "{search}"</p>
+                                                <p className="text-lg text-neutral-300 font-medium">Sin coincidencias para "{search}"</p>
                                                 <p className="text-sm mt-1">Prueba con otro término o limpia la búsqueda.</p>
                                             </>
                                         ) : (
                                             <>
-                                                <p className="text-lg text-slate-300 font-medium">Nada en "{STATUS_FILTERS.find(s=>s.key===filter)?.label}"</p>
+                                                <p className="text-lg text-neutral-300 font-medium">Nada en "{STATUS_FILTERS.find(s=>s.key===filter)?.label}"</p>
                                                 <p className="text-sm mt-1">Conecta Gmail en Configuración y corre el backfill para empezar.</p>
                                             </>
                                         )}
                                     </td></tr>
                                 ) : (
                                     filteredRows.map(r => (
-                                        <tr key={r.id} className="hover:bg-slate-800/80 transition-colors align-top">
+                                        <tr key={r.id} className="hover:bg-neutral-800/80 transition-colors align-top">
                                             <td className="px-6 py-4">
                                                 {r.detected_source === 'cfdi' ? (
                                                     <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-md border border-emerald-500/20">
                                                         <FileCode className="w-3 h-3" /> CFDI
                                                     </span>
                                                 ) : (
-                                                    <span className="inline-flex items-center gap-1 text-xs font-medium text-violet-400 bg-violet-500/10 px-2 py-1 rounded-md border border-violet-500/20">
+                                                    <span className="inline-flex items-center gap-1 text-xs font-medium text-orange-400 bg-orange-500/10 px-2 py-1 rounded-md border border-orange-500/20">
                                                         <Sparkles className="w-3 h-3" /> IA
                                                         {r.classification_confidence != null && (
-                                                            <span className="text-violet-300/70">{Math.round(r.classification_confidence * 100)}%</span>
+                                                            <span className="text-orange-300/70">{Math.round(r.classification_confidence * 100)}%</span>
                                                         )}
                                                     </span>
                                                 )}
                                             </td>
-                                            <td className="px-6 py-4 text-slate-200 font-medium max-w-[200px] truncate">{r.supplier_name || '—'}</td>
-                                            <td className="px-6 py-4 font-mono text-xs text-slate-400">{r.supplier_rfc || '—'}</td>
-                                            <td className="px-6 py-4 text-slate-400">{r.invoice_folio || '—'}</td>
-                                            <td className="px-6 py-4 text-slate-400">{r.invoice_date ? new Date(r.invoice_date).toLocaleDateString() : '—'}</td>
-                                            <td className="px-6 py-4 text-slate-400">{fmt(r.subtotal)}</td>
-                                            <td className="px-6 py-4 text-slate-400">{fmt(r.vat_total)}</td>
+                                            <td className="px-6 py-4 text-neutral-200 font-medium max-w-[200px] truncate">{r.supplier_name || '—'}</td>
+                                            <td className="px-6 py-4 font-mono text-xs text-neutral-400">{r.supplier_rfc || '—'}</td>
+                                            <td className="px-6 py-4 text-neutral-400">{r.invoice_folio || '—'}</td>
+                                            <td className="px-6 py-4 text-neutral-400">{r.invoice_date ? new Date(r.invoice_date).toLocaleDateString() : '—'}</td>
+                                            <td className="px-6 py-4 text-neutral-400">{fmt(r.subtotal)}</td>
+                                            <td className="px-6 py-4 text-neutral-400">{fmt(r.vat_total)}</td>
                                             <td className="px-6 py-4 font-medium text-emerald-400">{fmt(r.total)}</td>
                                             <td className="px-6 py-4 space-x-1">
-                                                {r.pdf_url && <a href={r.pdf_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-cyan-400 hover:text-cyan-300 bg-cyan-500/10 px-2 py-1 rounded-md border border-cyan-500/20"><FileText className="w-3 h-3" /> PDF</a>}
+                                                {r.pdf_url && <a href={r.pdf_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-orange-400 hover:text-orange-300 bg-orange-500/10 px-2 py-1 rounded-md border border-orange-500/20"><FileText className="w-3 h-3" /> PDF</a>}
                                                 {r.xml_url && <a href={r.xml_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 px-2 py-1 rounded-md border border-emerald-500/20"><FileCode className="w-3 h-3" /> XML</a>}
                                             </td>
-                                            <td className="px-6 py-4 text-slate-500 text-xs max-w-[260px]">
+                                            <td className="px-6 py-4 text-neutral-500 text-xs max-w-[260px]">
                                                 <div className="truncate">{r.email_subject}</div>
-                                                <div className="truncate text-slate-600">{r.email_from}</div>
+                                                <div className="truncate text-neutral-600">{r.email_from}</div>
                                             </td>
                                             <td className="px-6 py-4 text-right space-x-2">
                                                 {r.status === 'pending' ? (
@@ -424,7 +424,7 @@ export default function InboxPage() {
                                                         </button>
                                                     </>
                                                 ) : r.status === 'approved' && r.purchase_order_id ? (
-                                                    <Link href="/purchases" className="inline-flex items-center gap-1.5 text-xs font-medium text-violet-400 hover:text-violet-300 bg-violet-500/10 px-3 py-1.5 rounded-lg border border-violet-500/20">
+                                                    <Link href="/purchases" className="inline-flex items-center gap-1.5 text-xs font-medium text-orange-400 hover:text-orange-300 bg-orange-500/10 px-3 py-1.5 rounded-lg border border-orange-500/20">
                                                         Ver en Compras
                                                     </Link>
                                                 ) : r.status === 'duplicate' ? (
@@ -438,7 +438,7 @@ export default function InboxPage() {
                                                         </span>
                                                     )
                                                 ) : (
-                                                    <span className="text-xs text-slate-500">—</span>
+                                                    <span className="text-xs text-neutral-500">—</span>
                                                 )}
                                             </td>
                                         </tr>

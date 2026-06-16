@@ -128,12 +128,12 @@ function GmailIntegrationSection() {
     };
 
     return (
-        <div className="bg-slate-800/40 p-6 md:p-8 rounded-3xl border border-slate-700/50 backdrop-blur-sm space-y-6">
+        <div className="bg-neutral-800/40 p-6 md:p-8 rounded-3xl border border-neutral-700/50 backdrop-blur-sm space-y-6">
             <div className="flex items-center gap-3">
-                <Mail className="w-7 h-7 text-violet-400" />
+                <Mail className="w-7 h-7 text-orange-400" />
                 <div>
                     <h2 className="text-xl font-bold text-white">Integración de Correo (Facturas IA)</h2>
-                    <p className="text-sm text-slate-400">Conecta Gmail. La IA detecta facturas con PDF/XML una vez al día y las manda a tu bandeja de revisión.</p>
+                    <p className="text-sm text-neutral-400">Conecta Gmail. La IA detecta facturas con PDF/XML una vez al día y las manda a tu bandeja de revisión.</p>
                 </div>
             </div>
 
@@ -148,24 +148,24 @@ function GmailIntegrationSection() {
             )}
 
             {loading ? (
-                <div className="text-slate-400 text-sm flex items-center gap-2"><RefreshCw className="w-4 h-4 animate-spin" /> Cargando...</div>
+                <div className="text-neutral-400 text-sm flex items-center gap-2"><RefreshCw className="w-4 h-4 animate-spin" /> Cargando...</div>
             ) : !integ ? (
                 <div className="flex flex-col items-start gap-4">
-                    <p className="text-sm text-slate-400">No hay correo conectado.</p>
+                    <p className="text-sm text-neutral-400">No hay correo conectado.</p>
                     <a href="/api/auth/google/start"
-                        className="inline-flex items-center gap-2 bg-violet-500 hover:bg-violet-600 text-white px-5 py-3 rounded-xl font-medium transition-all">
+                        className="inline-flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-5 py-3 rounded-xl font-medium transition-all">
                         <Mail className="w-4 h-4" /> Conectar Gmail
                     </a>
                 </div>
             ) : (
                 <div className="space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="bg-slate-900/50 border border-slate-700/50 rounded-xl p-4">
-                            <div className="text-xs text-slate-500 uppercase tracking-wider">Correo conectado</div>
+                        <div className="bg-neutral-900/50 border border-neutral-700/50 rounded-xl p-4">
+                            <div className="text-xs text-neutral-500 uppercase tracking-wider">Correo conectado</div>
                             <div className="text-white font-medium mt-1">{integ.email}</div>
                         </div>
-                        <div className="bg-slate-900/50 border border-slate-700/50 rounded-xl p-4">
-                            <div className="text-xs text-slate-500 uppercase tracking-wider">Última sincronización</div>
+                        <div className="bg-neutral-900/50 border border-neutral-700/50 rounded-xl p-4">
+                            <div className="text-xs text-neutral-500 uppercase tracking-wider">Última sincronización</div>
                             <div className="text-white font-medium mt-1">
                                 {integ.last_sync_at ? new Date(integ.last_sync_at).toLocaleString() : 'Nunca'}
                                 {integ.last_sync_status && (
@@ -177,20 +177,20 @@ function GmailIntegrationSection() {
                                 )}
                             </div>
                         </div>
-                        <div className="bg-slate-900/50 border border-slate-700/50 rounded-xl p-4">
-                            <div className="text-xs text-slate-500 uppercase tracking-wider">Backfill de 5 meses</div>
+                        <div className="bg-neutral-900/50 border border-neutral-700/50 rounded-xl p-4">
+                            <div className="text-xs text-neutral-500 uppercase tracking-wider">Backfill de 5 meses</div>
                             <div className="text-white font-medium mt-1">
                                 {integ.backfill_completed_at
                                     ? `Completado el ${new Date(integ.backfill_completed_at).toLocaleDateString()}`
                                     : 'Pendiente'}
                             </div>
                         </div>
-                        <div className="bg-slate-900/50 border border-slate-700/50 rounded-xl p-4">
-                            <div className="text-xs text-slate-500 uppercase tracking-wider">Facturas pendientes</div>
+                        <div className="bg-neutral-900/50 border border-neutral-700/50 rounded-xl p-4">
+                            <div className="text-xs text-neutral-500 uppercase tracking-wider">Facturas pendientes</div>
                             <div className="text-white font-medium mt-1 flex items-center gap-2">
                                 {pendingCount}
                                 {pendingCount > 0 && (
-                                    <Link href="/purchases/inbox" className="text-xs text-violet-400 hover:text-violet-300 underline">
+                                    <Link href="/purchases/inbox" className="text-xs text-orange-400 hover:text-orange-300 underline">
                                         Ir a bandeja
                                     </Link>
                                 )}
@@ -212,15 +212,15 @@ function GmailIntegrationSection() {
                             </button>
                         )}
                         <button onClick={handleSyncNow} disabled={syncing}
-                            className="inline-flex items-center gap-2 bg-violet-500 hover:bg-violet-600 disabled:opacity-50 text-white px-5 py-2.5 rounded-xl font-medium transition-all">
+                            className="inline-flex items-center gap-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white px-5 py-2.5 rounded-xl font-medium transition-all">
                             {syncing ? <><RefreshCw className="w-4 h-4 animate-spin" /> Sincronizando...</> : <><RefreshCw className="w-4 h-4" /> Sincronizar ahora (último mes)</>}
                         </button>
                         <Link href="/purchases/inbox"
-                            className="inline-flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white px-5 py-2.5 rounded-xl font-medium transition-all border border-slate-700">
+                            className="inline-flex items-center gap-2 bg-neutral-800 hover:bg-neutral-700 text-white px-5 py-2.5 rounded-xl font-medium transition-all border border-neutral-700">
                             <Inbox className="w-4 h-4" /> Bandeja de revisión
                         </Link>
                         <a href="/api/auth/google/start"
-                            className="inline-flex items-center gap-2 text-xs text-slate-400 hover:text-white px-3 py-2 transition-all">
+                            className="inline-flex items-center gap-2 text-xs text-neutral-400 hover:text-white px-3 py-2 transition-all">
                             Reconectar Gmail
                         </a>
                     </div>
@@ -372,20 +372,20 @@ export default function SettingsPage() {
 
     if (isLoading) {
         return (
-            <div className="min-h-screen bg-[#0B1120] flex items-center justify-center p-10 font-[family-name:var(--font-sans)]">
+            <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center p-10 font-[family-name:var(--font-sans)]">
                 <RefreshCw className="w-8 h-8 animate-spin text-emerald-400" />
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen bg-[#0B1120] text-slate-200 p-6 md:p-10 font-[family-name:var(--font-sans)] relative overflow-hidden">
+        <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 p-6 md:p-10 font-[family-name:var(--font-sans)] relative overflow-hidden">
             <div className="absolute top-0 right-0 -translate-y-12 translate-x-1/3 w-96 h-96 bg-amber-500/10 rounded-full blur-[100px] pointer-events-none"></div>
             <div className="absolute bottom-0 left-0 translate-y-1/3 -translate-x-1/3 w-96 h-96 bg-orange-500/10 rounded-full blur-[100px] pointer-events-none"></div>
 
             <div className="max-w-3xl mx-auto space-y-8 relative z-10">
-                <header className="flex items-center gap-4 bg-slate-800/40 p-6 rounded-3xl border border-slate-700/50 backdrop-blur-sm">
-                    <Link href="/" className="p-3 bg-slate-800 hover:bg-slate-700 rounded-xl transition-colors text-slate-400 hover:text-white border border-slate-700">
+                <header className="flex items-center gap-4 bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
+                    <Link href="/" className="p-3 bg-neutral-800 hover:bg-neutral-700 rounded-xl transition-colors text-neutral-400 hover:text-white border border-neutral-700">
                         <ArrowLeft className="w-5 h-5" />
                     </Link>
                     <div>
@@ -393,7 +393,7 @@ export default function SettingsPage() {
                             <Building className="w-8 h-8 text-amber-400" />
                             Configuración de la Empresa
                         </h1>
-                        <p className="text-slate-400 text-sm mt-1">Administra los datos de la empresa y logo para las cotizaciones PDF.</p>
+                        <p className="text-neutral-400 text-sm mt-1">Administra los datos de la empresa y logo para las cotizaciones PDF.</p>
                     </div>
                 </header>
 
@@ -408,27 +408,27 @@ export default function SettingsPage() {
                 )}
 
                 <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-                    <div className="bg-slate-800/40 p-6 md:p-8 rounded-3xl border border-slate-700/50 backdrop-blur-sm">
+                    <div className="bg-neutral-800/40 p-6 md:p-8 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
                             <div className="md:col-span-2 space-y-2">
-                                <label className="text-sm font-medium text-slate-300 ml-1">Nombre de la Empresa *</label>
+                                <label className="text-sm font-medium text-neutral-300 ml-1">Nombre de la Empresa *</label>
                                 <input
                                     {...register("company_name")}
                                     className={cn(
-                                        "w-full bg-slate-900/50 border rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 transition-all",
-                                        errors.company_name ? "border-red-500 focus:ring-red-500/20" : "border-slate-700 focus:border-amber-500 focus:ring-amber-500/20"
+                                        "w-full bg-neutral-900/50 border rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 transition-all",
+                                        errors.company_name ? "border-red-500 focus:ring-red-500/20" : "border-neutral-700 focus:border-amber-500 focus:ring-amber-500/20"
                                     )}
-                                    placeholder="e.g. VOXA Systems"
+                                    placeholder="e.g. SMAA Systems"
                                 />
                                 {errors.company_name && <p className="text-red-400 text-xs ml-1">{errors.company_name.message}</p>}
                             </div>
 
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-slate-300 ml-1">Email de Contacto</label>
+                                <label className="text-sm font-medium text-neutral-300 ml-1">Email de Contacto</label>
                                 <input type="email" {...register("email")}
-                                    className={cn("w-full bg-slate-900/50 border rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 transition-all",
-                                        errors.email ? "border-red-500 focus:ring-red-500/20" : "border-slate-700 focus:border-amber-500 focus:ring-amber-500/20"
+                                    className={cn("w-full bg-neutral-900/50 border rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 transition-all",
+                                        errors.email ? "border-red-500 focus:ring-red-500/20" : "border-neutral-700 focus:border-amber-500 focus:ring-amber-500/20"
                                     )}
                                     placeholder="contacto@empresa.com"
                                 />
@@ -436,30 +436,30 @@ export default function SettingsPage() {
                             </div>
 
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-slate-300 ml-1">Teléfono</label>
+                                <label className="text-sm font-medium text-neutral-300 ml-1">Teléfono</label>
                                 <input {...register("phone")}
-                                    className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 transition-all"
+                                    className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 transition-all"
                                     placeholder="555-123-4567"
                                 />
                             </div>
 
                             <div className="md:col-span-2 space-y-2">
-                                <label className="text-sm font-medium text-slate-300 ml-1">Dirección (Se mostrará en el PDF)</label>
+                                <label className="text-sm font-medium text-neutral-300 ml-1">Dirección (Se mostrará en el PDF)</label>
                                 <textarea {...register("address")}
-                                    className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 transition-all min-h-[100px]"
+                                    className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 transition-all min-h-[100px]"
                                     placeholder="Av. Principal 123, Ciudad, País"
                                 />
                             </div>
 
                             {/* Logo Upload – using direct state management instead of RHF */}
-                            <div className="md:col-span-2 space-y-4 pt-4 border-t border-slate-700/50">
+                            <div className="md:col-span-2 space-y-4 pt-4 border-t border-neutral-700/50">
                                 <div>
                                     <h3 className="text-lg font-semibold text-white">Logo de la Empresa</h3>
-                                    <p className="text-sm text-slate-400">Este logo reemplazará el texto en la cabecera de tus Cotizaciones PDF. Usa formato <strong>PNG o JPG</strong>.</p>
+                                    <p className="text-sm text-neutral-400">Este logo reemplazará el texto en la cabecera de tus Cotizaciones PDF. Usa formato <strong>PNG o JPG</strong>.</p>
                                 </div>
 
                                 <div className="flex flex-col sm:flex-row gap-6 items-start">
-                                    <div className="w-full sm:w-1/3 flex flex-col items-center justify-center p-4 bg-slate-900/50 border border-slate-700 border-dashed rounded-2xl h-40 relative group">
+                                    <div className="w-full sm:w-1/3 flex flex-col items-center justify-center p-4 bg-neutral-900/50 border border-neutral-700 border-dashed rounded-2xl h-40 relative group">
                                         {previewLogo ? (
                                             <img
                                                 src={previewLogo}
@@ -467,13 +467,13 @@ export default function SettingsPage() {
                                                 className="max-w-full max-h-full object-contain"
                                             />
                                         ) : (
-                                            <div className="text-center text-slate-500">
+                                            <div className="text-center text-neutral-500">
                                                 <Hexagon className="w-10 h-10 mx-auto mb-2 opacity-50" />
                                                 <span className="text-sm font-medium">No Logo</span>
                                             </div>
                                         )}
-                                        <div className="absolute inset-0 bg-slate-900/80 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-2xl">
-                                            <label className="cursor-pointer bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-700 border border-slate-600 flex items-center gap-2">
+                                        <div className="absolute inset-0 bg-neutral-900/80 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-2xl">
+                                            <label className="cursor-pointer bg-neutral-800 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-neutral-700 border border-neutral-600 flex items-center gap-2">
                                                 <Upload className="w-4 h-4" /> Cambiar
                                                 <input
                                                     type="file"
@@ -486,15 +486,15 @@ export default function SettingsPage() {
                                     </div>
 
                                     <div className="w-full sm:w-2/3 space-y-2">
-                                        <label className="text-sm font-medium text-slate-300 ml-1">Subir Nuevo Logo</label>
+                                        <label className="text-sm font-medium text-neutral-300 ml-1">Subir Nuevo Logo</label>
                                         <input
                                             ref={fileInputRef}
                                             type="file"
                                             accept="image/png,image/jpeg,image/jpg,image/webp"
                                             onChange={handleFileChange}
-                                            className="w-full text-slate-400 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-amber-500/20 file:text-amber-400 hover:file:bg-amber-500/30 file:transition-colors bg-slate-900/50 border border-slate-700 rounded-xl"
+                                            className="w-full text-neutral-400 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-amber-500/20 file:text-amber-400 hover:file:bg-amber-500/30 file:transition-colors bg-neutral-900/50 border border-neutral-700 rounded-xl"
                                         />
-                                        <p className="text-xs text-slate-500 ml-1 mt-2">Recomendado: Imagen PNG o JPG, max 2MB. <strong>No SVG</strong>.</p>
+                                        <p className="text-xs text-neutral-500 ml-1 mt-2">Recomendado: Imagen PNG o JPG, max 2MB. <strong>No SVG</strong>.</p>
                                         {logoFile && (
                                             <p className="text-xs text-emerald-400 ml-1">✓ Archivo seleccionado: {logoFile.name}</p>
                                         )}

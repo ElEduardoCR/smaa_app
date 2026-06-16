@@ -350,20 +350,20 @@ export default function WorkOrderDetailPage() {
     const getOpStatusStyle = (status: string) => {
         return status === 'Done'
             ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-            : "bg-slate-500/10 text-slate-400 border-slate-500/20";
+            : "bg-neutral-500/10 text-neutral-400 border-neutral-500/20";
     };
 
     if (isLoading) {
         return (
-            <div className="min-h-screen bg-[#0B1120] flex items-center justify-center">
-                <RefreshCw className="w-8 h-8 animate-spin text-cyan-400" />
+            <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
+                <RefreshCw className="w-8 h-8 animate-spin text-orange-400" />
             </div>
         );
     }
 
     if (!workOrder) {
         return (
-            <div className="min-h-screen bg-[#0B1120] flex items-center justify-center text-slate-400">
+            <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center text-neutral-400">
                 <p>Work order not found.</p>
             </div>
         );
@@ -372,33 +372,33 @@ export default function WorkOrderDetailPage() {
     const isClosed = workOrder.status === 'Closed';
 
     return (
-        <div className="min-h-screen bg-[#0B1120] text-slate-200 p-6 md:p-10 font-[family-name:var(--font-sans)]">
+        <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 p-6 md:p-10 font-[family-name:var(--font-sans)]">
             <div className="max-w-5xl mx-auto space-y-8">
                 {/* Header */}
-                <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-slate-800/40 p-6 rounded-3xl border border-slate-700/50 backdrop-blur-sm">
+                <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
                     <div className="flex items-center gap-4">
-                        <Link href="/manufacturing" className="p-3 bg-slate-800 hover:bg-slate-700 rounded-xl transition-colors text-slate-400 hover:text-white border border-slate-700">
+                        <Link href="/manufacturing" className="p-3 bg-neutral-800 hover:bg-neutral-700 rounded-xl transition-colors text-neutral-400 hover:text-white border border-neutral-700">
                             <ArrowLeft className="w-5 h-5" />
                         </Link>
                         <div>
                             <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-                                <Factory className="w-8 h-8 text-cyan-400" />
+                                <Factory className="w-8 h-8 text-orange-400" />
                                 {workOrder.order_number}
                             </h1>
                             <div className="flex items-center gap-3 mt-1">
-                                <span className="text-slate-400 text-sm">Cotización:</span>
+                                <span className="text-neutral-400 text-sm">Cotización:</span>
                                 <span className="font-mono text-emerald-300 text-xs bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
                                     {workOrder.quotation?.quotation_number}
                                 </span>
-                                <span className="text-slate-400 text-sm">• {workOrder.quotation?.client?.business_name}</span>
+                                <span className="text-neutral-400 text-sm">• {workOrder.quotation?.client?.business_name}</span>
                             </div>
                         </div>
                     </div>
                     <div className={cn("px-4 py-2 rounded-full text-sm font-semibold border",
-                        workOrder.status === 'Open' ? "bg-blue-500/10 text-blue-400 border-blue-500/20" :
+                        workOrder.status === 'Open' ? "bg-orange-500/10 text-orange-400 border-orange-500/20" :
                             workOrder.status === 'In Progress' ? "bg-amber-500/10 text-amber-400 border-amber-500/20" :
                                 workOrder.status === 'Completed' ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
-                                    "bg-slate-500/10 text-slate-400 border-slate-500/20"
+                                    "bg-neutral-500/10 text-neutral-400 border-neutral-500/20"
                     )}>
                         {workOrder.status}
                     </div>
@@ -414,24 +414,24 @@ export default function WorkOrderDetailPage() {
                 )}
 
                 {workOrder.notes && (
-                    <div className="bg-slate-800/40 p-5 rounded-2xl border border-slate-700/50">
-                        <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-2">Notas</h3>
-                        <p className="text-slate-200">{workOrder.notes}</p>
+                    <div className="bg-neutral-800/40 p-5 rounded-2xl border border-neutral-700/50">
+                        <h3 className="text-sm font-semibold text-neutral-400 uppercase tracking-wider mb-2">Notas</h3>
+                        <p className="text-neutral-200">{workOrder.notes}</p>
                     </div>
                 )}
 
                 {/* Operations — Editable */}
-                <div className="bg-slate-800/40 border border-slate-700/50 rounded-3xl overflow-hidden backdrop-blur-sm">
-                    <div className="p-6 border-b border-slate-700/50 bg-slate-800/20 flex justify-between items-center">
+                <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-3xl overflow-hidden backdrop-blur-sm">
+                    <div className="p-6 border-b border-neutral-700/50 bg-neutral-800/20 flex justify-between items-center">
                         <h2 className="text-xl font-semibold text-white">Operaciones (Routing)</h2>
                         {!isAddingOp && !isClosed && (
                             <button onClick={() => setIsAddingOp(true)}
-                                className="flex items-center gap-2 text-sm text-cyan-400 hover:text-cyan-300 font-medium bg-cyan-500/10 hover:bg-cyan-500/20 px-4 py-2 rounded-lg transition-colors border border-cyan-500/20">
+                                className="flex items-center gap-2 text-sm text-orange-400 hover:text-orange-300 font-medium bg-orange-500/10 hover:bg-orange-500/20 px-4 py-2 rounded-lg transition-colors border border-orange-500/20">
                                 <Plus className="w-4 h-4" /> Agregar Operación
                             </button>
                         )}
                         {isClosed && (
-                            <span className="text-xs font-medium text-slate-500 bg-slate-500/10 px-3 py-1 rounded-lg border border-slate-500/20 flex items-center gap-2">
+                            <span className="text-xs font-medium text-neutral-500 bg-neutral-500/10 px-3 py-1 rounded-lg border border-neutral-500/20 flex items-center gap-2">
                                 <AlertCircle className="w-3.5 h-3.5" /> Lectura (Cerrada)
                             </span>
                         )}
@@ -439,24 +439,24 @@ export default function WorkOrderDetailPage() {
                     <div className="p-6 space-y-3">
                         {/* Add New Operation Form */}
                         {isAddingOp && (
-                            <div className="bg-cyan-500/5 border border-cyan-500/20 p-4 rounded-xl space-y-3">
-                                <p className="text-sm font-semibold text-cyan-400">Nueva Operación</p>
+                            <div className="bg-orange-500/5 border border-orange-500/20 p-4 rounded-xl space-y-3">
+                                <p className="text-sm font-semibold text-orange-400">Nueva Operación</p>
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                                     <select value={newOpType} onChange={(e) => setNewOpType(e.target.value)}
-                                        className="bg-slate-900/80 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-cyan-500 transition-all appearance-none">
+                                        className="bg-neutral-900/80 border border-neutral-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-orange-500 transition-all appearance-none">
                                         {OPERATION_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                                     </select>
                                     <input value={newOpDesc} onChange={(e) => setNewOpDesc(e.target.value)}
-                                        className="bg-slate-900/80 border border-slate-700 rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition-all md:col-span-2"
+                                        className="bg-neutral-900/80 border border-neutral-700 rounded-lg px-3 py-2 text-white placeholder-neutral-500 focus:outline-none focus:border-orange-500 transition-all md:col-span-2"
                                         placeholder="Descripción (opcional)" />
                                 </div>
                                 <div className="flex items-center gap-2 justify-end">
                                     <button onClick={() => { setIsAddingOp(false); setNewOpDesc(""); }}
-                                        className="text-sm text-slate-400 hover:text-white px-3 py-1.5 rounded-lg hover:bg-slate-700 transition-colors">
+                                        className="text-sm text-neutral-400 hover:text-white px-3 py-1.5 rounded-lg hover:bg-neutral-700 transition-colors">
                                         Cancelar
                                     </button>
                                     <button onClick={handleAddOperation} disabled={isSavingOp}
-                                        className="text-sm text-cyan-400 hover:text-white bg-cyan-500/10 hover:bg-cyan-500 px-4 py-1.5 rounded-lg border border-cyan-500/20 transition-all flex items-center gap-1.5 font-medium disabled:opacity-50">
+                                        className="text-sm text-orange-400 hover:text-white bg-orange-500/10 hover:bg-orange-500 px-4 py-1.5 rounded-lg border border-orange-500/20 transition-all flex items-center gap-1.5 font-medium disabled:opacity-50">
                                         {isSavingOp ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Guardar
                                     </button>
                                 </div>
@@ -464,17 +464,17 @@ export default function WorkOrderDetailPage() {
                         )}
 
                         {operations.length === 0 && !isAddingOp ? (
-                            <p className="text-slate-500 text-center py-4">No hay operaciones definidas. Agrega una con el botón de arriba.</p>
+                            <p className="text-neutral-500 text-center py-4">No hay operaciones definidas. Agrega una con el botón de arriba.</p>
                         ) : (
                             operations.map((op) => (
-                                <div key={op.id} className="flex items-center gap-3 bg-slate-900/40 p-4 rounded-xl border border-slate-700/30 hover:bg-slate-800/60 transition-colors">
+                                <div key={op.id} className="flex items-center gap-3 bg-neutral-900/40 p-4 rounded-xl border border-neutral-700/30 hover:bg-neutral-800/60 transition-colors">
                                     {/* Toggle Done */}
                                     <button
                                         onClick={() => !isClosed && handleToggleOpStatus(op)}
                                         disabled={isClosed}
                                         className={cn("w-8 h-8 rounded-lg border-2 flex items-center justify-center transition-all flex-shrink-0",
-                                            op.status === 'Done' ? "border-emerald-500 bg-emerald-500/20 text-emerald-400" : "border-slate-600",
-                                            !isClosed && "hover:border-cyan-500",
+                                            op.status === 'Done' ? "border-emerald-500 bg-emerald-500/20 text-emerald-400" : "border-neutral-600",
+                                            !isClosed && "hover:border-orange-500",
                                             isClosed && "cursor-not-allowed opacity-70"
                                         )}
                                     >
@@ -485,23 +485,23 @@ export default function WorkOrderDetailPage() {
                                     {editingOpId === op.id ? (
                                         <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-2">
                                             <select value={editOpType} onChange={(e) => setEditOpType(e.target.value)}
-                                                className="bg-slate-900/80 border border-cyan-500/30 rounded-lg px-3 py-1.5 text-white focus:outline-none focus:border-cyan-500 transition-all appearance-none text-sm">
+                                                className="bg-neutral-900/80 border border-orange-500/30 rounded-lg px-3 py-1.5 text-white focus:outline-none focus:border-orange-500 transition-all appearance-none text-sm">
                                                 {OPERATION_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                                             </select>
                                             <input value={editOpDesc} onChange={(e) => setEditOpDesc(e.target.value)}
-                                                className="bg-slate-900/80 border border-cyan-500/30 rounded-lg px-3 py-1.5 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition-all text-sm md:col-span-2"
+                                                className="bg-neutral-900/80 border border-orange-500/30 rounded-lg px-3 py-1.5 text-white placeholder-neutral-500 focus:outline-none focus:border-orange-500 transition-all text-sm md:col-span-2"
                                                 placeholder="Descripción" />
                                         </div>
                                     ) : (
                                         <div className="flex-1 min-w-0">
                                             <div className="flex items-center gap-2">
-                                                <span className="text-xs font-mono text-slate-500">#{op.sequence}</span>
+                                                <span className="text-xs font-mono text-neutral-500">#{op.sequence}</span>
                                                 <span className="font-semibold text-white">{op.operation_type}</span>
                                                 <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-semibold border", getOpStatusStyle(op.status))}>
                                                     {op.status}
                                                 </span>
                                             </div>
-                                            {op.description && <p className="text-sm text-slate-400 mt-0.5 truncate">{op.description}</p>}
+                                            {op.description && <p className="text-sm text-neutral-400 mt-0.5 truncate">{op.description}</p>}
                                         </div>
                                     )}
 
@@ -511,22 +511,22 @@ export default function WorkOrderDetailPage() {
                                             editingOpId === op.id ? (
                                                 <>
                                                     <button onClick={handleSaveEdit} disabled={isSavingOp}
-                                                        className="p-2 text-cyan-400 hover:text-white hover:bg-cyan-500/20 rounded-lg transition-colors" title="Guardar">
+                                                        className="p-2 text-orange-400 hover:text-white hover:bg-orange-500/20 rounded-lg transition-colors" title="Guardar">
                                                         {isSavingOp ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                                                     </button>
                                                     <button onClick={handleCancelEdit}
-                                                        className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors" title="Cancelar">
+                                                        className="p-2 text-neutral-400 hover:text-white hover:bg-neutral-700 rounded-lg transition-colors" title="Cancelar">
                                                         <X className="w-4 h-4" />
                                                     </button>
                                                 </>
                                             ) : (
                                                 <>
                                                     <button onClick={() => handleStartEdit(op)}
-                                                        className="p-2 text-slate-500 hover:text-cyan-400 hover:bg-cyan-500/10 rounded-lg transition-colors" title="Editar">
+                                                        className="p-2 text-neutral-500 hover:text-orange-400 hover:bg-orange-500/10 rounded-lg transition-colors" title="Editar">
                                                         <Edit2 className="w-4 h-4" />
                                                     </button>
                                                     <button onClick={() => handleDeleteOp(op.id)}
-                                                        className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors" title="Eliminar">
+                                                        className="p-2 text-neutral-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors" title="Eliminar">
                                                         <Trash2 className="w-4 h-4" />
                                                     </button>
                                                 </>
@@ -540,10 +540,10 @@ export default function WorkOrderDetailPage() {
                 </div>
 
                 {/* QC First Piece Release Section */}
-                <div className="bg-slate-800/40 border border-slate-700/50 rounded-3xl overflow-hidden backdrop-blur-sm">
-                    <div className="p-6 border-b border-slate-700/50 bg-slate-800/20 flex justify-between items-center">
+                <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-3xl overflow-hidden backdrop-blur-sm">
+                    <div className="p-6 border-b border-neutral-700/50 bg-neutral-800/20 flex justify-between items-center">
                         <h2 className="text-xl font-semibold text-white flex items-center gap-2">
-                            <ShieldCheck className="w-5 h-5 text-violet-400" />
+                            <ShieldCheck className="w-5 h-5 text-orange-400" />
                             Liberación de Primera Pieza
                         </h2>
                         {qcApproved && (
@@ -557,7 +557,7 @@ export default function WorkOrderDetailPage() {
                     <div className="p-6 space-y-6">
                         {/* Photo grid */}
                         {qcPhotos.length === 0 && !qcApproved && (
-                            <div className="text-center py-6 text-slate-500">
+                            <div className="text-center py-6 text-neutral-500">
                                 <Camera className="w-10 h-10 mx-auto mb-3 opacity-40" />
                                 <p className="text-sm">No hay fotos de evidencia aún. Agrega al menos una antes de firmar.</p>
                             </div>
@@ -566,7 +566,7 @@ export default function WorkOrderDetailPage() {
                         {qcPhotos.length > 0 && (
                             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                                 {qcPhotos.map((photo) => (
-                                    <div key={photo.id} className="relative group rounded-xl overflow-hidden border border-slate-700/50 bg-slate-900/50">
+                                    <div key={photo.id} className="relative group rounded-xl overflow-hidden border border-neutral-700/50 bg-neutral-900/50">
                                         <a href={photo.photo_url} target="_blank" rel="noopener noreferrer">
                                             <img
                                                 src={photo.photo_url}
@@ -576,10 +576,10 @@ export default function WorkOrderDetailPage() {
                                             />
                                         </a>
                                         <div className="p-2 flex items-center justify-between">
-                                            <span className="text-xs text-slate-400 truncate">{photo.photo_label}</span>
+                                            <span className="text-xs text-neutral-400 truncate">{photo.photo_label}</span>
                                             {!qcApproved && (
                                                 <button onClick={() => handleDeleteQCPhoto(photo.id, photo.photo_url)}
-                                                    className="p-1 text-slate-600 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors flex-shrink-0">
+                                                    className="p-1 text-neutral-600 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors flex-shrink-0">
                                                     <Trash2 className="w-3.5 h-3.5" />
                                                 </button>
                                             )}
@@ -591,19 +591,19 @@ export default function WorkOrderDetailPage() {
 
                         {/* Upload controls — hidden if already approved */}
                         {!qcApproved && (
-                            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 bg-slate-900/30 p-4 rounded-xl border border-slate-700/30">
+                            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 bg-neutral-900/30 p-4 rounded-xl border border-neutral-700/30">
                                 <select
                                     value={qcLabel}
                                     onChange={(e) => setQcLabel(e.target.value)}
-                                    className="bg-slate-900/80 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500 transition-all appearance-none"
+                                    className="bg-neutral-900/80 border border-neutral-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500 transition-all appearance-none"
                                 >
                                     {QC_PHOTO_LABELS.map(l => <option key={l} value={l}>{l}</option>)}
                                 </select>
                                 <label className={cn(
                                     "flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-lg border transition-colors cursor-pointer",
                                     isUploadingQCPhoto
-                                        ? "bg-slate-700 text-slate-400 border-slate-600 cursor-wait"
-                                        : "bg-violet-500/10 text-violet-400 border-violet-500/20 hover:bg-violet-500/20"
+                                        ? "bg-neutral-700 text-neutral-400 border-neutral-600 cursor-wait"
+                                        : "bg-orange-500/10 text-orange-400 border-orange-500/20 hover:bg-orange-500/20"
                                 )}>
                                     {isUploadingQCPhoto ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
                                     {isUploadingQCPhoto ? "Subiendo..." : "Agregar Foto"}
@@ -627,9 +627,9 @@ export default function WorkOrderDetailPage() {
 
                         {/* Sign section — hidden if already approved */}
                         {!qcApproved && (
-                            <div className="border-t border-slate-700/50 pt-5">
-                                <p className="text-sm font-semibold text-slate-300 mb-3 flex items-center gap-2">
-                                    <Lock className="w-4 h-4 text-violet-400" />
+                            <div className="border-t border-neutral-700/50 pt-5">
+                                <p className="text-sm font-semibold text-neutral-300 mb-3 flex items-center gap-2">
+                                    <Lock className="w-4 h-4 text-orange-400" />
                                     Firma de Calidad
                                 </p>
                                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
@@ -638,20 +638,20 @@ export default function WorkOrderDetailPage() {
                                         value={qcPassword}
                                         onChange={(e) => setQcPassword(e.target.value)}
                                         placeholder="Contraseña de Calidad"
-                                        className="flex-1 bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 transition-all text-sm"
+                                        className="flex-1 bg-neutral-900/50 border border-neutral-700 rounded-xl px-4 py-3 text-white placeholder-neutral-500 focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition-all text-sm"
                                         onKeyDown={(e) => { if (e.key === 'Enter' && qcPhotos.length > 0) handleQCSign(); }}
                                     />
                                     <button
                                         onClick={handleQCSign}
                                         disabled={isSigningQC || qcPhotos.length === 0}
-                                        className="flex items-center justify-center gap-2 bg-violet-500 hover:bg-violet-600 disabled:bg-violet-500/40 disabled:cursor-not-allowed text-white px-6 py-3 rounded-xl font-semibold transition-all hover:shadow-[0_0_20px_rgba(139,92,246,0.4)] text-sm"
+                                        className="flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-500/40 disabled:cursor-not-allowed text-white px-6 py-3 rounded-xl font-semibold transition-all hover:shadow-[0_0_20px_rgba(249,115,22,0.4)] text-sm"
                                     >
                                         {isSigningQC ? <RefreshCw className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
                                         {isSigningQC ? "Firmando..." : "Firmar Liberación"}
                                     </button>
                                 </div>
                                 {qcPhotos.length === 0 && (
-                                    <p className="text-xs text-slate-600 mt-2">Debes agregar al menos una foto antes de poder firmar.</p>
+                                    <p className="text-xs text-neutral-600 mt-2">Debes agregar al menos una foto antes de poder firmar.</p>
                                 )}
                             </div>
                         )}
@@ -659,17 +659,17 @@ export default function WorkOrderDetailPage() {
                 </div>
 
                 {/* Files */}
-                <div className="bg-slate-800/40 border border-slate-700/50 rounded-3xl overflow-hidden backdrop-blur-sm">
-                    <div className="p-6 border-b border-slate-700/50 bg-slate-800/20 flex justify-between items-center">
+                <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-3xl overflow-hidden backdrop-blur-sm">
+                    <div className="p-6 border-b border-neutral-700/50 bg-neutral-800/20 flex justify-between items-center">
                         <h2 className="text-xl font-semibold text-white flex items-center gap-2">
-                            <Paperclip className="w-5 h-5 text-cyan-400" /> Archivos Adjuntos
+                            <Paperclip className="w-5 h-5 text-orange-400" /> Archivos Adjuntos
                         </h2>
                         {!isClosed && (
                             <label className={cn(
                                 "flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-lg border transition-colors cursor-pointer",
                                 isUploading
-                                    ? "bg-slate-700 text-slate-400 border-slate-600 cursor-wait"
-                                    : "bg-cyan-500/10 text-cyan-400 border-cyan-500/20 hover:bg-cyan-500/20"
+                                    ? "bg-neutral-700 text-neutral-400 border-neutral-600 cursor-wait"
+                                    : "bg-orange-500/10 text-orange-400 border-orange-500/20 hover:bg-orange-500/20"
                             )}>
                                 {isUploading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
                                 {isUploading ? "Subiendo..." : "Subir Archivos"}
@@ -678,31 +678,31 @@ export default function WorkOrderDetailPage() {
                         )}
                     </div>
                     <div className="p-6">
-                        <p className="text-xs text-slate-500 mb-4">Máximo 100MB por archivo.</p>
+                        <p className="text-xs text-neutral-500 mb-4">Máximo 100MB por archivo.</p>
                         {files.length === 0 ? (
-                            <div className="text-center py-8 text-slate-500">
+                            <div className="text-center py-8 text-neutral-500">
                                 <FileText className="w-10 h-10 mx-auto mb-3 opacity-50" />
                                 <p>No hay archivos adjuntos todavía.</p>
                             </div>
                         ) : (
                             <div className="space-y-2">
                                 {files.map((file) => (
-                                    <div key={file.id} className="flex items-center justify-between bg-slate-900/40 p-3 rounded-xl border border-slate-700/30 hover:bg-slate-800/60 transition-colors">
+                                    <div key={file.id} className="flex items-center justify-between bg-neutral-900/40 p-3 rounded-xl border border-neutral-700/30 hover:bg-neutral-800/60 transition-colors">
                                         <div className="flex items-center gap-3 min-w-0">
-                                            <FileText className="w-5 h-5 text-cyan-400 flex-shrink-0" />
+                                            <FileText className="w-5 h-5 text-orange-400 flex-shrink-0" />
                                             <div className="min-w-0">
                                                 <p className="text-sm font-medium text-white truncate">{file.file_name}</p>
-                                                <p className="text-xs text-slate-500">{formatFileSize(file.file_size)} • {new Date(file.created_at).toLocaleDateString()}</p>
+                                                <p className="text-xs text-neutral-500">{formatFileSize(file.file_size)} • {new Date(file.created_at).toLocaleDateString()}</p>
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-2 flex-shrink-0">
                                             <a href={file.file_url} target="_blank" rel="noopener noreferrer"
-                                                className="p-2 text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10 rounded-lg transition-colors" title="Download">
+                                                className="p-2 text-orange-400 hover:text-orange-300 hover:bg-orange-500/10 rounded-lg transition-colors" title="Download">
                                                 <Download className="w-4 h-4" />
                                             </a>
                                             {!isClosed && (
                                                 <button onClick={() => handleDeleteFile(file.id, file.file_url)}
-                                                    className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors" title="Delete">
+                                                    className="p-2 text-neutral-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors" title="Delete">
                                                     <Trash2 className="w-4 h-4" />
                                                 </button>
                                             )}

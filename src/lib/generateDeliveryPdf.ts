@@ -66,14 +66,14 @@ export const generateDeliveryPDF = async (data: DeliveryPDFData) => {
             doc.setFont("helvetica", "bold");
             doc.setFontSize(24);
             doc.setTextColor(16, 185, 129);
-            doc.text(company?.company_name || "VOXA", 14, currentY);
+            doc.text(company?.company_name || "SMAA", 14, currentY);
             currentY += 6;
         }
     } else {
         doc.setFont("helvetica", "bold");
         doc.setFontSize(24);
         doc.setTextColor(16, 185, 129);
-        doc.text(company?.company_name || "VOXA", 14, currentY);
+        doc.text(company?.company_name || "SMAA", 14, currentY);
         currentY += 6;
     }
 
@@ -197,7 +197,7 @@ export const generateDeliveryPDF = async (data: DeliveryPDFData) => {
     doc.setFont("helvetica", "italic");
     doc.setFontSize(8);
     doc.setTextColor(148, 163, 184);
-    doc.text("Nota de entrega generada por el sistema Voxa ERP.", pageWidth / 2, doc.internal.pageSize.getHeight() - 15, { align: "center" });
+    doc.text("Nota de entrega generada por el sistema SMAA ERP.", pageWidth / 2, doc.internal.pageSize.getHeight() - 15, { align: "center" });
 
     doc.save(`${data.delivery_number}_NotaEntrega.pdf`);
 };

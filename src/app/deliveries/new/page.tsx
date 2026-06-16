@@ -61,10 +61,10 @@ function NewDeliveryForm() {
 
     const selectedWO = workOrders.find(w => w.id === selectedWOId);
 
-    // Derive VX number from the OT number: OT00001 -> VX00001
-    const deriveVXNumber = (orderNumber: string) => {
+    // Derive delivery number from the OT number: OT00001 -> NE00001
+    const deriveDeliveryNumber = (orderNumber: string) => {
         const digits = orderNumber.replace(/\D/g, '');
-        return `VX${digits}`;
+        return `NE${digits}`;
     };
 
     const onSubmit = async () => {
@@ -77,7 +77,7 @@ function NewDeliveryForm() {
         setErrorMsg(null);
 
         try {
-            const deliveryNumber = deriveVXNumber(selectedWO!.order_number);
+            const deliveryNumber = deriveDeliveryNumber(selectedWO!.order_number);
 
             // 1. Create delivery record
             const { error: deliveryError } = await supabase.from('deliveries').insert([{
@@ -105,13 +105,13 @@ function NewDeliveryForm() {
     };
 
     return (
-        <div className="min-h-screen bg-[#0B1120] text-slate-200 p-6 md:p-10 font-[family-name:var(--font-sans)]">
+        <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 p-6 md:p-10 font-[family-name:var(--font-sans)]">
             <div className="max-w-4xl mx-auto space-y-8">
-                <header className="flex items-center gap-4 bg-slate-800/40 p-6 rounded-3xl border border-slate-700/50 backdrop-blur-sm">
-                    <Link href="/deliveries" className="p-3 bg-slate-800 hover:bg-slate-700 rounded-xl transition-colors text-slate-400 hover:text-white border border-slate-700"><ArrowLeft className="w-5 h-5" /></Link>
+                <header className="flex items-center gap-4 bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
+                    <Link href="/deliveries" className="p-3 bg-neutral-800 hover:bg-neutral-700 rounded-xl transition-colors text-neutral-400 hover:text-white border border-neutral-700"><ArrowLeft className="w-5 h-5" /></Link>
                     <div>
                         <h1 className="text-3xl font-bold text-white flex items-center gap-3"><PackageCheck className="w-8 h-8 text-emerald-400" />Nueva Entrega</h1>
-                        <p className="text-slate-400 text-sm mt-1">Selecciona una OT terminada para generar la nota de entrega</p>
+                        <p className="text-neutral-400 text-sm mt-1">Selecciona una OT terminada para generar la nota de entrega</p>
                     </div>
                 </header>
 
@@ -120,12 +120,12 @@ function NewDeliveryForm() {
                 )}
 
                 {/* WO Selection */}
-                <div className="bg-slate-800/40 p-6 rounded-3xl border border-slate-700/50 backdrop-blur-sm">
+                <div className="bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
                     <h2 className="text-lg font-semibold text-white mb-4">Orden de Trabajo</h2>
                     <div className="space-y-2">
-                        <label className="text-sm font-medium text-slate-300 ml-1">Seleccionar OT *</label>
+                        <label className="text-sm font-medium text-neutral-300 ml-1">Seleccionar OT *</label>
                         <select value={selectedWOId} onChange={(e) => setSelectedWOId(e.target.value)}
-                            className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white appearance-none focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                            className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-4 py-3 text-white appearance-none focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                             disabled={isLoadingWOs}>
                             <option value="" disabled>Elige una orden de trabajo...</option>
                             {workOrders.map(wo => (
@@ -136,35 +136,35 @@ function NewDeliveryForm() {
                         </select>
                     </div>
                     {selectedWO && (
-                        <div className="mt-4 bg-slate-900/40 p-4 rounded-xl border border-slate-700/30">
+                        <div className="mt-4 bg-neutral-900/40 p-4 rounded-xl border border-neutral-700/30">
                             <div className="flex items-center gap-3 flex-wrap">
-                                <span className="text-xs text-slate-400">Folio Entrega:</span>
+                                <span className="text-xs text-neutral-400">Folio Entrega:</span>
                                 <span className="font-mono font-bold text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-lg border border-emerald-500/20 text-lg">
-                                    {deriveVXNumber(selectedWO.order_number)}
+                                    {deriveDeliveryNumber(selectedWO.order_number)}
                                 </span>
-                                <span className="text-xs text-slate-500">• La OT se cerrará al crear esta entrega</span>
+                                <span className="text-xs text-neutral-500">• La OT se cerrará al crear esta entrega</span>
                             </div>
                         </div>
                     )}
                 </div>
 
                 {/* Observations */}
-                <div className="bg-slate-800/40 p-6 rounded-3xl border border-slate-700/50 backdrop-blur-sm">
+                <div className="bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
                     <h2 className="text-lg font-semibold text-white mb-4">Observaciones</h2>
                     <textarea value={observations} onChange={(e) => setObservations(e.target.value)}
-                        className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all min-h-[100px]"
+                        className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-4 py-3 text-white placeholder-neutral-500 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all min-h-[100px]"
                         placeholder="Observaciones sobre la entrega, condiciones del producto, etc." />
                 </div>
 
                 {/* Shipping Info */}
-                <div className="bg-slate-800/40 p-6 rounded-3xl border border-slate-700/50 backdrop-blur-sm">
-                    <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2"><Truck className="w-5 h-5 text-cyan-400" />Datos de Envío (opcional)</h2>
-                    <p className="text-xs text-slate-500 mb-4">Completa solo si el producto será enviado. Si es recolección, puedes dejarlo vacío.</p>
+                <div className="bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
+                    <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2"><Truck className="w-5 h-5 text-orange-400" />Datos de Envío (opcional)</h2>
+                    <p className="text-xs text-neutral-500 mb-4">Completa solo si el producto será enviado. Si es recolección, puedes dejarlo vacío.</p>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-2">
-                            <label className="text-sm font-medium text-slate-300 ml-1">Método de Envío</label>
+                            <label className="text-sm font-medium text-neutral-300 ml-1">Método de Envío</label>
                             <select value={shippingMethod} onChange={(e) => setShippingMethod(e.target.value)}
-                                className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white appearance-none focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all">
+                                className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-4 py-3 text-white appearance-none focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all">
                                 <option value="">Ninguno / Recolección</option>
                                 <option value="Paquetería">Paquetería</option>
                                 <option value="Envío propio">Envío propio</option>
@@ -173,21 +173,21 @@ function NewDeliveryForm() {
                             </select>
                         </div>
                         <div className="space-y-2">
-                            <label className="text-sm font-medium text-slate-300 ml-1">Paquetería / Carrier</label>
+                            <label className="text-sm font-medium text-neutral-300 ml-1">Paquetería / Carrier</label>
                             <input value={shippingCarrier} onChange={(e) => setShippingCarrier(e.target.value)}
-                                className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                                className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-4 py-3 text-white placeholder-neutral-500 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                                 placeholder="Ej: DHL, FedEx, Estafeta" />
                         </div>
                         <div className="space-y-2">
-                            <label className="text-sm font-medium text-slate-300 ml-1">No. de Guía</label>
+                            <label className="text-sm font-medium text-neutral-300 ml-1">No. de Guía</label>
                             <input value={trackingNumber} onChange={(e) => setTrackingNumber(e.target.value)}
-                                className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                                className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-4 py-3 text-white placeholder-neutral-500 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                                 placeholder="Número de rastreo" />
                         </div>
                         <div className="space-y-2">
-                            <label className="text-sm font-medium text-slate-300 ml-1">Dirección de Envío</label>
+                            <label className="text-sm font-medium text-neutral-300 ml-1">Dirección de Envío</label>
                             <input value={shippingAddress} onChange={(e) => setShippingAddress(e.target.value)}
-                                className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                                className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-4 py-3 text-white placeholder-neutral-500 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                                 placeholder="Dirección completa del destinatario" />
                         </div>
                     </div>
@@ -207,7 +207,7 @@ function NewDeliveryForm() {
 
 export default function NewDeliveryPage() {
     return (
-        <Suspense fallback={<div className="min-h-screen bg-[#0B1120] flex items-center justify-center"><RefreshCw className="w-8 h-8 animate-spin text-emerald-400" /></div>}>
+        <Suspense fallback={<div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center"><RefreshCw className="w-8 h-8 animate-spin text-emerald-400" /></div>}>
             <NewDeliveryForm />
         </Suspense>
     );

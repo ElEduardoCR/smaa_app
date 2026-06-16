@@ -75,14 +75,14 @@ export const generateQuotationPDF = async (data: QuotationData) => {
             doc.setFont("helvetica", "bold");
             doc.setFontSize(24);
             doc.setTextColor(79, 70, 229);
-            doc.text(data.company?.company_name || "VOXA", 14, currentY);
+            doc.text(data.company?.company_name || "SMAA", 14, currentY);
             currentY += 6;
         }
     } else {
         doc.setFont("helvetica", "bold");
         doc.setFontSize(24);
         doc.setTextColor(79, 70, 229);
-        doc.text(data.company?.company_name || "VOXA", 14, currentY);
+        doc.text(data.company?.company_name || "SMAA", 14, currentY);
         currentY += 6;
     }
 

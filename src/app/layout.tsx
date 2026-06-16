@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "VOXA ERP",
-  description: "VOXA ERP App",
+  title: "SMAA ERP",
+  description: "SMAA ERP App",
   icons: {
     icon: "/browser.png",
     shortcut: "/Android.png",

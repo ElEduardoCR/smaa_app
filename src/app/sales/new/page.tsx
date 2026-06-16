@@ -217,11 +217,11 @@ function QuotationForm() {
     };
 
     return (
-        <div className="min-h-screen bg-[#0B1120] text-slate-200 p-6 md:p-10 font-[family-name:var(--font-sans)]">
+        <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 p-6 md:p-10 font-[family-name:var(--font-sans)]">
             <div className="max-w-5xl mx-auto space-y-8">
                 {/* Header */}
-                <header className="flex items-center gap-4 bg-slate-800/40 p-6 rounded-3xl border border-slate-700/50 backdrop-blur-sm">
-                    <Link href="/sales" className="p-3 bg-slate-800 hover:bg-slate-700 rounded-xl transition-colors text-slate-400 hover:text-white border border-slate-700">
+                <header className="flex items-center gap-4 bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
+                    <Link href="/sales" className="p-3 bg-neutral-800 hover:bg-neutral-700 rounded-xl transition-colors text-neutral-400 hover:text-white border border-neutral-700">
                         <ArrowLeft className="w-5 h-5" />
                     </Link>
                     <div>
@@ -229,7 +229,7 @@ function QuotationForm() {
                             <Calculator className="w-8 h-8 text-emerald-400" />
                             {isEditing ? "Editar Cotización" : "Nueva Cotización"}
                         </h1>
-                        <p className="text-slate-400 text-sm mt-1">{isEditing ? "Modify an existing draft quotation" : "Create a new sales quotation with auto-calculated totals"}</p>
+                        <p className="text-neutral-400 text-sm mt-1">{isEditing ? "Modify an existing draft quotation" : "Create a new sales quotation with auto-calculated totals"}</p>
                     </div>
                 </header>
 
@@ -242,16 +242,16 @@ function QuotationForm() {
 
                 <form onSubmit={handleSubmit(onSubmit as any)} className="space-y-8">
                     {/* Client Selection */}
-                    <div className="bg-slate-800/40 p-6 rounded-3xl border border-slate-700/50 backdrop-blur-sm">
+                    <div className="bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
                         <h2 className="text-lg font-semibold text-white mb-4">Client Details</h2>
                         <div className="space-y-2 max-w-xl">
-                            <label className="text-sm font-medium text-slate-300 ml-1">Select Client *</label>
+                            <label className="text-sm font-medium text-neutral-300 ml-1">Select Client *</label>
                             <div className="relative">
                                 <select
                                     {...register("client_id")}
                                     className={cn(
-                                        "w-full bg-slate-900/50 border rounded-xl px-4 py-3 text-white appearance-none focus:outline-none focus:ring-2 transition-all",
-                                        errors.client_id ? "border-red-500/50 focus:border-red-500 focus:ring-red-500/20" : "border-slate-700 focus:border-emerald-500 focus:ring-emerald-500/20"
+                                        "w-full bg-neutral-900/50 border rounded-xl px-4 py-3 text-white appearance-none focus:outline-none focus:ring-2 transition-all",
+                                        errors.client_id ? "border-red-500/50 focus:border-red-500 focus:ring-red-500/20" : "border-neutral-700 focus:border-emerald-500 focus:ring-emerald-500/20"
                                     )}
                                     disabled={isLoadingClients}
                                 >
@@ -260,7 +260,7 @@ function QuotationForm() {
                                         <option key={c.id} value={c.id}>{c.business_name}</option>
                                     ))}
                                 </select>
-                                <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-slate-500">
+                                <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-neutral-500">
                                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
                                 </div>
                             </div>
@@ -269,30 +269,30 @@ function QuotationForm() {
                     </div>
 
                     {/* Seller & Delivery */}
-                    <div className="bg-slate-800/40 p-6 rounded-3xl border border-slate-700/50 backdrop-blur-sm">
+                    <div className="bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
                         <h2 className="text-lg font-semibold text-white mb-4">Información Adicional</h2>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-slate-300 ml-1">Vendedor</label>
+                                <label className="text-sm font-medium text-neutral-300 ml-1">Vendedor</label>
                                 <input
                                     {...register("seller")}
-                                    className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                                    className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-4 py-3 text-white placeholder-neutral-500 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                                     placeholder="Nombre del vendedor"
                                 />
                             </div>
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-slate-300 ml-1">Tiempo de Entrega</label>
+                                <label className="text-sm font-medium text-neutral-300 ml-1">Tiempo de Entrega</label>
                                 <input
                                     {...register("delivery_time")}
-                                    className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                                    className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-4 py-3 text-white placeholder-neutral-500 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                                     placeholder="Ej: 5 días hábiles, 2 semanas"
                                 />
                             </div>
                             <div className="space-y-2 md:col-span-2">
-                                <label className="text-sm font-medium text-slate-300 ml-1">Términos y Condiciones</label>
+                                <label className="text-sm font-medium text-neutral-300 ml-1">Términos y Condiciones</label>
                                 <textarea
                                     {...register("terms_conditions")}
-                                    className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all min-h-[120px]"
+                                    className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-4 py-3 text-white placeholder-neutral-500 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all min-h-[120px]"
                                     placeholder="Ej: Precios en MXN, validez 30 días, pago 50% anticipo..."
                                 />
                             </div>
@@ -300,7 +300,7 @@ function QuotationForm() {
                     </div>
 
                     {/* Items Array */}
-                    <div className="bg-slate-800/40 p-6 rounded-3xl border border-slate-700/50 backdrop-blur-sm">
+                    <div className="bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
                         <div className="flex justify-between items-center mb-6">
                             <h2 className="text-lg font-semibold text-white">Products / Services</h2>
                             <button
@@ -314,7 +314,7 @@ function QuotationForm() {
 
                         <div className="space-y-4">
                             {/* Desktop Headers */}
-                            <div className="hidden md:grid grid-cols-12 gap-4 text-xs font-semibold text-slate-400 uppercase tracking-wider px-2">
+                            <div className="hidden md:grid grid-cols-12 gap-4 text-xs font-semibold text-neutral-400 uppercase tracking-wider px-2">
                                 <div className="col-span-6">Description</div>
                                 <div className="col-span-2">Quantity</div>
                                 <div className="col-span-3">Unit Price</div>
@@ -322,14 +322,14 @@ function QuotationForm() {
                             </div>
 
                             {fields.map((field, index) => (
-                                <div key={field.id} className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start bg-slate-900/30 p-4 md:p-2 rounded-xl border border-slate-700/30 md:border-none focus-within:bg-slate-800/60 transition-colors">
+                                <div key={field.id} className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start bg-neutral-900/30 p-4 md:p-2 rounded-xl border border-neutral-700/30 md:border-none focus-within:bg-neutral-800/60 transition-colors">
                                     <div className="md:col-span-6 space-y-1">
-                                        <label className="md:hidden text-xs text-slate-400 ml-1">Description</label>
+                                        <label className="md:hidden text-xs text-neutral-400 ml-1">Description</label>
                                         <input
                                             {...register(`items.${index}.description` as const)}
                                             className={cn(
-                                                "w-full bg-slate-900/80 border rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 transition-all",
-                                                errors.items?.[index]?.description ? "border-red-500 focus:border-red-500 focus:ring-red-500" : "border-slate-700 focus:border-emerald-500 focus:ring-emerald-500"
+                                                "w-full bg-neutral-900/80 border rounded-lg px-3 py-2 text-white placeholder-neutral-600 focus:outline-none focus:ring-1 transition-all",
+                                                errors.items?.[index]?.description ? "border-red-500 focus:border-red-500 focus:ring-red-500" : "border-neutral-700 focus:border-emerald-500 focus:ring-emerald-500"
                                             )}
                                             placeholder="Item description..."
                                         />
@@ -338,28 +338,28 @@ function QuotationForm() {
 
                                     <div className="grid grid-cols-2 md:grid-cols-5 md:col-span-5 gap-4">
                                         <div className="md:col-span-2 space-y-1">
-                                            <label className="md:hidden text-xs text-slate-400 ml-1">Quantity</label>
+                                            <label className="md:hidden text-xs text-neutral-400 ml-1">Quantity</label>
                                             <input
                                                 type="number"
                                                 step="any"
                                                 {...register(`items.${index}.quantity` as const, { valueAsNumber: true })}
                                                 className={cn(
-                                                    "w-full bg-slate-900/80 border rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-1 transition-all",
-                                                    errors.items?.[index]?.quantity ? "border-red-500 focus:border-red-500 focus:ring-red-500" : "border-slate-700 focus:border-emerald-500 focus:ring-emerald-500"
+                                                    "w-full bg-neutral-900/80 border rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-1 transition-all",
+                                                    errors.items?.[index]?.quantity ? "border-red-500 focus:border-red-500 focus:ring-red-500" : "border-neutral-700 focus:border-emerald-500 focus:ring-emerald-500"
                                                 )}
                                             />
                                             {errors.items?.[index]?.quantity && <p className="text-red-400 text-xs ml-1">{errors.items[index]?.quantity?.message}</p>}
                                         </div>
 
                                         <div className="md:col-span-3 space-y-1">
-                                            <label className="md:hidden text-xs text-slate-400 ml-1">Unit Price ($)</label>
+                                            <label className="md:hidden text-xs text-neutral-400 ml-1">Unit Price ($)</label>
                                             <input
                                                 type="number"
                                                 step="any"
                                                 {...register(`items.${index}.unit_price` as const, { valueAsNumber: true })}
                                                 className={cn(
-                                                    "w-full bg-slate-900/80 border rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-1 transition-all",
-                                                    errors.items?.[index]?.unit_price ? "border-red-500 focus:border-red-500 focus:ring-red-500" : "border-slate-700 focus:border-emerald-500 focus:ring-emerald-500"
+                                                    "w-full bg-neutral-900/80 border rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-1 transition-all",
+                                                    errors.items?.[index]?.unit_price ? "border-red-500 focus:border-red-500 focus:ring-red-500" : "border-neutral-700 focus:border-emerald-500 focus:ring-emerald-500"
                                                 )}
                                             />
                                             {errors.items?.[index]?.unit_price && <p className="text-red-400 text-xs ml-1">{errors.items[index]?.unit_price?.message}</p>}
@@ -371,7 +371,7 @@ function QuotationForm() {
                                             type="button"
                                             onClick={() => remove(index)}
                                             disabled={fields.length === 1}
-                                            className="text-slate-500 hover:text-red-400 disabled:opacity-30 disabled:hover:text-slate-500 transition-colors p-2 rounded-lg hover:bg-slate-800"
+                                            className="text-neutral-500 hover:text-red-400 disabled:opacity-30 disabled:hover:text-neutral-500 transition-colors p-2 rounded-lg hover:bg-neutral-800"
                                             title="Remove line"
                                         >
                                             <Trash2 className="w-5 h-5" />
@@ -383,7 +383,7 @@ function QuotationForm() {
                     </div>
 
                     {/* Totals & Submit */}
-                    <div className="flex flex-col md:flex-row justify-between items-end gap-6 bg-slate-800/20 p-6 rounded-3xl border border-slate-700/30">
+                    <div className="flex flex-col md:flex-row justify-between items-end gap-6 bg-neutral-800/20 p-6 rounded-3xl border border-neutral-700/30">
                         <div className="w-full md:w-auto">
                             <button
                                 type="submit"
@@ -398,12 +398,12 @@ function QuotationForm() {
                             </button>
                         </div>
 
-                        <div className="w-full md:w-72 space-y-3 bg-slate-900/50 p-6 rounded-2xl border border-slate-700/50">
-                            <div className="flex justify-between items-center text-sm text-slate-400 font-medium">
+                        <div className="w-full md:w-72 space-y-3 bg-neutral-900/50 p-6 rounded-2xl border border-neutral-700/50">
+                            <div className="flex justify-between items-center text-sm text-neutral-400 font-medium">
                                 <span>Subtotal</span>
                                 <span>{formatCurrency(subtotal)}</span>
                             </div>
-                            <div className="flex justify-between items-center text-sm text-slate-400 font-medium pb-3 border-b border-slate-700/50">
+                            <div className="flex justify-between items-center text-sm text-neutral-400 font-medium pb-3 border-b border-neutral-700/50">
                                 <span>IVA (16%)</span>
                                 <span>{formatCurrency(vatTotal)}</span>
                             </div>
@@ -423,7 +423,7 @@ function QuotationForm() {
 export default function NewQuotationPage() {
     return (
         <Suspense fallback={
-            <div className="min-h-screen bg-[#0B1120] flex items-center justify-center p-10 font-[family-name:var(--font-sans)]">
+            <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center p-10 font-[family-name:var(--font-sans)]">
                 <RefreshCw className="w-8 h-8 animate-spin text-emerald-400" />
             </div>
         }>

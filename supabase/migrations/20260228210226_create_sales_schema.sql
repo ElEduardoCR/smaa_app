@@ -1,11 +1,11 @@
--- Sequence for Voxa Quotation Numbers
+-- Sequence for SMAA Quotation Numbers
 CREATE SEQUENCE IF NOT EXISTS quotation_number_seq START 1;
 
--- Function to perfectly format quotation numbers like 'VOXA00001'
+-- Function to perfectly format quotation numbers like 'SMAA00001'
 CREATE OR REPLACE FUNCTION generate_quotation_number()
 RETURNS TEXT AS $$
 BEGIN
-  RETURN 'VOXA' || LPAD(nextval('quotation_number_seq')::TEXT, 5, '0');
+  RETURN 'SMAA' || LPAD(nextval('quotation_number_seq')::TEXT, 5, '0');
 END;
 $$ LANGUAGE plpgsql;
 

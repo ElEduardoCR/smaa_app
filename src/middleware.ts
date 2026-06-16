@@ -33,7 +33,7 @@ export async function middleware(request: NextRequest) {
     }
 
     // Check the session
-    const sessionCookie = request.cookies.get('voxa_session')?.value;
+    const sessionCookie = request.cookies.get('smaa_session')?.value;
     const session = await decrypt(sessionCookie);
     const userPermissions = session?.permissions || [];
 

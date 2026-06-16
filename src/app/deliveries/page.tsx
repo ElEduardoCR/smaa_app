@@ -118,14 +118,14 @@ export default function DeliveriesPage() {
     };
 
     return (
-        <div className="min-h-screen bg-[#0B1120] text-slate-200 p-6 md:p-10 font-[family-name:var(--font-sans)]">
+        <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 p-6 md:p-10 font-[family-name:var(--font-sans)]">
             <div className="w-full space-y-8">
-                <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-slate-800/40 p-6 rounded-3xl border border-slate-700/50 backdrop-blur-sm">
+                <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
                     <div className="flex items-center gap-4">
-                        <Link href="/" className="p-3 bg-slate-800 hover:bg-slate-700 rounded-xl transition-colors text-slate-400 hover:text-white border border-slate-700"><ArrowLeft className="w-5 h-5" /></Link>
+                        <Link href="/" className="p-3 bg-neutral-800 hover:bg-neutral-700 rounded-xl transition-colors text-neutral-400 hover:text-white border border-neutral-700"><ArrowLeft className="w-5 h-5" /></Link>
                         <div>
                             <h1 className="text-3xl font-bold text-white flex items-center gap-3"><PackageCheck className="w-8 h-8 text-emerald-400" />Entregas</h1>
-                            <p className="text-slate-400 text-sm mt-1">Notas de entrega de órdenes de trabajo terminadas</p>
+                            <p className="text-neutral-400 text-sm mt-1">Notas de entrega de órdenes de trabajo terminadas</p>
                         </div>
                     </div>
                     <Link href="/deliveries/new" className="flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white px-6 py-3 rounded-xl font-medium transition-all hover:shadow-[0_0_20px_rgba(16,185,129,0.4)] active:scale-95">
@@ -133,16 +133,16 @@ export default function DeliveriesPage() {
                     </Link>
                 </header>
 
-                <div className="bg-slate-800/40 border border-slate-700/50 rounded-3xl overflow-hidden backdrop-blur-sm">
-                    <div className="p-6 border-b border-slate-700/50 flex justify-between items-center bg-slate-800/20">
+                <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-3xl overflow-hidden backdrop-blur-sm">
+                    <div className="p-6 border-b border-neutral-700/50 flex justify-between items-center bg-neutral-800/20">
                         <h2 className="text-xl font-semibold text-white">Entregas Realizadas</h2>
-                        <button onClick={fetchDeliveries} className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium" disabled={isLoading}>
+                        <button onClick={fetchDeliveries} className="p-2 text-neutral-400 hover:text-white hover:bg-neutral-700 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium" disabled={isLoading}>
                             <RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin text-emerald-400")} /> Refresh
                         </button>
                     </div>
                     <div className="overflow-x-auto">
                         <table className="w-full text-left text-sm whitespace-nowrap">
-                            <thead className="bg-slate-900/50 text-slate-400 uppercase text-xs font-semibold tracking-wider">
+                            <thead className="bg-neutral-900/50 text-neutral-400 uppercase text-xs font-semibold tracking-wider">
                                 <tr>
                                     <th className="px-6 py-4 rounded-tl-xl">Folio Entrega</th>
                                     <th className="px-6 py-4">OT</th>
@@ -154,33 +154,33 @@ export default function DeliveriesPage() {
                                     <th className="px-6 py-4 rounded-tr-xl text-right">Acciones</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-700/50">
+                            <tbody className="divide-y divide-neutral-700/50">
                                 {isLoading ? (
-                                    <tr><td colSpan={8} className="px-6 py-12 text-center text-slate-400"><RefreshCw className="w-6 h-6 animate-spin mx-auto mb-3 text-emerald-500" />Cargando...</td></tr>
+                                    <tr><td colSpan={8} className="px-6 py-12 text-center text-neutral-400"><RefreshCw className="w-6 h-6 animate-spin mx-auto mb-3 text-emerald-500" />Cargando...</td></tr>
                                 ) : deliveries.length === 0 ? (
-                                    <tr><td colSpan={8} className="px-6 py-12 text-center text-slate-400">
-                                        <div className="bg-slate-800/50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 border border-slate-700"><PackageCheck className="w-8 h-8 text-slate-500" /></div>
-                                        <p className="text-lg text-slate-300 font-medium">No hay entregas realizadas</p>
+                                    <tr><td colSpan={8} className="px-6 py-12 text-center text-neutral-400">
+                                        <div className="bg-neutral-800/50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 border border-neutral-700"><PackageCheck className="w-8 h-8 text-neutral-500" /></div>
+                                        <p className="text-lg text-neutral-300 font-medium">No hay entregas realizadas</p>
                                         <p className="text-sm mt-1">Crea una nueva entrega para una OT terminada.</p>
                                     </td></tr>
                                 ) : (
                                     deliveries.map((d) => (
-                                        <tr key={d.id} className="hover:bg-slate-800/80 transition-colors">
+                                        <tr key={d.id} className="hover:bg-neutral-800/80 transition-colors">
                                             <td className="px-6 py-4"><span className="font-mono font-medium text-emerald-300 bg-emerald-500/10 px-2.5 py-1 rounded-md border border-emerald-500/20">{d.delivery_number}</span></td>
-                                            <td className="px-6 py-4"><span className="font-mono text-cyan-300 text-xs bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">{d.work_order?.order_number}</span></td>
-                                            <td className="px-6 py-4 font-medium text-slate-200">{d.work_order?.quotation?.client?.business_name}</td>
-                                            <td className="px-6 py-4 text-slate-400">{d.shipping_method || '—'}</td>
-                                            <td className="px-6 py-4 text-slate-400">{new Date(d.created_at).toLocaleDateString()}</td>
+                                            <td className="px-6 py-4"><span className="font-mono text-orange-300 text-xs bg-orange-500/10 px-2 py-0.5 rounded border border-orange-500/20">{d.work_order?.order_number}</span></td>
+                                            <td className="px-6 py-4 font-medium text-neutral-200">{d.work_order?.quotation?.client?.business_name}</td>
+                                            <td className="px-6 py-4 text-neutral-400">{d.shipping_method || '—'}</td>
+                                            <td className="px-6 py-4 text-neutral-400">{new Date(d.created_at).toLocaleDateString()}</td>
 
                                             {/* Evidencia Fotográfica */}
                                             <td className="px-6 py-4 text-center">
                                                 {d.evidence_photo_url ? (
                                                     <a href={d.evidence_photo_url} target="_blank" rel="noopener noreferrer"
-                                                        className="inline-flex items-center gap-1.5 text-xs font-medium text-sky-400 hover:text-sky-300 bg-sky-500/10 hover:bg-sky-500/20 px-2.5 py-1.5 rounded-lg border border-sky-500/20 transition-colors">
+                                                        className="inline-flex items-center gap-1.5 text-xs font-medium text-orange-400 hover:text-orange-300 bg-orange-500/10 hover:bg-orange-500/20 px-2.5 py-1.5 rounded-lg border border-orange-500/20 transition-colors">
                                                         <Eye className="w-3.5 h-3.5" /> Ver Foto
                                                     </a>
                                                 ) : (
-                                                    <label className="inline-flex items-center gap-1.5 text-xs font-medium text-violet-400 hover:text-violet-300 bg-violet-500/10 hover:bg-violet-500/20 px-2.5 py-1.5 rounded-lg border border-violet-500/20 cursor-pointer transition-colors">
+                                                    <label className="inline-flex items-center gap-1.5 text-xs font-medium text-orange-400 hover:text-orange-300 bg-orange-500/10 hover:bg-orange-500/20 px-2.5 py-1.5 rounded-lg border border-orange-500/20 cursor-pointer transition-colors">
                                                         <Camera className="w-3.5 h-3.5" /> Subir Foto
                                                         <input type="file" accept="image/*" className="hidden"
                                                             onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadEvidence(d.id, f, 'photo'); e.target.value = ''; }} />

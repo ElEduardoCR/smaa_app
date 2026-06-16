@@ -324,7 +324,7 @@ export default function DashboardPage() {
     const activeStats = view === 'ventas' ? ventasStats : comprasStats;
     const accent = view === 'ventas'
         ? { text: 'text-emerald-400', textSoft: 'text-emerald-300', spin: 'text-emerald-400' }
-        : { text: 'text-sky-400', textSoft: 'text-sky-300', spin: 'text-sky-400' };
+        : { text: 'text-orange-400', textSoft: 'text-orange-300', spin: 'text-orange-400' };
 
     // Selecciona/ajusta el año según el dataset activo
     useEffect(() => {
@@ -360,20 +360,20 @@ export default function DashboardPage() {
     };
 
     return (
-        <div className="min-h-screen bg-[#0B1120] text-slate-200 p-6 md:p-10 font-[family-name:var(--font-sans)]">
+        <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 p-6 md:p-10 font-[family-name:var(--font-sans)]">
             <div className="w-full space-y-8">
-                <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-slate-800/40 p-6 rounded-3xl border border-slate-700/50 backdrop-blur-sm">
+                <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
                     <div className="flex items-center gap-4">
-                        <Link href="/" className="p-3 bg-slate-800 hover:bg-slate-700 rounded-xl transition-colors text-slate-400 hover:text-white border border-slate-700"><ArrowLeft className="w-5 h-5" /></Link>
+                        <Link href="/" className="p-3 bg-neutral-800 hover:bg-neutral-700 rounded-xl transition-colors text-neutral-400 hover:text-white border border-neutral-700"><ArrowLeft className="w-5 h-5" /></Link>
                         <div>
                             <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-                                <BarChart3 className="w-8 h-8 text-sky-400" />
+                                <BarChart3 className="w-8 h-8 text-orange-400" />
                                 Dashboard
                             </h1>
-                            <p className="text-slate-400 text-sm mt-1">Estadísticas del negocio: ventas cobradas, cuentas por cobrar y gasto en compras.</p>
+                            <p className="text-neutral-400 text-sm mt-1">Estadísticas del negocio: ventas cobradas, cuentas por cobrar y gasto en compras.</p>
                         </div>
                     </div>
-                    <button onClick={fetchData} className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium" disabled={loading}>
+                    <button onClick={fetchData} className="p-2 text-neutral-400 hover:text-white hover:bg-neutral-700 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium" disabled={loading}>
                         <RefreshCw className={cn("w-4 h-4", loading && "animate-spin", loading && accent.spin)} /> Refresh
                     </button>
                 </header>
@@ -385,12 +385,12 @@ export default function DashboardPage() {
                 )}
 
                 {/* Toggle Ventas / Compras */}
-                <div className="inline-flex items-center gap-1 bg-slate-800/40 border border-slate-700/50 rounded-2xl p-1.5">
+                <div className="inline-flex items-center gap-1 bg-neutral-800/40 border border-neutral-700/50 rounded-2xl p-1.5">
                     <button
                         onClick={() => setView('ventas')}
                         className={cn(
                             "inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all",
-                            view === 'ventas' ? "bg-emerald-500/15 text-emerald-300 shadow-lg shadow-emerald-500/10" : "text-slate-400 hover:text-white"
+                            view === 'ventas' ? "bg-emerald-500/15 text-emerald-300 shadow-lg shadow-emerald-500/10" : "text-neutral-400 hover:text-white"
                         )}
                     >
                         <Coins className="w-4 h-4" /> Ventas
@@ -399,7 +399,7 @@ export default function DashboardPage() {
                         onClick={() => setView('compras')}
                         className={cn(
                             "inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all",
-                            view === 'compras' ? "bg-sky-500/15 text-sky-300 shadow-lg shadow-sky-500/10" : "text-slate-400 hover:text-white"
+                            view === 'compras' ? "bg-orange-500/15 text-orange-300 shadow-lg shadow-orange-500/10" : "text-neutral-400 hover:text-white"
                         )}
                     >
                         <ShoppingCart className="w-4 h-4" /> Compras
@@ -422,11 +422,11 @@ export default function DashboardPage() {
                                 </div>
                                 <div className="mt-4">
                                     {loading ? (
-                                        <div className="h-12 w-64 bg-slate-700/40 rounded-xl animate-pulse" />
+                                        <div className="h-12 w-64 bg-neutral-700/40 rounded-xl animate-pulse" />
                                     ) : (
                                         <p className="text-5xl font-bold text-white tracking-tight">{fmtMoney(ventasStats.grandTotal)}</p>
                                     )}
-                                    <p className="text-slate-400 text-sm mt-2">{ventasStats.grandCount} factura(s) cobrada(s)</p>
+                                    <p className="text-neutral-400 text-sm mt-2">{ventasStats.grandCount} factura(s) cobrada(s)</p>
                                 </div>
                             </div>
 
@@ -436,33 +436,33 @@ export default function DashboardPage() {
                                 </div>
                                 <div className="mt-4">
                                     <p className="text-4xl font-bold text-white tracking-tight">{fmtMoney(porCobrar.total)}</p>
-                                    <p className="text-slate-400 text-sm mt-2">{porCobrar.count} factura(s) sin cobrar</p>
+                                    <p className="text-neutral-400 text-sm mt-2">{porCobrar.count} factura(s) sin cobrar</p>
                                 </div>
                             </div>
                         </>
                     ) : (
                         <>
-                            <div className="md:col-span-2 bg-gradient-to-br from-sky-500/10 to-indigo-500/10 border border-sky-500/30 rounded-3xl p-8 flex flex-col justify-between shadow-lg shadow-black/20">
-                                <div className="flex items-center gap-3 text-sky-300/80 text-sm font-semibold uppercase tracking-wider">
+                            <div className="md:col-span-2 bg-gradient-to-br from-orange-500/10 to-orange-500/10 border border-orange-500/30 rounded-3xl p-8 flex flex-col justify-between shadow-lg shadow-black/20">
+                                <div className="flex items-center gap-3 text-orange-300/80 text-sm font-semibold uppercase tracking-wider">
                                     <ShoppingCart className="w-5 h-5" /> Total en compras · todos los años
                                 </div>
                                 <div className="mt-4">
                                     {loading ? (
-                                        <div className="h-12 w-64 bg-slate-700/40 rounded-xl animate-pulse" />
+                                        <div className="h-12 w-64 bg-neutral-700/40 rounded-xl animate-pulse" />
                                     ) : (
                                         <p className="text-5xl font-bold text-white tracking-tight">{fmtMoney(comprasStats.grandTotal)}</p>
                                     )}
-                                    <p className="text-slate-400 text-sm mt-2">{comprasStats.grandCount} factura(s) de compra registrada(s)</p>
+                                    <p className="text-neutral-400 text-sm mt-2">{comprasStats.grandCount} factura(s) de compra registrada(s)</p>
                                 </div>
                             </div>
 
-                            <div className="bg-slate-800/40 border border-slate-700/50 rounded-3xl p-8 flex flex-col justify-between shadow-lg shadow-black/20">
+                            <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-3xl p-8 flex flex-col justify-between shadow-lg shadow-black/20">
                                 <div className="flex items-center gap-3 text-emerald-300/80 text-sm font-semibold uppercase tracking-wider">
                                     <TrendingUp className="w-5 h-5" /> Años con compras
                                 </div>
                                 <div className="mt-4">
                                     <p className="text-5xl font-bold text-white tracking-tight">{comprasStats.years.length}</p>
-                                    <p className="text-slate-400 text-sm mt-2">
+                                    <p className="text-neutral-400 text-sm mt-2">
                                         {comprasStats.years.length > 0
                                             ? `${comprasStats.years[comprasStats.years.length - 1].year} – ${comprasStats.years[0].year}`
                                             : 'Sin datos'}
@@ -475,15 +475,15 @@ export default function DashboardPage() {
 
                 {/* Por año */}
                 <section className="space-y-4">
-                    <h2 className="text-xl font-semibold text-slate-200 flex items-center gap-2">
+                    <h2 className="text-xl font-semibold text-neutral-200 flex items-center gap-2">
                         <Calendar className={cn("w-5 h-5", accent.text)} /> {view === 'ventas' ? 'Ventas por año' : 'Compras por año'}
                     </h2>
                     {loading ? (
                         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-                            {[...Array(4)].map((_, i) => <div key={i} className="h-28 bg-slate-800/40 rounded-2xl animate-pulse border border-slate-700/40" />)}
+                            {[...Array(4)].map((_, i) => <div key={i} className="h-28 bg-neutral-800/40 rounded-2xl animate-pulse border border-neutral-700/40" />)}
                         </div>
                     ) : activeStats.years.length === 0 ? (
-                        <p className="text-slate-500 text-sm bg-slate-800/40 border border-slate-700/50 rounded-2xl p-6">
+                        <p className="text-neutral-500 text-sm bg-neutral-800/40 border border-neutral-700/50 rounded-2xl p-6">
                             {view === 'ventas'
                                 ? 'Aún no hay ventas cobradas. Marca facturas como cobradas en "Facturas Emitidas".'
                                 : 'No hay facturas de compra registradas todavía.'}
@@ -501,13 +501,13 @@ export default function DashboardPage() {
                                             isSel
                                                 ? (view === 'ventas'
                                                     ? "bg-emerald-500/15 border-emerald-500/50 shadow-lg shadow-emerald-500/10"
-                                                    : "bg-sky-500/15 border-sky-500/50 shadow-lg shadow-sky-500/10")
-                                                : "bg-slate-800/40 border-slate-700/50 hover:bg-slate-800/80 hover:border-slate-600"
+                                                    : "bg-orange-500/15 border-orange-500/50 shadow-lg shadow-orange-500/10")
+                                                : "bg-neutral-800/40 border-neutral-700/50 hover:bg-neutral-800/80 hover:border-neutral-600"
                                         )}
                                     >
-                                        <p className={cn("text-sm font-semibold", isSel ? accent.textSoft : "text-slate-400")}>{y.year}</p>
+                                        <p className={cn("text-sm font-semibold", isSel ? accent.textSoft : "text-neutral-400")}>{y.year}</p>
                                         <p className="text-2xl font-bold text-white mt-2 tracking-tight">{fmtMoney(y.total)}</p>
-                                        <p className="text-xs text-slate-500 mt-1">{y.count} factura(s)</p>
+                                        <p className="text-xs text-neutral-500 mt-1">{y.count} factura(s)</p>
                                     </button>
                                 );
                             })}
@@ -518,44 +518,44 @@ export default function DashboardPage() {
                 {/* Por mes (del año seleccionado) */}
                 <section className="space-y-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
-                        <h2 className="text-xl font-semibold text-slate-200 flex items-center gap-2">
-                            <Calendar className="w-5 h-5 text-violet-400" /> {view === 'ventas' ? 'Ventas por mes' : 'Compras por mes'}
-                            {selectedYear != null && <span className="text-violet-300">· {selectedYear}</span>}
+                        <h2 className="text-xl font-semibold text-neutral-200 flex items-center gap-2">
+                            <Calendar className="w-5 h-5 text-orange-400" /> {view === 'ventas' ? 'Ventas por mes' : 'Compras por mes'}
+                            {selectedYear != null && <span className="text-orange-300">· {selectedYear}</span>}
                         </h2>
                         {selectedYear != null && (
-                            <span className="text-sm text-slate-400">
+                            <span className="text-sm text-neutral-400">
                                 Total {selectedYear}: <span className="text-white font-semibold">{fmtMoney(selectedYearTotal)}</span>
                             </span>
                         )}
                     </div>
 
                     {loading ? (
-                        <div className="bg-slate-800/40 border border-slate-700/50 rounded-3xl p-6 space-y-3">
-                            {[...Array(6)].map((_, i) => <div key={i} className="h-8 bg-slate-700/30 rounded-lg animate-pulse" />)}
+                        <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-3xl p-6 space-y-3">
+                            {[...Array(6)].map((_, i) => <div key={i} className="h-8 bg-neutral-700/30 rounded-lg animate-pulse" />)}
                         </div>
                     ) : selectedYear == null ? (
-                        <p className="text-slate-500 text-sm bg-slate-800/40 border border-slate-700/50 rounded-2xl p-6">Selecciona un año para ver el desglose mensual.</p>
+                        <p className="text-neutral-500 text-sm bg-neutral-800/40 border border-neutral-700/50 rounded-2xl p-6">Selecciona un año para ver el desglose mensual.</p>
                     ) : (
-                        <div className="bg-slate-800/40 border border-slate-700/50 rounded-3xl p-6 backdrop-blur-sm">
+                        <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-3xl p-6 backdrop-blur-sm">
                             <div className="space-y-2">
                                 {monthsForSelectedYear.map(m => (
                                     <div key={m.idx} className="flex items-center gap-4">
-                                        <span className="w-24 text-sm text-slate-400 flex-shrink-0">{m.name}</span>
-                                        <div className="flex-1 h-7 bg-slate-900/50 rounded-lg overflow-hidden relative">
+                                        <span className="w-24 text-sm text-neutral-400 flex-shrink-0">{m.name}</span>
+                                        <div className="flex-1 h-7 bg-neutral-900/50 rounded-lg overflow-hidden relative">
                                             <div
                                                 className={cn(
                                                     "h-full rounded-lg transition-all duration-500",
                                                     m.total > 0
                                                         ? (view === 'ventas'
                                                             ? "bg-gradient-to-r from-emerald-500/60 to-teal-500/60"
-                                                            : "bg-gradient-to-r from-violet-500/60 to-sky-500/60")
+                                                            : "bg-gradient-to-r from-orange-500/60 to-orange-500/60")
                                                         : ""
                                                 )}
                                                 style={{ width: `${(m.total / maxMonthTotal) * 100}%` }}
                                             />
                                         </div>
-                                        <span className="w-36 text-right text-sm font-medium text-slate-200 flex-shrink-0">{fmtMoney(m.total)}</span>
-                                        <span className="w-20 text-right text-xs text-slate-500 flex-shrink-0">{m.count} fact.</span>
+                                        <span className="w-36 text-right text-sm font-medium text-neutral-200 flex-shrink-0">{fmtMoney(m.total)}</span>
+                                        <span className="w-20 text-right text-xs text-neutral-500 flex-shrink-0">{m.count} fact.</span>
                                     </div>
                                 ))}
                             </div>
@@ -566,17 +566,17 @@ export default function DashboardPage() {
                 {/* Por facturar vs por cobrar (año objetivo) */}
                 <section className="space-y-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
-                        <h2 className="text-xl font-semibold text-slate-200 flex items-center gap-2">
-                            <Link2 className="w-5 h-5 text-fuchsia-400" /> Por facturar vs por cobrar
-                            <span className="text-fuchsia-300">· {BILLING_YEAR}</span>
+                        <h2 className="text-xl font-semibold text-neutral-200 flex items-center gap-2">
+                            <Link2 className="w-5 h-5 text-orange-400" /> Por facturar vs por cobrar
+                            <span className="text-orange-300">· {BILLING_YEAR}</span>
                         </h2>
-                        <Link href="/sales/billing-inbox" className="inline-flex items-center gap-1.5 text-sm text-fuchsia-300 hover:text-fuchsia-200 bg-fuchsia-500/10 hover:bg-fuchsia-500/20 px-3 py-1.5 rounded-lg border border-fuchsia-500/20">
+                        <Link href="/sales/billing-inbox" className="inline-flex items-center gap-1.5 text-sm text-orange-300 hover:text-orange-200 bg-orange-500/10 hover:bg-orange-500/20 px-3 py-1.5 rounded-lg border border-orange-500/20">
                             <Link2 className="w-3.5 h-3.5" /> Revisar facturación IA <ExternalLink className="w-3 h-3" />
                         </Link>
                     </div>
 
-                    <p className="text-sm text-slate-400 -mt-1">
-                        Compara la <span className="text-violet-300">venta aprobada que falta por facturar</span> (cotizaciones aprobadas sin su CFDI) contra las <span className="text-amber-300">facturas que faltan por cobrar</span>. Haz clic en una cotización para ver sus partidas.
+                    <p className="text-sm text-neutral-400 -mt-1">
+                        Compara la <span className="text-orange-300">venta aprobada que falta por facturar</span> (cotizaciones aprobadas sin su CFDI) contra las <span className="text-amber-300">facturas que faltan por cobrar</span>. Haz clic en una cotización para ver sus partidas.
                     </p>
 
                     {billingNote && (
@@ -591,13 +591,13 @@ export default function DashboardPage() {
                     )}
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        <div className="bg-gradient-to-br from-violet-500/10 to-indigo-500/10 border border-violet-500/30 rounded-3xl p-6 flex flex-col justify-between shadow-lg shadow-black/20">
-                            <div className="flex items-center gap-3 text-violet-300/80 text-sm font-semibold uppercase tracking-wider">
+                        <div className="bg-gradient-to-br from-orange-500/10 to-orange-500/10 border border-orange-500/30 rounded-3xl p-6 flex flex-col justify-between shadow-lg shadow-black/20">
+                            <div className="flex items-center gap-3 text-orange-300/80 text-sm font-semibold uppercase tracking-wider">
                                 <FileSpreadsheet className="w-5 h-5" /> Venta aprobada por facturar
                             </div>
                             <div className="mt-4">
                                 <p className="text-4xl font-bold text-white tracking-tight">{fmtMoney(facturacion.porFacturar)}</p>
-                                <p className="text-slate-400 text-sm mt-2">{facturacion.pendingList.length} cotización(es) con partidas pendientes</p>
+                                <p className="text-neutral-400 text-sm mt-2">{facturacion.pendingList.length} cotización(es) con partidas pendientes</p>
                             </div>
                         </div>
 
@@ -607,32 +607,32 @@ export default function DashboardPage() {
                             </div>
                             <div className="mt-4">
                                 <p className="text-4xl font-bold text-white tracking-tight">{fmtMoney(facturacion.porCobrarYear)}</p>
-                                <p className="text-slate-400 text-sm mt-2">{facturacion.porCobrarYearCount} factura(s) emitida(s) sin cobrar</p>
+                                <p className="text-neutral-400 text-sm mt-2">{facturacion.porCobrarYearCount} factura(s) emitida(s) sin cobrar</p>
                             </div>
                         </div>
 
-                        <div className="bg-slate-800/40 border border-slate-700/50 rounded-3xl p-6 flex flex-col justify-between shadow-lg shadow-black/20">
+                        <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-3xl p-6 flex flex-col justify-between shadow-lg shadow-black/20">
                             <div className="flex items-center gap-3 text-emerald-300/80 text-sm font-semibold uppercase tracking-wider">
                                 <Coins className="w-5 h-5" /> Ya facturado de lo aprobado
                             </div>
                             <div className="mt-4">
                                 <p className="text-4xl font-bold text-white tracking-tight">{fmtMoney(facturacion.facturado)}</p>
-                                <p className="text-slate-400 text-sm mt-2">{facturacion.approvedCount} cotización(es) aprobada(s) en {BILLING_YEAR}</p>
+                                <p className="text-neutral-400 text-sm mt-2">{facturacion.approvedCount} cotización(es) aprobada(s) en {BILLING_YEAR}</p>
                             </div>
                         </div>
                     </div>
 
                     {loading ? null : facturacion.pendingList.length === 0 ? (
-                        <p className="text-slate-500 text-sm bg-slate-800/40 border border-slate-700/50 rounded-2xl p-6">
+                        <p className="text-neutral-500 text-sm bg-neutral-800/40 border border-neutral-700/50 rounded-2xl p-6">
                             {facturacion.approvedCount === 0
                                 ? `No hay cotizaciones aprobadas en ${BILLING_YEAR}.`
                                 : "Todas las partidas de las cotizaciones aprobadas ya están facturadas (por IA confirmada o marcadas manualmente). 🎉"}
                         </p>
                     ) : (
-                        <div className="bg-slate-800/40 border border-slate-700/50 rounded-3xl overflow-hidden backdrop-blur-sm">
+                        <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-3xl overflow-hidden backdrop-blur-sm">
                             <div className="overflow-x-auto max-h-[420px] overflow-y-auto">
                                 <table className="w-full text-left text-sm whitespace-nowrap">
-                                    <thead className="bg-slate-900/50 text-slate-400 uppercase text-xs font-semibold tracking-wider sticky top-0">
+                                    <thead className="bg-neutral-900/50 text-neutral-400 uppercase text-xs font-semibold tracking-wider sticky top-0">
                                         <tr>
                                             <th className="px-6 py-4">Cotización</th>
                                             <th className="px-6 py-4">Cliente</th>
@@ -641,19 +641,19 @@ export default function DashboardPage() {
                                             <th className="px-6 py-4 text-right">Acción</th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-slate-700/50">
+                                    <tbody className="divide-y divide-neutral-700/50">
                                         {facturacion.pendingList.map((q) => (
                                             <tr
                                                 key={q.id}
                                                 onClick={() => setSelectedQuote({ id: q.id, number: q.number, client: q.client })}
-                                                className="hover:bg-slate-800/80 transition-colors cursor-pointer"
+                                                className="hover:bg-neutral-800/80 transition-colors cursor-pointer"
                                             >
                                                 <td className="px-6 py-4">
                                                     <span className="font-mono font-medium text-emerald-300 bg-emerald-500/10 px-2.5 py-1 rounded-md border border-emerald-500/20">{q.number}</span>
                                                 </td>
-                                                <td className="px-6 py-4 font-medium text-slate-200 max-w-[280px] truncate">{q.client || "—"}</td>
-                                                <td className="px-6 py-4 text-center text-slate-400">{q.pendingCount}</td>
-                                                <td className="px-6 py-4 text-right font-medium text-violet-300">{fmtMoney(q.pendingAmount)}</td>
+                                                <td className="px-6 py-4 font-medium text-neutral-200 max-w-[280px] truncate">{q.client || "—"}</td>
+                                                <td className="px-6 py-4 text-center text-neutral-400">{q.pendingCount}</td>
+                                                <td className="px-6 py-4 text-right font-medium text-orange-300">{fmtMoney(q.pendingAmount)}</td>
                                                 <td className="px-6 py-4 text-right">
                                                     <button
                                                         onClick={(e) => { e.stopPropagation(); markBilled(q.id, true); }}
@@ -674,21 +674,21 @@ export default function DashboardPage() {
 
                     {/* Marcadas manualmente como facturadas (deshacer) */}
                     {facturacion.manualList.length > 0 && (
-                        <div className="bg-slate-800/30 border border-slate-700/40 rounded-2xl p-4">
-                            <p className="text-xs text-slate-400 uppercase tracking-wide font-semibold mb-3 flex items-center gap-2">
+                        <div className="bg-neutral-800/30 border border-neutral-700/40 rounded-2xl p-4">
+                            <p className="text-xs text-neutral-400 uppercase tracking-wide font-semibold mb-3 flex items-center gap-2">
                                 <Check className="w-3.5 h-3.5 text-emerald-400" /> Marcadas manualmente como facturadas ({facturacion.manualList.length})
                             </p>
                             <div className="flex flex-wrap gap-2">
                                 {facturacion.manualList.map(q => (
-                                    <span key={q.id} className="inline-flex items-center gap-2 bg-slate-900/50 border border-slate-700/50 rounded-lg pl-3 pr-1.5 py-1.5 text-xs">
+                                    <span key={q.id} className="inline-flex items-center gap-2 bg-neutral-900/50 border border-neutral-700/50 rounded-lg pl-3 pr-1.5 py-1.5 text-xs">
                                         <button onClick={() => setSelectedQuote({ id: q.id, number: q.number, client: q.client })} className="font-mono text-emerald-300 hover:text-emerald-200 hover:underline" title="Ver partidas">{q.number}</button>
-                                        <span className="text-slate-400 max-w-[160px] truncate">{q.client || "—"}</span>
-                                        <span className="text-slate-300 font-medium">{fmtMoney(q.total)}</span>
+                                        <span className="text-neutral-400 max-w-[160px] truncate">{q.client || "—"}</span>
+                                        <span className="text-neutral-300 font-medium">{fmtMoney(q.total)}</span>
                                         <button
                                             onClick={() => markBilled(q.id, false)}
                                             disabled={markingId === q.id}
                                             title="Deshacer: volver a contar como 'por facturar'"
-                                            className="inline-flex items-center gap-1 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 px-2 py-1 rounded-md border border-slate-700 disabled:opacity-50"
+                                            className="inline-flex items-center gap-1 text-neutral-400 hover:text-white bg-neutral-800 hover:bg-neutral-700 px-2 py-1 rounded-md border border-neutral-700 disabled:opacity-50"
                                         >
                                             {markingId === q.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />} Deshacer
                                         </button>
@@ -702,12 +702,12 @@ export default function DashboardPage() {
                 {/* Cuentas por cobrar */}
                 <section className="space-y-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
-                        <h2 className="text-xl font-semibold text-slate-200 flex items-center gap-2">
+                        <h2 className="text-xl font-semibold text-neutral-200 flex items-center gap-2">
                             <Wallet className="w-5 h-5 text-amber-400" /> Cuentas por cobrar
-                            <span className="text-sm font-normal text-slate-400">{porCobrar.count}</span>
+                            <span className="text-sm font-normal text-neutral-400">{porCobrar.count}</span>
                         </h2>
                         <div className="flex items-center gap-4">
-                            <span className="text-sm text-slate-400">
+                            <span className="text-sm text-neutral-400">
                                 Total: <span className="text-amber-300 font-semibold">{fmtMoney(porCobrar.total)}</span>
                             </span>
                             <Link href="/issued-invoices" className="inline-flex items-center gap-1.5 text-sm text-teal-300 hover:text-teal-200 bg-teal-500/10 hover:bg-teal-500/20 px-3 py-1.5 rounded-lg border border-teal-500/20">
@@ -717,18 +717,18 @@ export default function DashboardPage() {
                     </div>
 
                     {loading ? (
-                        <div className="bg-slate-800/40 border border-slate-700/50 rounded-3xl p-6 space-y-3">
-                            {[...Array(4)].map((_, i) => <div key={i} className="h-8 bg-slate-700/30 rounded-lg animate-pulse" />)}
+                        <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-3xl p-6 space-y-3">
+                            {[...Array(4)].map((_, i) => <div key={i} className="h-8 bg-neutral-700/30 rounded-lg animate-pulse" />)}
                         </div>
                     ) : porCobrar.count === 0 ? (
-                        <p className="text-slate-500 text-sm bg-slate-800/40 border border-slate-700/50 rounded-2xl p-6">
+                        <p className="text-neutral-500 text-sm bg-neutral-800/40 border border-neutral-700/50 rounded-2xl p-6">
                             No hay cuentas por cobrar. Todas las facturas emitidas están marcadas como cobradas. 🎉
                         </p>
                     ) : (
-                        <div className="bg-slate-800/40 border border-slate-700/50 rounded-3xl overflow-hidden backdrop-blur-sm">
+                        <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-3xl overflow-hidden backdrop-blur-sm">
                             <div className="overflow-x-auto max-h-[420px] overflow-y-auto">
                                 <table className="w-full text-left text-sm whitespace-nowrap">
-                                    <thead className="bg-slate-900/50 text-slate-400 uppercase text-xs font-semibold tracking-wider sticky top-0">
+                                    <thead className="bg-neutral-900/50 text-neutral-400 uppercase text-xs font-semibold tracking-wider sticky top-0">
                                         <tr>
                                             <th className="px-6 py-4">Cliente</th>
                                             <th className="px-6 py-4">RFC</th>
@@ -738,22 +738,22 @@ export default function DashboardPage() {
                                             <th className="px-6 py-4 text-right">Total</th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-slate-700/50">
+                                    <tbody className="divide-y divide-neutral-700/50">
                                         {porCobrar.list.map(r => {
                                             const age = dayAge(r.invoice_date, r.created_at);
                                             return (
-                                                <tr key={r.id} className="hover:bg-slate-800/80 transition-colors">
-                                                    <td className="px-6 py-4 font-medium text-slate-200 max-w-[260px] truncate">{r.receptor_nombre || "—"}</td>
-                                                    <td className="px-6 py-4 font-mono text-xs text-slate-400">{r.receptor_rfc || "—"}</td>
+                                                <tr key={r.id} className="hover:bg-neutral-800/80 transition-colors">
+                                                    <td className="px-6 py-4 font-medium text-neutral-200 max-w-[260px] truncate">{r.receptor_nombre || "—"}</td>
+                                                    <td className="px-6 py-4 font-mono text-xs text-neutral-400">{r.receptor_rfc || "—"}</td>
                                                     <td className="px-6 py-4 font-mono text-xs text-teal-300">{[r.serie, r.folio].filter(Boolean).join("-") || "—"}</td>
-                                                    <td className="px-6 py-4 text-slate-400">{r.invoice_date ? new Date(r.invoice_date).toLocaleDateString() : "—"}</td>
+                                                    <td className="px-6 py-4 text-neutral-400">{r.invoice_date ? new Date(r.invoice_date).toLocaleDateString() : "—"}</td>
                                                     <td className="px-6 py-4">
-                                                        {age == null ? <span className="text-slate-600">—</span> : (
+                                                        {age == null ? <span className="text-neutral-600">—</span> : (
                                                             <span className={cn(
                                                                 "text-xs font-medium px-2 py-1 rounded-md",
                                                                 age >= 60 ? "bg-red-500/10 text-red-300 border border-red-500/20"
                                                                     : age >= 30 ? "bg-amber-500/10 text-amber-300 border border-amber-500/20"
-                                                                        : "bg-slate-700/40 text-slate-300 border border-slate-600/30"
+                                                                        : "bg-neutral-700/40 text-neutral-300 border border-neutral-600/30"
                                                             )}>
                                                                 {age} día{age === 1 ? "" : "s"}
                                                             </span>
