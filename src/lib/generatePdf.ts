@@ -36,6 +36,12 @@ export const generateQuotationPDF = async (data: QuotationData) => {
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
 
+    // --- SMAA brand palette (orange / black / gray) ---
+    const ORANGE: [number, number, number] = [234, 88, 12];        // orange-600
+    const ORANGE_SOFT: [number, number, number] = [255, 237, 213]; // orange-100
+    const INK: [number, number, number] = [23, 23, 23];            // near-black
+    const LINE: [number, number, number] = [212, 212, 212];        // neutral-300
+
     // Helper for currency formatting
     const formatCurrency = (amt: number) =>
         `$ ${Number(amt || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -75,14 +81,14 @@ export const generateQuotationPDF = async (data: QuotationData) => {
             // Default to text if image fails
             doc.setFont("helvetica", "bold");
             doc.setFontSize(24);
-            doc.setTextColor(79, 70, 229);
+            doc.setTextColor(ORANGE[0], ORANGE[1], ORANGE[2]);
             doc.text(data.company?.company_name || "SMAA", 14, currentY);
             currentY += 6;
         }
     } else {
         doc.setFont("helvetica", "bold");
         doc.setFontSize(24);
-        doc.setTextColor(79, 70, 229);
+        doc.setTextColor(ORANGE[0], ORANGE[1], ORANGE[2]);
         doc.text(data.company?.company_name || "SMAA", 14, currentY);
         currentY += 6;
     }
@@ -118,10 +124,10 @@ export const generateQuotationPDF = async (data: QuotationData) => {
     doc.text(`Folio: ${data.quotation_number}`, pageWidth - 14, 32, { align: "right" });
     doc.text(`Fecha: ${new Date(data.created_at).toLocaleDateString()}`, pageWidth - 14, 37, { align: "right" });
 
-    // Divider Line
+    // Divider Line (orange accent)
     const dividerY = Math.max(currentY, 45);
-    doc.setDrawColor(226, 232, 240);
-    doc.setLineWidth(0.5);
+    doc.setDrawColor(ORANGE[0], ORANGE[1], ORANGE[2]);
+    doc.setLineWidth(0.8);
     doc.line(14, dividerY, pageWidth - 14, dividerY);
 
     // --- Client Details ---
@@ -173,15 +179,26 @@ export const generateQuotationPDF = async (data: QuotationData) => {
         formatCurrency(item.line_total)
     ]);
 
+    const tableStartY = Math.max(nextClientY + 10, dividerY + 35);
+
     autoTable(doc, {
-        startY: Math.max(nextClientY + 10, dividerY + 35),
+        startY: tableStartY,
+        margin: { left: 14, right: 14 },
         head: [['Descripción', 'Cantidad', 'Precio Unitario', 'Importe']],
         body: tableData,
-        theme: 'striped',
+        theme: 'grid',
         headStyles: {
-            fillColor: [79, 70, 229],
+            fillColor: ORANGE,
             textColor: 255,
             fontStyle: 'bold',
+            lineColor: ORANGE,
+            lineWidth: 0.1,
+        },
+        bodyStyles: {
+            textColor: INK,
+        },
+        alternateRowStyles: {
+            fillColor: [250, 250, 250],
         },
         columnStyles: {
             0: { cellWidth: 'auto' },
@@ -192,37 +209,53 @@ export const generateQuotationPDF = async (data: QuotationData) => {
         styles: {
             fontSize: 9,
             cellPadding: 4,
-        }
+            lineColor: LINE,
+            lineWidth: 0.1,
+        },
     });
 
+    // Rounded orange frame around the table
+    const tableEndY = (doc as any).lastAutoTable.finalY;
+    doc.setDrawColor(ORANGE[0], ORANGE[1], ORANGE[2]);
+    doc.setLineWidth(0.5);
+    doc.roundedRect(14, tableStartY, pageWidth - 28, tableEndY - tableStartY, 3, 3, 'S');
+
     // --- Totals Section ---
-    const finalY = (doc as any).lastAutoTable.finalY + 10;
-    const totalsX = pageWidth - 65;
+    const finalY = (doc as any).lastAutoTable.finalY + 14;
+    const totalsX = pageWidth - 68;
+
+    // Rounded card behind the totals
+    doc.setFillColor(ORANGE_SOFT[0], ORANGE_SOFT[1], ORANGE_SOFT[2]);
+    doc.setDrawColor(ORANGE[0], ORANGE[1], ORANGE[2]);
+    doc.setLineWidth(0.4);
+    doc.roundedRect(totalsX - 6, finalY - 8, pageWidth - 14 - (totalsX - 6) + 4, 32, 3, 3, 'FD');
 
     // Subtotal
     doc.setFont("helvetica", "normal");
-    doc.setTextColor(100, 116, 139);
+    doc.setFontSize(10);
+    doc.setTextColor(90, 90, 90);
     doc.text("Subtotal:", totalsX, finalY);
-    doc.setTextColor(15, 23, 42);
-    doc.text(formatCurrency(data.subtotal), pageWidth - 14, finalY, { align: "right" });
+    doc.setTextColor(INK[0], INK[1], INK[2]);
+    doc.text(formatCurrency(data.subtotal), pageWidth - 16, finalY, { align: "right" });
 
     // IVA
-    doc.setTextColor(100, 116, 139);
+    doc.setTextColor(90, 90, 90);
     doc.text("IVA (16%):", totalsX, finalY + 7);
-    doc.setTextColor(15, 23, 42);
-    doc.text(formatCurrency(data.vat_total), pageWidth - 14, finalY + 7, { align: "right" });
+    doc.setTextColor(INK[0], INK[1], INK[2]);
+    doc.text(formatCurrency(data.vat_total), pageWidth - 16, finalY + 7, { align: "right" });
 
     // Total Line
-    doc.setDrawColor(226, 232, 240);
-    doc.setLineWidth(0.5);
-    doc.line(totalsX, finalY + 11, pageWidth - 14, finalY + 11);
+    doc.setDrawColor(ORANGE[0], ORANGE[1], ORANGE[2]);
+    doc.setLineWidth(0.4);
+    doc.line(totalsX, finalY + 11, pageWidth - 16, finalY + 11);
 
     // Total
     doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
+    doc.setTextColor(INK[0], INK[1], INK[2]);
     doc.text("Total Neto:", totalsX, finalY + 18);
-    doc.setTextColor(16, 185, 129); // Emerald 500
-    doc.text(formatCurrency(data.total), pageWidth - 14, finalY + 18, { align: "right" });
+    doc.setTextColor(ORANGE[0], ORANGE[1], ORANGE[2]);
+    doc.text(formatCurrency(data.total), pageWidth - 16, finalY + 18, { align: "right" });
 
     // --- Terms & Conditions ---
     let termsY = finalY + 25;
