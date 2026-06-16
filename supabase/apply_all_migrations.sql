@@ -1,0 +1,625 @@
+-- ==============================================================
+-- SMAA ERP — Esquema completo (todas las migraciones en orden)
+-- Pega TODO este archivo en Supabase → SQL Editor → Run
+-- (Solo si la base de datos está VACÍA. Si ya aplicaste el esquema, no lo corras.)
+-- ==============================================================
+
+
+-- ===== 20260228190203_add_cfdi_columns_to_clients.sql =====
+-- Add CFDI 4.0 columns to existing clients table safely
+ALTER TABLE public.clients
+ADD COLUMN IF NOT EXISTS rfc VARCHAR(13) UNIQUE,
+ADD COLUMN IF NOT EXISTS business_name TEXT,
+ADD COLUMN IF NOT EXISTS fiscal_regime VARCHAR(3),
+ADD COLUMN IF NOT EXISTS fiscal_zip_code VARCHAR(5),
+ADD COLUMN IF NOT EXISTS email TEXT,
+ADD COLUMN IF NOT EXISTS phone TEXT,
+ADD COLUMN IF NOT EXISTS address TEXT;
+
+-- Enable RLS and add policy just in case it wasn't there
+ALTER TABLE public.clients ENABLE ROW LEVEL SECURITY;
+
+DO $$ 
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies 
+    WHERE tablename = 'clients' 
+    AND policyname = 'Allow full access for development'
+  ) THEN
+    CREATE POLICY "Allow full access for development" ON public.clients
+    FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+END $$;
+
+
+-- ===== 20260228204322_add_constancia_pdf_to_clients.sql =====
+-- Add columns for PDF Constancia
+ALTER TABLE public.clients
+ADD COLUMN IF NOT EXISTS constancia_pdf_url TEXT,
+ADD COLUMN IF NOT EXISTS constancia_updated_at TIMESTAMP WITH TIME ZONE;
+
+-- Create Storage Bucket
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('client_documents', 'client_documents', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- Storage Policies
+-- Allow anyone to read the PDFs (since the bucket is public anyway, this makes it explicit)
+CREATE POLICY "Public Access" 
+    ON storage.objects FOR SELECT 
+    USING (bucket_id = 'client_documents');
+
+-- Allow anon/authenticated users to insert files (development permissive policy)
+CREATE POLICY "Allow Uploads" 
+    ON storage.objects FOR INSERT 
+    WITH CHECK (bucket_id = 'client_documents');
+
+-- Allow anon/authenticated users to update their files
+CREATE POLICY "Allow Updates" 
+    ON storage.objects FOR UPDATE 
+    USING (bucket_id = 'client_documents');
+
+
+-- ===== 20260228210226_create_sales_schema.sql =====
+-- Sequence for SMAA Quotation Numbers
+CREATE SEQUENCE IF NOT EXISTS quotation_number_seq START 1;
+
+-- Function to perfectly format quotation numbers like 'SMAA00001'
+CREATE OR REPLACE FUNCTION generate_quotation_number()
+RETURNS TEXT AS $$
+BEGIN
+  RETURN 'SMAA' || LPAD(nextval('quotation_number_seq')::TEXT, 5, '0');
+END;
+$$ LANGUAGE plpgsql;
+
+-- Quotations Table
+CREATE TABLE public.quotations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    quotation_number TEXT UNIQUE NOT NULL DEFAULT generate_quotation_number(),
+    client_id BIGINT NOT NULL REFERENCES public.clients(id) ON DELETE RESTRICT,
+    status TEXT NOT NULL DEFAULT 'Draft' CHECK (status IN ('Draft', 'Sent', 'Approved', 'Rejected')),
+    subtotal NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
+    vat_total NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
+    total NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Quotation Items Table
+CREATE TABLE public.quotation_items (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    quotation_id UUID NOT NULL REFERENCES public.quotations(id) ON DELETE CASCADE,
+    description TEXT NOT NULL,
+    quantity NUMERIC(10, 2) NOT NULL DEFAULT 1.00,
+    unit_price NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
+    line_total NUMERIC(10, 2) NOT NULL DEFAULT 0.00
+);
+
+-- RLS Setup
+ALTER TABLE public.quotations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.quotation_items ENABLE ROW LEVEL SECURITY;
+
+-- Permissive Development Policies
+CREATE POLICY "Allow all operations for quotations" ON public.quotations
+    FOR ALL USING (true) WITH CHECK (true);
+
+CREATE POLICY "Allow all operations for quotation_items" ON public.quotation_items
+    FOR ALL USING (true) WITH CHECK (true);
+
+
+-- ===== 20260228212803_create_company_settings.sql =====
+-- Create company_settings table
+CREATE TABLE public.company_settings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_name TEXT NOT NULL,
+    email TEXT,
+    phone TEXT,
+    address TEXT,
+    logo_url TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Insert default row
+INSERT INTO public.company_settings (company_name, email, phone, address)
+VALUES ('SMAA', 'contacto@smaa.com', '555-000-0000', 'Ciudad de México, México');
+
+-- Enable RLS
+ALTER TABLE public.company_settings ENABLE ROW LEVEL SECURITY;
+
+-- Permissive dev policies
+CREATE POLICY "Allow all operations for company_settings" ON public.company_settings
+    FOR ALL USING (true) WITH CHECK (true);
+
+-- Create public_assets bucket for Logos and public branding material
+INSERT INTO storage.buckets (id, name, public) 
+VALUES ('public_assets', 'public_assets', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- Bucket Security Policies for public_assets
+CREATE POLICY "Public Access public_assets" ON storage.objects
+    FOR SELECT USING (bucket_id = 'public_assets');
+
+CREATE POLICY "Allow authenticated uploads public_assets" ON storage.objects
+    FOR INSERT WITH CHECK (bucket_id = 'public_assets');
+
+CREATE POLICY "Allow authenticated updates public_assets" ON storage.objects
+    FOR UPDATE USING (bucket_id = 'public_assets');
+
+CREATE POLICY "Allow authenticated deletions public_assets" ON storage.objects
+    FOR DELETE USING (bucket_id = 'public_assets');
+
+
+-- ===== 20260228214647_fix_storage_policies_and_manufacturing.sql =====
+-- FIX: Make storage policies use anon role (no auth required for dev)
+-- Drop old restrictive policies
+DROP POLICY IF EXISTS "Allow authenticated uploads public_assets" ON storage.objects;
+DROP POLICY IF EXISTS "Allow authenticated updates public_assets" ON storage.objects;
+DROP POLICY IF EXISTS "Allow authenticated deletions public_assets" ON storage.objects;
+
+-- Recreate permissive policies (anyone can upload/update/delete in public_assets)
+CREATE POLICY "Anon uploads public_assets" ON storage.objects
+    FOR INSERT WITH CHECK (bucket_id = 'public_assets');
+
+CREATE POLICY "Anon updates public_assets" ON storage.objects
+    FOR UPDATE USING (bucket_id = 'public_assets');
+
+CREATE POLICY "Anon deletes public_assets" ON storage.objects
+    FOR DELETE USING (bucket_id = 'public_assets');
+
+-- ======================================
+-- MANUFACTURING MODULE SCHEMA
+-- ======================================
+
+-- Work Orders Table
+CREATE TABLE public.work_orders (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    order_number TEXT UNIQUE NOT NULL,
+    quotation_id UUID NOT NULL REFERENCES public.quotations(id),
+    status TEXT NOT NULL DEFAULT 'Open',
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Operations / Routing Table
+CREATE TABLE public.work_order_operations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    work_order_id UUID NOT NULL REFERENCES public.work_orders(id) ON DELETE CASCADE,
+    sequence INT NOT NULL DEFAULT 1,
+    operation_type TEXT NOT NULL,
+    description TEXT,
+    status TEXT NOT NULL DEFAULT 'Pending',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- File Attachments Table
+CREATE TABLE public.work_order_files (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    work_order_id UUID NOT NULL REFERENCES public.work_orders(id) ON DELETE CASCADE,
+    file_name TEXT NOT NULL,
+    file_url TEXT NOT NULL,
+    file_size BIGINT,
+    uploaded_by TEXT DEFAULT 'company',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Enable RLS
+ALTER TABLE public.work_orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.work_order_operations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.work_order_files ENABLE ROW LEVEL SECURITY;
+
+-- Permissive dev policies
+CREATE POLICY "Allow all on work_orders" ON public.work_orders FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all on work_order_operations" ON public.work_order_operations FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all on work_order_files" ON public.work_order_files FOR ALL USING (true) WITH CHECK (true);
+
+-- Storage bucket for work order files (100MB limit set in application)
+INSERT INTO storage.buckets (id, name, public, file_size_limit)
+VALUES ('work_order_files', 'work_order_files', true, 104857600)
+ON CONFLICT (id) DO NOTHING;
+
+-- Storage bucket policies
+CREATE POLICY "Public read work_order_files" ON storage.objects
+    FOR SELECT USING (bucket_id = 'work_order_files');
+
+CREATE POLICY "Anon insert work_order_files" ON storage.objects
+    FOR INSERT WITH CHECK (bucket_id = 'work_order_files');
+
+CREATE POLICY "Anon update work_order_files" ON storage.objects
+    FOR UPDATE USING (bucket_id = 'work_order_files');
+
+CREATE POLICY "Anon delete work_order_files" ON storage.objects
+    FOR DELETE USING (bucket_id = 'work_order_files');
+
+
+-- ===== 20260228221507_create_suppliers_and_purchases.sql =====
+-- ======================================
+-- SUPPLIERS TABLE (mirrors clients)
+-- ======================================
+CREATE TABLE public.suppliers (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    rfc TEXT NOT NULL,
+    business_name TEXT NOT NULL,
+    fiscal_regime TEXT,
+    fiscal_zip_code TEXT,
+    email TEXT,
+    phone TEXT,
+    address TEXT,
+    constancia_pdf_url TEXT,
+    constancia_updated_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+ALTER TABLE public.suppliers ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all on suppliers" ON public.suppliers FOR ALL USING (true) WITH CHECK (true);
+
+-- ======================================
+-- PURCHASE ORDERS
+-- ======================================
+CREATE SEQUENCE IF NOT EXISTS purchase_order_number_seq START 1;
+
+CREATE OR REPLACE FUNCTION generate_po_number()
+RETURNS TEXT AS $$
+BEGIN
+    RETURN 'PO' || LPAD(nextval('purchase_order_number_seq')::TEXT, 5, '0');
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TABLE public.purchase_orders (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    po_number TEXT UNIQUE NOT NULL DEFAULT generate_po_number(),
+    supplier_id UUID NOT NULL REFERENCES public.suppliers(id),
+    status TEXT NOT NULL DEFAULT 'Draft',
+    subtotal NUMERIC NOT NULL DEFAULT 0,
+    vat_total NUMERIC NOT NULL DEFAULT 0,
+    total NUMERIC NOT NULL DEFAULT 0,
+    supplier_quote_url TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE public.purchase_order_items (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    purchase_order_id UUID NOT NULL REFERENCES public.purchase_orders(id) ON DELETE CASCADE,
+    description TEXT NOT NULL,
+    quantity NUMERIC NOT NULL DEFAULT 1,
+    unit_price NUMERIC NOT NULL DEFAULT 0,
+    line_total NUMERIC NOT NULL DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+ALTER TABLE public.purchase_orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.purchase_order_items ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all on purchase_orders" ON public.purchase_orders FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all on purchase_order_items" ON public.purchase_order_items FOR ALL USING (true) WITH CHECK (true);
+
+-- Storage bucket for supplier quotes / PO files
+INSERT INTO storage.buckets (id, name, public, file_size_limit)
+VALUES ('purchase_files', 'purchase_files', true, 104857600)
+ON CONFLICT (id) DO NOTHING;
+
+CREATE POLICY "Public read purchase_files" ON storage.objects FOR SELECT USING (bucket_id = 'purchase_files');
+CREATE POLICY "Anon insert purchase_files" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'purchase_files');
+CREATE POLICY "Anon update purchase_files" ON storage.objects FOR UPDATE USING (bucket_id = 'purchase_files');
+CREATE POLICY "Anon delete purchase_files" ON storage.objects FOR DELETE USING (bucket_id = 'purchase_files');
+
+
+-- ===== 20260228223240_add_sales_fields.sql =====
+-- Add new fields to quotations table
+ALTER TABLE public.quotations ADD COLUMN IF NOT EXISTS seller TEXT;
+ALTER TABLE public.quotations ADD COLUMN IF NOT EXISTS delivery_time TEXT;
+ALTER TABLE public.quotations ADD COLUMN IF NOT EXISTS terms_conditions TEXT;
+ALTER TABLE public.quotations ADD COLUMN IF NOT EXISTS client_po_url TEXT;
+
+
+-- ===== 20260228231652_create_deliveries.sql =====
+-- ======================================
+-- DELIVERIES TABLE
+-- ======================================
+CREATE TABLE public.deliveries (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    delivery_number TEXT UNIQUE NOT NULL,
+    work_order_id UUID NOT NULL REFERENCES public.work_orders(id),
+    observations TEXT,
+    shipping_method TEXT,
+    shipping_address TEXT,
+    shipping_carrier TEXT,
+    tracking_number TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+ALTER TABLE public.deliveries ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all on deliveries" ON public.deliveries FOR ALL USING (true) WITH CHECK (true);
+
+
+-- ===== 20260308122900_add_invoice_url_to_purchases.sql =====
+-- Add invoice_url to purchase_orders
+ALTER TABLE public.purchase_orders ADD COLUMN IF NOT EXISTS invoice_url TEXT;
+
+-- Status can now also be 'Received'
+-- Currently status is just TEXT with no check constraint, but we will use 'Received' in the app.
+
+
+-- ===== 20260315171000_add_evidence_columns_to_deliveries.sql =====
+-- ======================================
+-- ADD EVIDENCE COLUMNS TO DELIVERIES
+-- ======================================
+ALTER TABLE public.deliveries
+    ADD COLUMN IF NOT EXISTS evidence_photo_url TEXT,
+    ADD COLUMN IF NOT EXISTS evidence_signed_url TEXT;
+
+
+-- ===== 20260315172000_add_evidence_columns_to_purchase_orders.sql =====
+-- ======================================
+-- ADD EVIDENCE COLUMNS TO PURCHASE_ORDERS
+-- ======================================
+ALTER TABLE public.purchase_orders
+    ADD COLUMN IF NOT EXISTS evidence_photo_url TEXT,
+    ADD COLUMN IF NOT EXISTS signed_invoice_url TEXT;
+
+
+-- ===== 20260315173000_add_qc_first_piece_release.sql =====
+-- ======================================
+-- QC FIRST PIECE RELEASE
+-- ======================================
+
+-- Add QC approval fields to work_orders
+ALTER TABLE public.work_orders
+    ADD COLUMN IF NOT EXISTS qc_approved BOOLEAN DEFAULT false,
+    ADD COLUMN IF NOT EXISTS qc_approved_at TIMESTAMP WITH TIME ZONE;
+
+-- Create QC photos table
+CREATE TABLE IF NOT EXISTS public.work_order_qc_photos (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    work_order_id UUID NOT NULL REFERENCES public.work_orders(id) ON DELETE CASCADE,
+    photo_url TEXT NOT NULL,
+    photo_label TEXT NOT NULL DEFAULT 'Primera Pieza',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+ALTER TABLE public.work_order_qc_photos ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all on work_order_qc_photos" ON public.work_order_qc_photos FOR ALL USING (true) WITH CHECK (true);
+
+
+-- ===== 20260530120000_email_integrations_and_invoice_inbox.sql =====
+-- ======================================
+-- EMAIL INTEGRATIONS (Gmail OAuth tokens)
+-- ======================================
+CREATE TABLE public.email_integrations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    provider TEXT NOT NULL DEFAULT 'gmail',           -- 'gmail' | 'outlook' (futuro)
+    email TEXT NOT NULL,                              -- correo conectado
+    refresh_token_encrypted TEXT NOT NULL,            -- cifrado AES-256-GCM
+    last_sync_at TIMESTAMP WITH TIME ZONE,            -- último mensaje procesado
+    last_sync_status TEXT,                            -- 'ok' | 'error' | 'running'
+    last_sync_error TEXT,
+    last_sync_processed INTEGER DEFAULT 0,            -- conteo del último run
+    backfill_completed_at TIMESTAMP WITH TIME ZONE,   -- NULL = aún no se ha hecho backfill
+    backfill_months INTEGER,                          -- cuántos meses se cubrieron
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE (provider, email)
+);
+
+ALTER TABLE public.email_integrations ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all on email_integrations" ON public.email_integrations FOR ALL USING (true) WITH CHECK (true);
+
+-- ======================================
+-- INVOICE INBOX (bandeja de revisión IA)
+-- ======================================
+CREATE TABLE public.invoice_inbox (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    integration_id UUID NOT NULL REFERENCES public.email_integrations(id) ON DELETE CASCADE,
+
+    -- Origen
+    email_message_id TEXT NOT NULL,                   -- Gmail message id (idempotencia)
+    email_from TEXT,
+    email_subject TEXT,
+    email_date TIMESTAMP WITH TIME ZONE,
+
+    -- Adjuntos en storage
+    pdf_url TEXT,
+    xml_url TEXT,
+
+    -- Datos extraídos (de CFDI o IA)
+    detected_source TEXT,                             -- 'cfdi' | 'ai' | 'mixed'
+    supplier_rfc TEXT,
+    supplier_name TEXT,
+    receiver_rfc TEXT,
+    invoice_uuid TEXT,                                -- UUID del timbre CFDI
+    invoice_folio TEXT,
+    invoice_date TIMESTAMP WITH TIME ZONE,
+    subtotal NUMERIC,
+    vat_total NUMERIC,
+    total NUMERIC,
+    currency TEXT DEFAULT 'MXN',
+    line_items JSONB,                                 -- [{description, quantity, unit_price, line_total}]
+
+    -- Clasificación
+    is_invoice BOOLEAN NOT NULL DEFAULT true,
+    classification_confidence NUMERIC,                -- 0..1 (solo cuando proviene de IA)
+    classification_notes TEXT,
+
+    -- Estado revisión
+    status TEXT NOT NULL DEFAULT 'pending',           -- 'pending' | 'approved' | 'discarded' | 'duplicate'
+    approved_at TIMESTAMP WITH TIME ZONE,
+    discarded_at TIMESTAMP WITH TIME ZONE,
+    discard_reason TEXT,
+    purchase_order_id UUID REFERENCES public.purchase_orders(id) ON DELETE SET NULL,
+
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+
+    UNIQUE (integration_id, email_message_id)
+);
+
+CREATE INDEX idx_invoice_inbox_status ON public.invoice_inbox(status);
+CREATE INDEX idx_invoice_inbox_uuid ON public.invoice_inbox(invoice_uuid) WHERE invoice_uuid IS NOT NULL;
+CREATE INDEX idx_invoice_inbox_integration ON public.invoice_inbox(integration_id);
+
+ALTER TABLE public.invoice_inbox ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all on invoice_inbox" ON public.invoice_inbox FOR ALL USING (true) WITH CHECK (true);
+
+-- ======================================
+-- PURCHASE_ORDERS: trazabilidad de origen email
+-- ======================================
+ALTER TABLE public.purchase_orders
+    ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual',  -- 'manual' | 'email'
+    ADD COLUMN IF NOT EXISTS email_message_id TEXT,
+    ADD COLUMN IF NOT EXISTS xml_url TEXT,
+    ADD COLUMN IF NOT EXISTS invoice_uuid TEXT;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_po_invoice_uuid
+    ON public.purchase_orders(invoice_uuid)
+    WHERE invoice_uuid IS NOT NULL;
+
+
+-- ===== 20260601090000_add_invoice_date_to_purchase_orders.sql =====
+-- ======================================
+-- PURCHASE_ORDERS: fecha de emisión de la factura
+-- ======================================
+-- La PO se crea hoy, pero la factura puede ser de hace años.
+-- Guardamos la fecha real del CFDI para ordenar y agrupar estadísticas.
+
+ALTER TABLE public.purchase_orders
+    ADD COLUMN IF NOT EXISTS invoice_date TIMESTAMP WITH TIME ZONE;
+
+-- Backfill desde la bandeja para POs ya aprobadas por correo
+UPDATE public.purchase_orders po
+SET invoice_date = ii.invoice_date
+FROM public.invoice_inbox ii
+WHERE po.id = ii.purchase_order_id
+  AND ii.invoice_date IS NOT NULL
+  AND po.invoice_date IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_po_invoice_date ON public.purchase_orders(invoice_date);
+
+
+-- ===== 20260601100000_add_duplicate_po_number_to_inbox.sql =====
+-- ======================================
+-- INVOICE_INBOX: referencia a PO duplicada
+-- ======================================
+-- Cuando una factura detectada ya existe como orden de compra,
+-- guardamos el número de PO para mostrar "Factura igual a PO-XXXX".
+
+ALTER TABLE public.invoice_inbox
+    ADD COLUMN IF NOT EXISTS duplicate_po_number TEXT;
+
+
+-- ===== 20260601110000_issued_invoices.sql =====
+-- ======================================
+-- FACTURAS EMITIDAS (issued_invoices)
+-- ======================================
+-- Carga masiva de los CFDI que el negocio ha EMITIDO (ventas).
+-- El emisor somos nosotros; el receptor es el cliente facturado.
+
+CREATE TABLE IF NOT EXISTS public.issued_invoices (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    uuid TEXT,                       -- UUID del Timbre Fiscal Digital (CFDI)
+    serie TEXT,
+    folio TEXT,
+    invoice_date TIMESTAMP WITH TIME ZONE,   -- fecha de emisión
+    emisor_rfc TEXT,
+    emisor_nombre TEXT,
+    receptor_rfc TEXT,               -- cliente
+    receptor_nombre TEXT,            -- cliente
+    subtotal NUMERIC(14,2),
+    vat_total NUMERIC(14,2),
+    total NUMERIC(14,2),
+    currency TEXT DEFAULT 'MXN',
+    line_items JSONB,
+    xml_url TEXT,
+    pdf_url TEXT,
+    file_name TEXT,
+    source TEXT DEFAULT 'upload',     -- 'upload' | 'email' | 'manual'
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Dedup por UUID (los NULL se permiten múltiples: Postgres trata NULL como distinto)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_issued_invoices_uuid ON public.issued_invoices (uuid);
+CREATE INDEX IF NOT EXISTS idx_issued_invoices_date ON public.issued_invoices (invoice_date);
+CREATE INDEX IF NOT EXISTS idx_issued_invoices_receptor ON public.issued_invoices (receptor_rfc);
+
+ALTER TABLE public.issued_invoices ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow all issued_invoices" ON public.issued_invoices;
+CREATE POLICY "Allow all issued_invoices" ON public.issued_invoices
+    FOR ALL USING (true) WITH CHECK (true);
+
+
+-- ===== 20260601120000_add_paid_to_issued_invoices.sql =====
+-- ======================================
+-- FACTURAS EMITIDAS: estado de cobro
+-- ======================================
+-- Marca cuáles facturas ya fueron pagadas por el cliente.
+-- Las no pagadas forman las "cuentas por cobrar".
+
+ALTER TABLE public.issued_invoices
+    ADD COLUMN IF NOT EXISTS paid BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS paid_at TIMESTAMP WITH TIME ZONE;
+
+CREATE INDEX IF NOT EXISTS idx_issued_invoices_paid ON public.issued_invoices (paid);
+
+
+-- ===== 20260601130000_quotation_billing_matches.sql =====
+-- ============================================================
+-- RECONCILIACIÓN: cotizaciones aprobadas ↔ facturas emitidas
+-- ============================================================
+-- La IA corre diario y detecta, a nivel PARTIDA (quotation_items),
+-- qué renglón de una cotización aprobada ya fue facturado en un CFDI
+-- emitido. Cada match se guarda como 'pending' para revisión humana
+-- (bandeja), y al confirmarse cuenta como "facturado".
+
+CREATE TABLE IF NOT EXISTS public.quotation_billing_matches (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    quotation_id UUID NOT NULL REFERENCES public.quotations(id) ON DELETE CASCADE,
+    quotation_item_id UUID REFERENCES public.quotation_items(id) ON DELETE CASCADE,
+    issued_invoice_id UUID REFERENCES public.issued_invoices(id) ON DELETE CASCADE,
+
+    -- Datos denormalizados para mostrar en la bandeja sin más joins
+    quotation_number TEXT,
+    client_name TEXT,
+    item_description TEXT,        -- partida cotizada
+    invoice_uuid TEXT,
+    invoice_folio TEXT,
+    invoice_concept TEXT,         -- concepto del CFDI que la IA emparejó
+    matched_amount NUMERIC(14,2), -- monto facturado atribuido a esta partida
+
+    confidence NUMERIC,           -- 0..1 (confianza de la IA)
+    ai_reason TEXT,               -- explicación corta de la IA
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'confirmed', 'rejected')),
+
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Evita volver a proponer (o re-proponer tras rechazar) el mismo par partida↔factura
+CREATE UNIQUE INDEX IF NOT EXISTS idx_qbm_item_invoice
+    ON public.quotation_billing_matches (quotation_item_id, issued_invoice_id);
+CREATE INDEX IF NOT EXISTS idx_qbm_quotation ON public.quotation_billing_matches (quotation_id);
+CREATE INDEX IF NOT EXISTS idx_qbm_status ON public.quotation_billing_matches (status);
+
+ALTER TABLE public.quotation_billing_matches ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow all quotation_billing_matches" ON public.quotation_billing_matches;
+CREATE POLICY "Allow all quotation_billing_matches" ON public.quotation_billing_matches
+    FOR ALL USING (true) WITH CHECK (true);
+
+
+-- ===== 20260601140000_add_billed_manually_to_quotations.sql =====
+-- ============================================================
+-- COTIZACIONES: marca manual de "ya facturada"
+-- ============================================================
+-- Permite sacar del "por facturar" del dashboard a cotizaciones que
+-- ya están entregadas y facturadas, aunque la IA no las haya ligado
+-- (por ejemplo, si el XML no se subió o el RFC/nombre no coincidió).
+
+ALTER TABLE public.quotations
+    ADD COLUMN IF NOT EXISTS billed_manually BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS billed_manually_at TIMESTAMP WITH TIME ZONE;
+
+CREATE INDEX IF NOT EXISTS idx_quotations_billed_manually
+    ON public.quotations (billed_manually);
+
