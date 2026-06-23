@@ -29,6 +29,7 @@ const itemSchema = z
         description: z.string().optional().or(z.literal("")),
         quantity: z.coerce.number().optional(),
         unit_price: z.coerce.number().optional(),
+        margin_pct: z.coerce.number().catch(38),
         service_concepts: z.array(conceptSchema).optional().default([]),
     })
     .superRefine((val, ctx) => {
@@ -59,9 +60,12 @@ const quotationSchema = z.object({
 
 type QuotationFormValues = z.infer<typeof quotationSchema>;
 
-const emptyProduct = { item_type: "product" as const, description: "", quantity: 1, unit_price: 0, service_concepts: [] as ServiceConcept[] };
+const DEFAULT_MARGIN = 38; // utilidad por defecto (%)
+const emptyProduct = { item_type: "product" as const, description: "", quantity: 1, unit_price: 0, margin_pct: DEFAULT_MARGIN, service_concepts: [] as ServiceConcept[] };
 
-// Importe de una línea según su tipo
+const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+
+// Costo de una línea según su tipo (lo que el usuario captura)
 function lineAmount(item: any): number {
     if (item?.item_type === "service") {
         return (item.service_concepts || []).reduce(
@@ -70,6 +74,16 @@ function lineAmount(item: any): number {
         );
     }
     return (Number(item?.quantity) || 0) * (Number(item?.unit_price) || 0);
+}
+
+function marginOf(item: any): number {
+    const m = Number(item?.margin_pct);
+    return isNaN(m) ? DEFAULT_MARGIN : m;
+}
+
+// Precio al cliente de una línea = costo * (1 + utilidad%)
+function sellingAmount(item: any): number {
+    return round2(lineAmount(item) * (1 + marginOf(item) / 100));
 }
 
 function QuotationForm() {
@@ -107,10 +121,12 @@ function QuotationForm() {
 
     const watchItems = watch("items");
 
-    // Calculations
-    const subtotal = (watchItems || []).reduce((acc, item) => acc + lineAmount(item), 0);
-    const vatTotal = subtotal * 0.16; // 16% IVA
-    const total = subtotal + vatTotal;
+    // Calculations — el subtotal/IVA/total de la cotización son el PRECIO al cliente (con utilidad)
+    const costSubtotal = round2((watchItems || []).reduce((acc, item) => acc + lineAmount(item), 0));
+    const subtotal = round2((watchItems || []).reduce((acc, item) => acc + sellingAmount(item), 0));
+    const profitTotal = round2(subtotal - costSubtotal);
+    const vatTotal = round2(subtotal * 0.16); // 16% IVA
+    const total = round2(subtotal + vatTotal);
 
     const formatCurrency = (amount: number) => {
         return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount || 0);
@@ -170,7 +186,9 @@ function QuotationForm() {
                         item_type: i.item_type === "service" ? "service" : "product",
                         description: i.description || "",
                         quantity: i.quantity,
-                        unit_price: i.unit_price,
+                        // El form trabaja con COSTOS: usa cost_unit_price (fallback a unit_price para filas viejas)
+                        unit_price: i.cost_unit_price != null ? i.cost_unit_price : i.unit_price,
+                        margin_pct: i.margin_pct != null ? i.margin_pct : DEFAULT_MARGIN,
                         service_concepts: Array.isArray(i.service_concepts) ? i.service_concepts : [],
                     })),
                 });
@@ -233,35 +251,47 @@ function QuotationForm() {
                 currentQuoteId = insertedQuote.id;
             }
 
-            // Map form items to DB rows (product = fixed cost, service = sum of concepts)
+            // Map form items to DB rows.
+            // unit_price / line_total = PRECIO al cliente (costo + utilidad).
+            // cost_unit_price / cost_line_total = costo interno. margin_pct = utilidad %.
             const itemsToInsert = data.items.map((item) => {
+                const margin = marginOf(item);
+                const factor = 1 + margin / 100;
                 if (item.item_type === "service") {
                     const concepts = (item.service_concepts || []).map((c) => ({
                         concept: c.concept,
                         rate: Number(c.rate) || 0,
                         hours: Number(c.hours) || 0,
                     }));
-                    const amount = concepts.reduce((a, c) => a + c.rate * c.hours, 0);
+                    const cost = round2(concepts.reduce((a, c) => a + c.rate * c.hours, 0));
+                    const sale = round2(cost * factor);
                     const name = item.description && item.description.trim() ? item.description.trim() : "";
                     const description = name || `Servicio: ${concepts.map((c) => c.concept).join(", ")}` || "Servicio";
                     return {
                         quotation_id: currentQuoteId,
                         description,
                         quantity: 1,
-                        unit_price: amount,
-                        line_total: amount,
+                        unit_price: sale,
+                        line_total: sale,
+                        cost_unit_price: cost,
+                        cost_line_total: cost,
+                        margin_pct: margin,
                         item_type: "service",
                         service_concepts: concepts,
                     };
                 }
                 const qty = Number(item.quantity) || 0;
-                const price = Number(item.unit_price) || 0;
+                const costUnit = Number(item.unit_price) || 0;
+                const saleUnit = round2(costUnit * factor);
                 return {
                     quotation_id: currentQuoteId,
                     description: item.description || "",
                     quantity: qty,
-                    unit_price: price,
-                    line_total: qty * price,
+                    unit_price: saleUnit,
+                    line_total: round2(qty * saleUnit),
+                    cost_unit_price: costUnit,
+                    cost_line_total: round2(qty * costUnit),
+                    margin_pct: margin,
                     item_type: "product",
                     service_concepts: null,
                 };
@@ -382,6 +412,7 @@ function QuotationForm() {
                                 const isService = item?.item_type === "service";
                                 const concepts: ServiceConcept[] = (item?.service_concepts as ServiceConcept[]) || [];
                                 const amount = lineAmount(item);
+                                const sale = sellingAmount(item);
 
                                 return (
                                     <div key={field.id} className="bg-neutral-900/30 p-4 rounded-xl border border-neutral-700/40 space-y-4">
@@ -422,8 +453,8 @@ function QuotationForm() {
 
                                         {!isService ? (
                                             /* PRODUCTO */
-                                            <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
-                                                <div className="md:col-span-6 space-y-1">
+                                            <div className="space-y-4">
+                                                <div className="space-y-1">
                                                     <label className="text-xs text-neutral-400 ml-1">Descripción</label>
                                                     <input
                                                         {...register(`items.${index}.description` as const)}
@@ -435,80 +466,94 @@ function QuotationForm() {
                                                     />
                                                     {errors.items?.[index]?.description && <p className="text-red-400 text-xs ml-1">{errors.items[index]?.description?.message as string}</p>}
                                                 </div>
-                                                <div className="grid grid-cols-2 md:grid-cols-6 md:col-span-6 gap-4">
-                                                    <div className="md:col-span-2 space-y-1">
+                                                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                                                    <div className="space-y-1">
                                                         <label className="text-xs text-neutral-400 ml-1">Cantidad</label>
-                                                        <input
-                                                            type="number"
-                                                            step="any"
+                                                        <input type="number" step="any"
                                                             {...register(`items.${index}.quantity` as const, { valueAsNumber: true })}
-                                                            className={cn(
-                                                                "w-full bg-neutral-900/80 border rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-1 transition-all",
-                                                                errors.items?.[index]?.quantity ? "border-red-500 focus:border-red-500 focus:ring-red-500" : "border-neutral-700 focus:border-emerald-500 focus:ring-emerald-500"
-                                                            )}
+                                                            className={cn("w-full bg-neutral-900/80 border rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-1 transition-all",
+                                                                errors.items?.[index]?.quantity ? "border-red-500 focus:border-red-500 focus:ring-red-500" : "border-neutral-700 focus:border-emerald-500 focus:ring-emerald-500")}
                                                         />
                                                         {errors.items?.[index]?.quantity && <p className="text-red-400 text-xs ml-1">{errors.items[index]?.quantity?.message as string}</p>}
                                                     </div>
-                                                    <div className="md:col-span-2 space-y-1">
+                                                    <div className="space-y-1">
                                                         <label className="text-xs text-neutral-400 ml-1">Costo unitario ($)</label>
-                                                        <input
-                                                            type="number"
-                                                            step="any"
+                                                        <input type="number" step="any"
                                                             {...register(`items.${index}.unit_price` as const, { valueAsNumber: true })}
-                                                            className={cn(
-                                                                "w-full bg-neutral-900/80 border rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-1 transition-all",
-                                                                errors.items?.[index]?.unit_price ? "border-red-500 focus:border-red-500 focus:ring-red-500" : "border-neutral-700 focus:border-emerald-500 focus:ring-emerald-500"
-                                                            )}
+                                                            className={cn("w-full bg-neutral-900/80 border rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-1 transition-all",
+                                                                errors.items?.[index]?.unit_price ? "border-red-500 focus:border-red-500 focus:ring-red-500" : "border-neutral-700 focus:border-emerald-500 focus:ring-emerald-500")}
                                                         />
                                                         {errors.items?.[index]?.unit_price && <p className="text-red-400 text-xs ml-1">{errors.items[index]?.unit_price?.message as string}</p>}
                                                     </div>
-                                                    <div className="md:col-span-2 space-y-1">
-                                                        <label className="text-xs text-neutral-400 ml-1">Importe</label>
-                                                        <div className="w-full bg-neutral-900/40 border border-neutral-800 rounded-lg px-3 py-2 text-emerald-400 font-semibold">
-                                                            {formatCurrency(amount)}
-                                                        </div>
+                                                    <div className="space-y-1">
+                                                        <label className="text-xs text-neutral-400 ml-1">Mi costo</label>
+                                                        <div className="w-full bg-neutral-900/40 border border-neutral-800 rounded-lg px-3 py-2 text-neutral-300 font-medium">{formatCurrency(amount)}</div>
+                                                    </div>
+                                                    <div className="space-y-1">
+                                                        <label className="text-xs text-orange-400 ml-1">Utilidad %</label>
+                                                        <input type="number" step="any"
+                                                            {...register(`items.${index}.margin_pct` as const, { valueAsNumber: true })}
+                                                            className="w-full bg-neutral-900/80 border border-orange-500/40 rounded-lg px-3 py-2 text-orange-300 focus:outline-none focus:ring-1 focus:border-orange-500 focus:ring-orange-500 transition-all"
+                                                        />
+                                                    </div>
+                                                    <div className="space-y-1">
+                                                        <label className="text-xs text-orange-400 ml-1">Precio</label>
+                                                        <div className="w-full bg-orange-500/10 border border-orange-500/40 rounded-lg px-3 py-2 text-orange-300 font-bold">{formatCurrency(sale)}</div>
                                                     </div>
                                                 </div>
                                             </div>
                                         ) : (
                                             /* SERVICIO */
-                                            <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
-                                                <div className="md:col-span-5 space-y-1">
-                                                    <label className="text-xs text-neutral-400 ml-1">Nombre del servicio (opcional)</label>
-                                                    <input
-                                                        {...register(`items.${index}.description` as const)}
-                                                        className="w-full bg-neutral-900/80 border border-neutral-700 rounded-lg px-3 py-2 text-white placeholder-neutral-600 focus:outline-none focus:ring-1 focus:border-emerald-500 focus:ring-emerald-500 transition-all"
-                                                        placeholder="Ej: Fabricación de estructura"
-                                                    />
-                                                </div>
-                                                <div className="md:col-span-4 space-y-1">
-                                                    <label className="text-xs text-neutral-400 ml-1">Conceptos / horas</label>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setServiceModalIndex(index)}
-                                                        className={cn(
-                                                            "w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border font-medium transition-colors",
-                                                            concepts.length > 0
-                                                                ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/20"
-                                                                : "bg-neutral-900/80 border-neutral-700 text-neutral-300 hover:border-emerald-500"
+                                            <div className="space-y-4">
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                    <div className="space-y-1">
+                                                        <label className="text-xs text-neutral-400 ml-1">Nombre del servicio (opcional)</label>
+                                                        <input
+                                                            {...register(`items.${index}.description` as const)}
+                                                            className="w-full bg-neutral-900/80 border border-neutral-700 rounded-lg px-3 py-2 text-white placeholder-neutral-600 focus:outline-none focus:ring-1 focus:border-emerald-500 focus:ring-emerald-500 transition-all"
+                                                            placeholder="Ej: Fabricación de estructura"
+                                                        />
+                                                    </div>
+                                                    <div className="space-y-1">
+                                                        <label className="text-xs text-neutral-400 ml-1">Conceptos / horas</label>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setServiceModalIndex(index)}
+                                                            className={cn(
+                                                                "w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border font-medium transition-colors",
+                                                                concepts.length > 0
+                                                                    ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/20"
+                                                                    : "bg-neutral-900/80 border-neutral-700 text-neutral-300 hover:border-emerald-500"
+                                                            )}
+                                                        >
+                                                            <Clock className="w-4 h-4" />
+                                                            {concepts.length > 0 ? `${concepts.length} concepto${concepts.length > 1 ? "s" : ""}` : "Agregar conceptos"}
+                                                        </button>
+                                                        {errors.items?.[index]?.service_concepts && (
+                                                            <p className="text-red-400 text-xs ml-1">{(errors.items[index]?.service_concepts as any)?.message || "Agrega al menos un concepto"}</p>
                                                         )}
-                                                    >
-                                                        <Clock className="w-4 h-4" />
-                                                        {concepts.length > 0 ? `${concepts.length} concepto${concepts.length > 1 ? "s" : ""}` : "Agregar conceptos"}
-                                                    </button>
-                                                    {errors.items?.[index]?.service_concepts && (
-                                                        <p className="text-red-400 text-xs ml-1">{(errors.items[index]?.service_concepts as any)?.message || "Agrega al menos un concepto"}</p>
-                                                    )}
+                                                    </div>
                                                 </div>
-                                                <div className="md:col-span-3 space-y-1">
-                                                    <label className="text-xs text-neutral-400 ml-1">Importe</label>
-                                                    <div className="w-full bg-neutral-900/40 border border-neutral-800 rounded-lg px-3 py-2 text-emerald-400 font-semibold">
-                                                        {formatCurrency(amount)}
+                                                <div className="grid grid-cols-3 gap-4">
+                                                    <div className="space-y-1">
+                                                        <label className="text-xs text-neutral-400 ml-1">Mi costo</label>
+                                                        <div className="w-full bg-neutral-900/40 border border-neutral-800 rounded-lg px-3 py-2 text-neutral-300 font-medium">{formatCurrency(amount)}</div>
+                                                    </div>
+                                                    <div className="space-y-1">
+                                                        <label className="text-xs text-orange-400 ml-1">Utilidad %</label>
+                                                        <input type="number" step="any"
+                                                            {...register(`items.${index}.margin_pct` as const, { valueAsNumber: true })}
+                                                            className="w-full bg-neutral-900/80 border border-orange-500/40 rounded-lg px-3 py-2 text-orange-300 focus:outline-none focus:ring-1 focus:border-orange-500 focus:ring-orange-500 transition-all"
+                                                        />
+                                                    </div>
+                                                    <div className="space-y-1">
+                                                        <label className="text-xs text-orange-400 ml-1">Precio</label>
+                                                        <div className="w-full bg-orange-500/10 border border-orange-500/40 rounded-lg px-3 py-2 text-orange-300 font-bold">{formatCurrency(sale)}</div>
                                                     </div>
                                                 </div>
 
                                                 {concepts.length > 0 && (
-                                                    <div className="md:col-span-12 flex flex-wrap gap-2 pt-1">
+                                                    <div className="flex flex-wrap gap-2 pt-1">
                                                         {concepts.map((c, ci) => (
                                                             <span key={ci} className="text-xs bg-neutral-800/70 border border-neutral-700 rounded-md px-2 py-1 text-neutral-300">
                                                                 {c.concept}: {Number(c.hours) || 0} h × {formatCurrency(Number(c.rate) || 0)}
@@ -541,9 +586,17 @@ function QuotationForm() {
                             </button>
                         </div>
 
-                        <div className="w-full md:w-72 space-y-3 bg-neutral-900/50 p-6 rounded-2xl border border-neutral-700/50">
+                        <div className="w-full md:w-80 space-y-3 bg-neutral-900/50 p-6 rounded-2xl border border-neutral-700/50">
+                            <div className="flex justify-between items-center text-xs text-neutral-500">
+                                <span>Tu costo total</span>
+                                <span>{formatCurrency(costSubtotal)}</span>
+                            </div>
+                            <div className="flex justify-between items-center text-xs text-orange-400/80 font-medium pb-3 border-b border-neutral-700/50">
+                                <span>Utilidad</span>
+                                <span>{formatCurrency(profitTotal)}</span>
+                            </div>
                             <div className="flex justify-between items-center text-sm text-neutral-400 font-medium">
-                                <span>Subtotal</span>
+                                <span>Subtotal (cliente)</span>
                                 <span>{formatCurrency(subtotal)}</span>
                             </div>
                             <div className="flex justify-between items-center text-sm text-neutral-400 font-medium pb-3 border-b border-neutral-700/50">
