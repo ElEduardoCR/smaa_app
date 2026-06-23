@@ -50,7 +50,7 @@ export default function ClientsPage() {
         reset,
         formState: { errors }
     } = useForm<ClientFormValues>({
-        resolver: zodResolver(clientSchema),
+        resolver: zodResolver(clientSchema) as any,
         defaultValues: {
             rfc: "",
             business_name: "",
