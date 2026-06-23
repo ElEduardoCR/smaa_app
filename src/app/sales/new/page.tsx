@@ -33,6 +33,10 @@ const itemSchema = z
         service_concepts: z.array(conceptSchema).optional().default([]),
     })
     .superRefine((val, ctx) => {
+        // Cantidad aplica a productos y servicios
+        if (val.quantity === undefined || isNaN(val.quantity) || val.quantity < 1) {
+            ctx.addIssue({ code: "custom", path: ["quantity"], message: "Mínimo 1" });
+        }
         if (val.item_type === "service") {
             if (!val.service_concepts || val.service_concepts.length === 0) {
                 ctx.addIssue({ code: "custom", path: ["service_concepts"], message: "Agrega al menos un concepto" });
@@ -40,9 +44,6 @@ const itemSchema = z
         } else {
             if (!val.description || val.description.trim() === "") {
                 ctx.addIssue({ code: "custom", path: ["description"], message: "Descripción requerida" });
-            }
-            if (val.quantity === undefined || isNaN(val.quantity) || val.quantity < 1) {
-                ctx.addIssue({ code: "custom", path: ["quantity"], message: "Mínimo 1" });
             }
             if (val.unit_price === undefined || isNaN(val.unit_price) || val.unit_price < 0) {
                 ctx.addIssue({ code: "custom", path: ["unit_price"], message: "Inválido" });
@@ -65,25 +66,26 @@ const emptyProduct = { item_type: "product" as const, description: "", quantity:
 
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 
-// Costo de una línea según su tipo (lo que el usuario captura)
+function qtyOf(item: any): number {
+    const q = Number(item?.quantity);
+    return isNaN(q) || q <= 0 ? 1 : q;
+}
+
+// Costo de una línea (cantidad-aware) según su tipo. Servicios y productos usan cantidad.
 function lineAmount(item: any): number {
     if (item?.item_type === "service") {
-        return (item.service_concepts || []).reduce(
+        const unit = (item.service_concepts || []).reduce(
             (acc: number, c: any) => acc + (Number(c.rate) || 0) * (Number(c.hours) || 0),
             0
         );
+        return qtyOf(item) * unit;
     }
-    return (Number(item?.quantity) || 0) * (Number(item?.unit_price) || 0);
+    return qtyOf(item) * (Number(item?.unit_price) || 0);
 }
 
 function marginOf(item: any): number {
     const m = Number(item?.margin_pct);
     return isNaN(m) ? DEFAULT_MARGIN : m;
-}
-
-// Precio al cliente de una línea = costo * (1 + utilidad%)
-function sellingAmount(item: any): number {
-    return round2(lineAmount(item) * (1 + marginOf(item) / 100));
 }
 
 function QuotationForm() {
@@ -97,6 +99,8 @@ function QuotationForm() {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const [serviceModalIndex, setServiceModalIndex] = useState<number | null>(null);
+    const [marginMode, setMarginMode] = useState<"general" | "specific">("general");
+    const [generalMargin, setGeneralMargin] = useState<number>(DEFAULT_MARGIN);
 
     const {
         register,
@@ -121,9 +125,23 @@ function QuotationForm() {
 
     const watchItems = watch("items");
 
+    // Utilidad efectiva por línea: general (una para todas) o específica por línea
+    const effectiveMargin = (item: any) =>
+        marginMode === "general" ? (Number.isFinite(generalMargin) ? generalMargin : 0) : marginOf(item);
+    const lineSelling = (item: any) => round2(lineAmount(item) * (1 + effectiveMargin(item) / 100));
+
+    const applyMarginMode = (mode: "general" | "specific") => {
+        if (mode === "specific") {
+            // arranca cada línea desde la utilidad general
+            const n = (watchItems || []).length;
+            for (let i = 0; i < n; i++) setValue(`items.${i}.margin_pct`, generalMargin, { shouldDirty: true });
+        }
+        setMarginMode(mode);
+    };
+
     // Calculations — el subtotal/IVA/total de la cotización son el PRECIO al cliente (con utilidad)
     const costSubtotal = round2((watchItems || []).reduce((acc, item) => acc + lineAmount(item), 0));
-    const subtotal = round2((watchItems || []).reduce((acc, item) => acc + sellingAmount(item), 0));
+    const subtotal = round2((watchItems || []).reduce((acc, item) => acc + lineSelling(item), 0));
     const profitTotal = round2(subtotal - costSubtotal);
     const vatTotal = round2(subtotal * 0.16); // 16% IVA
     const total = round2(subtotal + vatTotal);
@@ -192,6 +210,15 @@ function QuotationForm() {
                         service_concepts: Array.isArray(i.service_concepts) ? i.service_concepts : [],
                     })),
                 });
+
+                // Reconstruye el modo de utilidad: si todas las líneas comparten el mismo % => general
+                const margins = (items || []).map((i: any) => Number(i.margin_pct ?? DEFAULT_MARGIN));
+                if (margins.length > 0 && margins.every((m: number) => m === margins[0])) {
+                    setMarginMode("general");
+                    setGeneralMargin(margins[0]);
+                } else {
+                    setMarginMode("specific");
+                }
             } catch (err) {
                 console.error("Failed to load quotation for editing", err);
                 setErrorMsg("Error loading quotation data.");
@@ -255,7 +282,7 @@ function QuotationForm() {
             // unit_price / line_total = PRECIO al cliente (costo + utilidad).
             // cost_unit_price / cost_line_total = costo interno. margin_pct = utilidad %.
             const itemsToInsert = data.items.map((item) => {
-                const margin = marginOf(item);
+                const margin = effectiveMargin(item);
                 const factor = 1 + margin / 100;
                 if (item.item_type === "service") {
                     const concepts = (item.service_concepts || []).map((c) => ({
@@ -263,18 +290,19 @@ function QuotationForm() {
                         rate: Number(c.rate) || 0,
                         hours: Number(c.hours) || 0,
                     }));
-                    const cost = round2(concepts.reduce((a, c) => a + c.rate * c.hours, 0));
-                    const sale = round2(cost * factor);
+                    const qty = Number(item.quantity) || 1;
+                    const unitCost = round2(concepts.reduce((a, c) => a + c.rate * c.hours, 0));
+                    const saleUnit = round2(unitCost * factor);
                     const name = item.description && item.description.trim() ? item.description.trim() : "";
                     const description = name || `Servicio: ${concepts.map((c) => c.concept).join(", ")}` || "Servicio";
                     return {
                         quotation_id: currentQuoteId,
                         description,
-                        quantity: 1,
-                        unit_price: sale,
-                        line_total: sale,
-                        cost_unit_price: cost,
-                        cost_line_total: cost,
+                        quantity: qty,
+                        unit_price: saleUnit,
+                        line_total: round2(qty * saleUnit),
+                        cost_unit_price: unitCost,
+                        cost_line_total: round2(qty * unitCost),
                         margin_pct: margin,
                         item_type: "service",
                         service_concepts: concepts,
@@ -395,15 +423,46 @@ function QuotationForm() {
 
                     {/* Items Array */}
                     <div className="bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
-                        <div className="flex justify-between items-center mb-6">
+                        <div className="flex flex-wrap justify-between items-center gap-3 mb-6">
                             <h2 className="text-lg font-semibold text-white">Productos / Servicios</h2>
-                            <button
-                                type="button"
-                                onClick={() => append({ ...emptyProduct })}
-                                className="flex items-center gap-2 text-sm text-emerald-400 hover:text-emerald-300 font-medium bg-emerald-500/10 hover:bg-emerald-500/20 px-4 py-2 rounded-lg transition-colors border border-emerald-500/20"
-                            >
-                                <Plus className="w-4 h-4" /> Agregar línea
-                            </button>
+                            <div className="flex flex-wrap items-center gap-3">
+                                {/* Switch: utilidad general vs específica */}
+                                <div className="inline-flex rounded-lg border border-neutral-700 overflow-hidden text-xs">
+                                    <button
+                                        type="button"
+                                        onClick={() => applyMarginMode("general")}
+                                        className={cn("px-3 py-1.5 font-medium transition-colors", marginMode === "general" ? "bg-orange-500/20 text-orange-300" : "text-neutral-400 hover:text-white")}
+                                    >
+                                        Utilidad general
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => applyMarginMode("specific")}
+                                        className={cn("px-3 py-1.5 font-medium transition-colors border-l border-neutral-700", marginMode === "specific" ? "bg-orange-500/20 text-orange-300" : "text-neutral-400 hover:text-white")}
+                                    >
+                                        Específica por línea
+                                    </button>
+                                </div>
+                                {marginMode === "general" && (
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xs text-orange-400 font-medium">Utilidad %</span>
+                                        <input
+                                            type="number"
+                                            step="any"
+                                            value={Number.isFinite(generalMargin) ? generalMargin : ""}
+                                            onChange={(e) => setGeneralMargin(e.target.value === "" ? NaN : Number(e.target.value))}
+                                            className="w-20 bg-neutral-900/80 border border-orange-500/40 rounded-lg px-3 py-1.5 text-orange-300 text-sm focus:outline-none focus:border-orange-500"
+                                        />
+                                    </div>
+                                )}
+                                <button
+                                    type="button"
+                                    onClick={() => append({ ...emptyProduct })}
+                                    className="flex items-center gap-2 text-sm text-emerald-400 hover:text-emerald-300 font-medium bg-emerald-500/10 hover:bg-emerald-500/20 px-4 py-2 rounded-lg transition-colors border border-emerald-500/20"
+                                >
+                                    <Plus className="w-4 h-4" /> Agregar línea
+                                </button>
+                            </div>
                         </div>
 
                         <div className="space-y-4">
@@ -412,7 +471,7 @@ function QuotationForm() {
                                 const isService = item?.item_type === "service";
                                 const concepts: ServiceConcept[] = (item?.service_concepts as ServiceConcept[]) || [];
                                 const amount = lineAmount(item);
-                                const sale = sellingAmount(item);
+                                const sale = lineSelling(item);
 
                                 return (
                                     <div key={field.id} className="bg-neutral-900/30 p-4 rounded-xl border border-neutral-700/40 space-y-4">
@@ -491,10 +550,16 @@ function QuotationForm() {
                                                     </div>
                                                     <div className="space-y-1">
                                                         <label className="text-xs text-orange-400 ml-1">Utilidad %</label>
-                                                        <input type="number" step="any"
-                                                            {...register(`items.${index}.margin_pct` as const, { valueAsNumber: true })}
-                                                            className="w-full bg-neutral-900/80 border border-orange-500/40 rounded-lg px-3 py-2 text-orange-300 focus:outline-none focus:ring-1 focus:border-orange-500 focus:ring-orange-500 transition-all"
-                                                        />
+                                                        {marginMode === "specific" ? (
+                                                            <input type="number" step="any"
+                                                                {...register(`items.${index}.margin_pct` as const, { valueAsNumber: true })}
+                                                                className="w-full bg-neutral-900/80 border border-orange-500/40 rounded-lg px-3 py-2 text-orange-300 focus:outline-none focus:ring-1 focus:border-orange-500 focus:ring-orange-500 transition-all"
+                                                            />
+                                                        ) : (
+                                                            <div className="w-full bg-neutral-900/40 border border-neutral-800 rounded-lg px-3 py-2 text-neutral-500" title="Definida por la utilidad general">
+                                                                {Number.isFinite(generalMargin) ? generalMargin : 0}%
+                                                            </div>
+                                                        )}
                                                     </div>
                                                     <div className="space-y-1">
                                                         <label className="text-xs text-orange-400 ml-1">Precio</label>
@@ -534,17 +599,32 @@ function QuotationForm() {
                                                         )}
                                                     </div>
                                                 </div>
-                                                <div className="grid grid-cols-3 gap-4">
+                                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                                    <div className="space-y-1">
+                                                        <label className="text-xs text-neutral-400 ml-1">Cantidad</label>
+                                                        <input type="number" step="any"
+                                                            {...register(`items.${index}.quantity` as const, { valueAsNumber: true })}
+                                                            className={cn("w-full bg-neutral-900/80 border rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-1 transition-all",
+                                                                errors.items?.[index]?.quantity ? "border-red-500 focus:border-red-500 focus:ring-red-500" : "border-neutral-700 focus:border-emerald-500 focus:ring-emerald-500")}
+                                                        />
+                                                        {errors.items?.[index]?.quantity && <p className="text-red-400 text-xs ml-1">{errors.items[index]?.quantity?.message as string}</p>}
+                                                    </div>
                                                     <div className="space-y-1">
                                                         <label className="text-xs text-neutral-400 ml-1">Mi costo</label>
                                                         <div className="w-full bg-neutral-900/40 border border-neutral-800 rounded-lg px-3 py-2 text-neutral-300 font-medium">{formatCurrency(amount)}</div>
                                                     </div>
                                                     <div className="space-y-1">
                                                         <label className="text-xs text-orange-400 ml-1">Utilidad %</label>
-                                                        <input type="number" step="any"
-                                                            {...register(`items.${index}.margin_pct` as const, { valueAsNumber: true })}
-                                                            className="w-full bg-neutral-900/80 border border-orange-500/40 rounded-lg px-3 py-2 text-orange-300 focus:outline-none focus:ring-1 focus:border-orange-500 focus:ring-orange-500 transition-all"
-                                                        />
+                                                        {marginMode === "specific" ? (
+                                                            <input type="number" step="any"
+                                                                {...register(`items.${index}.margin_pct` as const, { valueAsNumber: true })}
+                                                                className="w-full bg-neutral-900/80 border border-orange-500/40 rounded-lg px-3 py-2 text-orange-300 focus:outline-none focus:ring-1 focus:border-orange-500 focus:ring-orange-500 transition-all"
+                                                            />
+                                                        ) : (
+                                                            <div className="w-full bg-neutral-900/40 border border-neutral-800 rounded-lg px-3 py-2 text-neutral-500" title="Definida por la utilidad general">
+                                                                {Number.isFinite(generalMargin) ? generalMargin : 0}%
+                                                            </div>
+                                                        )}
                                                     </div>
                                                     <div className="space-y-1">
                                                         <label className="text-xs text-orange-400 ml-1">Precio</label>
