@@ -20,7 +20,8 @@ const settingsSchema = z.object({
     email: z.string().email("Invalid email").optional().or(z.literal('')),
     phone: z.string().optional().or(z.literal('')),
     address: z.string().optional().or(z.literal('')),
-    logo_url: z.string().optional()
+    logo_url: z.string().optional(),
+    default_quotation_terms: z.string().optional().or(z.literal(''))
 });
 
 type SettingsFormValues = z.infer<typeof settingsSchema>;
@@ -266,7 +267,8 @@ export default function SettingsPage() {
                         email: data.email || "",
                         phone: data.phone || "",
                         address: data.address || "",
-                        logo_url: data.logo_url || ""
+                        logo_url: data.logo_url || "",
+                        default_quotation_terms: data.default_quotation_terms || ""
                     });
                     if (data.logo_url) setPreviewLogo(data.logo_url);
                 }
@@ -325,6 +327,7 @@ export default function SettingsPage() {
                 phone: data.phone,
                 address: data.address,
                 logo_url: finalLogoUrl,
+                default_quotation_terms: data.default_quotation_terms || null,
                 updated_at: new Date().toISOString()
             };
 
@@ -448,6 +451,15 @@ export default function SettingsPage() {
                                 <textarea {...register("address")}
                                     className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 transition-all min-h-[100px]"
                                     placeholder="Av. Principal 123, Ciudad, País"
+                                />
+                            </div>
+
+                            <div className="md:col-span-2 space-y-2 pt-4 border-t border-neutral-700/50">
+                                <label className="text-sm font-medium text-neutral-300 ml-1">Términos y Condiciones (Cotizaciones)</label>
+                                <p className="text-xs text-neutral-500 ml-1 -mt-1">Este texto se cargará automáticamente en cada nueva cotización (puedes editarlo por cotización).</p>
+                                <textarea {...register("default_quotation_terms")}
+                                    className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 transition-all min-h-[140px]"
+                                    placeholder={"Ej:\n• Precios en MXN, IVA incluido.\n• Validez de la cotización: 30 días.\n• Pago: 50% anticipo, 50% contra entrega.\n• Tiempo de entrega sujeto a confirmación."}
                                 />
                             </div>
 

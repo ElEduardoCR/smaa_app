@@ -176,6 +176,21 @@ function QuotationForm() {
         fetchClients();
     }, []);
 
+    // Precarga los términos y condiciones genéricos (Configuración) en una cotización nueva
+    useEffect(() => {
+        if (isEditing) return;
+        (async () => {
+            const { data } = await supabase
+                .from("company_settings")
+                .select("default_quotation_terms")
+                .limit(1)
+                .maybeSingle();
+            if (data?.default_quotation_terms) {
+                setValue("terms_conditions", data.default_quotation_terms);
+            }
+        })();
+    }, [isEditing, setValue]);
+
     useEffect(() => {
         async function fetchQuote() {
             if (!editId) return;

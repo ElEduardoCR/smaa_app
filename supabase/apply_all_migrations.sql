@@ -661,3 +661,15 @@ ALTER TABLE public.quotation_items
   ADD COLUMN IF NOT EXISTS cost_unit_price NUMERIC,
   ADD COLUMN IF NOT EXISTS cost_line_total NUMERIC;
 
+
+-- ===== 20260601170000_quotation_terms_and_client_payment_terms.sql =====
+-- Generic quotation terms & conditions, shown by default on every new quotation.
+ALTER TABLE public.company_settings
+  ADD COLUMN IF NOT EXISTS default_quotation_terms TEXT;
+
+-- Per-client payment conditions: number of credit days and whether the client
+-- must pay an advance/anticipo.
+ALTER TABLE public.clients
+  ADD COLUMN IF NOT EXISTS payment_days INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS requires_advance BOOLEAN NOT NULL DEFAULT false;
+

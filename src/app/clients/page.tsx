@@ -22,6 +22,8 @@ const clientSchema = z.object({
     email: z.string().email("Invalid email address").optional().or(z.literal("")),
     phone: z.string().optional(),
     address: z.string().optional(),
+    payment_days: z.coerce.number().catch(0),
+    requires_advance: z.boolean().optional(),
 });
 
 type ClientFormValues = z.infer<typeof clientSchema>;
@@ -57,6 +59,8 @@ export default function ClientsPage() {
             email: "",
             phone: "",
             address: "",
+            payment_days: 0,
+            requires_advance: false,
         }
     });
 
@@ -92,6 +96,8 @@ export default function ClientsPage() {
             email: client.email || "",
             phone: client.phone || "",
             address: client.address || "",
+            payment_days: (client as any).payment_days ?? 0,
+            requires_advance: (client as any).requires_advance ?? false,
         });
         setSelectedFile(null); // Clear selected file when editing
         setIsFormOpen(true);
@@ -110,6 +116,8 @@ export default function ClientsPage() {
             email: "",
             phone: "",
             address: "",
+            payment_days: 0,
+            requires_advance: false,
         });
     };
 
@@ -409,6 +417,33 @@ export default function ClientsPage() {
                                             className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl pl-11 pr-4 py-3 text-white placeholder-neutral-500 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition-all min-h-[100px] resize-y focus:outline-none"
                                             placeholder="Street, City, State..."
                                         />
+                                    </div>
+                                </div>
+
+                                {/* Condiciones de pago */}
+                                <div className="space-y-3 md:col-span-2 lg:col-span-3 pt-4 mt-2 border-t border-neutral-700/50">
+                                    <h3 className="text-sm font-semibold text-orange-400 ml-1">Condiciones de pago</h3>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        <div className="space-y-2">
+                                            <label className="text-sm font-medium text-neutral-300 ml-1">Días de pago (crédito)</label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                step="1"
+                                                {...register("payment_days", { valueAsNumber: true })}
+                                                className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-4 py-3 text-white placeholder-neutral-500 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition-all focus:outline-none"
+                                                placeholder="0 = contado, 30, 60..."
+                                            />
+                                            <p className="text-xs text-neutral-500 ml-1 font-light">0 = pago de contado.</p>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-sm font-medium text-neutral-300 ml-1">Anticipo</label>
+                                            <label className="flex items-center gap-3 w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-4 py-3 cursor-pointer hover:border-orange-500/50 transition-colors">
+                                                <input type="checkbox" {...register("requires_advance")} className="w-5 h-5 accent-orange-500" />
+                                                <span className="text-sm text-neutral-200">Requiere anticipo</span>
+                                            </label>
+                                            <p className="text-xs text-neutral-500 ml-1 font-light">Marca si el cliente debe dar anticipo.</p>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
