@@ -673,3 +673,10 @@ ALTER TABLE public.clients
   ADD COLUMN IF NOT EXISTS payment_days INTEGER NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS requires_advance BOOLEAN NOT NULL DEFAULT false;
 
+
+-- ===== 20260601180000_add_advance_pct_to_clients.sql =====
+-- Advance/anticipo percentage for clients that require an advance payment.
+-- Null when the client does not require an advance.
+ALTER TABLE public.clients
+  ADD COLUMN IF NOT EXISTS advance_pct NUMERIC;
+

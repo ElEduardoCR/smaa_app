@@ -24,6 +24,7 @@ const clientSchema = z.object({
     address: z.string().optional(),
     payment_days: z.coerce.number().catch(0),
     requires_advance: z.boolean().optional(),
+    advance_pct: z.coerce.number().catch(0),
 });
 
 type ClientFormValues = z.infer<typeof clientSchema>;
@@ -47,6 +48,7 @@ export default function ClientsPage() {
     const {
         register,
         handleSubmit,
+        watch,
         reset,
         formState: { errors }
     } = useForm<ClientFormValues>({
@@ -61,6 +63,7 @@ export default function ClientsPage() {
             address: "",
             payment_days: 0,
             requires_advance: false,
+            advance_pct: 50,
         }
     });
 
@@ -98,6 +101,7 @@ export default function ClientsPage() {
             address: client.address || "",
             payment_days: (client as any).payment_days ?? 0,
             requires_advance: (client as any).requires_advance ?? false,
+            advance_pct: (client as any).advance_pct ?? 50,
         });
         setSelectedFile(null); // Clear selected file when editing
         setIsFormOpen(true);
@@ -118,6 +122,7 @@ export default function ClientsPage() {
             address: "",
             payment_days: 0,
             requires_advance: false,
+            advance_pct: 50,
         });
     };
 
@@ -156,6 +161,10 @@ export default function ClientsPage() {
             const recordData: any = {
                 ...data,
             };
+            // Solo guarda el % de anticipo si el cliente lo requiere (si no, null)
+            recordData.advance_pct = data.requires_advance
+                ? Math.min(100, Math.max(0, Number(data.advance_pct) || 0))
+                : null;
 
             // Only override URL/Date if a physical file was actually uploaded.
             // If not selected, it inherits whatever the db has.
@@ -442,7 +451,22 @@ export default function ClientsPage() {
                                                 <input type="checkbox" {...register("requires_advance")} className="w-5 h-5 accent-orange-500" />
                                                 <span className="text-sm text-neutral-200">Requiere anticipo</span>
                                             </label>
-                                            <p className="text-xs text-neutral-500 ml-1 font-light">Marca si el cliente debe dar anticipo.</p>
+                                            {watch("requires_advance") ? (
+                                                <div className="space-y-1 pt-1">
+                                                    <label className="text-xs font-medium text-orange-400 ml-1">Porcentaje de anticipo (%)</label>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        max="100"
+                                                        step="1"
+                                                        {...register("advance_pct", { valueAsNumber: true })}
+                                                        className="w-full bg-neutral-900/50 border border-orange-500/40 rounded-xl px-4 py-3 text-orange-300 focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition-all"
+                                                        placeholder="50"
+                                                    />
+                                                </div>
+                                            ) : (
+                                                <p className="text-xs text-neutral-500 ml-1 font-light">Marca si el cliente debe dar anticipo.</p>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
