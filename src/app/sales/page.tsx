@@ -32,6 +32,9 @@ type Quotation = {
         rfc: string;
         email?: string;
         address?: string;
+        payment_days?: number | null;
+        requires_advance?: boolean | null;
+        advance_pct?: number | null;
     };
 };
 
@@ -68,7 +71,7 @@ export default function SalesPage() {
                     terms_conditions,
                     client_po_url,
                     created_at,
-                    client:clients(business_name, rfc, email, address)
+                    client:clients(business_name, rfc, email, address, payment_days, requires_advance, advance_pct)
                 `)
                 .order('created_at', { ascending: false });
 
@@ -155,7 +158,10 @@ export default function SalesPage() {
                     business_name: quote.client.business_name,
                     rfc: quote.client.rfc,
                     email: quote.client.email,
-                    address: quote.client.address
+                    address: quote.client.address,
+                    payment_days: quote.client.payment_days,
+                    requires_advance: quote.client.requires_advance,
+                    advance_pct: quote.client.advance_pct
                 },
                 items: items || []
             };

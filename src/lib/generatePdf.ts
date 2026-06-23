@@ -22,6 +22,9 @@ type QuotationData = {
         rfc: string;
         email?: string;
         address?: string;
+        payment_days?: number | null;
+        requires_advance?: boolean | null;
+        advance_pct?: number | null;
     };
     items: {
         description: string;
@@ -171,6 +174,24 @@ export const generateQuotationPDF = async (data: QuotationData) => {
         metaRightY += 6;
     }
 
+    // Payment conditions (from the client)
+    const pdays = data.client.payment_days;
+    const paymentText = pdays && pdays > 0 ? `Crédito ${pdays} días` : "Pago de contado";
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(100, 116, 139);
+    doc.text("Condiciones de pago:", pageWidth - 80, metaRightY);
+    doc.setTextColor(15, 23, 42);
+    doc.text(paymentText, pageWidth - 14, metaRightY, { align: "right" });
+    metaRightY += 6;
+    if (data.client.requires_advance) {
+        const adv = data.client.advance_pct != null ? `Requiere ${data.client.advance_pct}%` : "Requerido";
+        doc.setTextColor(100, 116, 139);
+        doc.text("Anticipo:", pageWidth - 80, metaRightY);
+        doc.setTextColor(15, 23, 42);
+        doc.text(adv, pageWidth - 14, metaRightY, { align: "right" });
+        metaRightY += 6;
+    }
+
     // --- Items Table ---
     const tableData = data.items.map(item => [
         item.description,
@@ -179,7 +200,7 @@ export const generateQuotationPDF = async (data: QuotationData) => {
         formatCurrency(item.line_total)
     ]);
 
-    const tableStartY = Math.max(nextClientY + 10, dividerY + 35);
+    const tableStartY = Math.max(nextClientY + 10, metaRightY + 4, dividerY + 35);
 
     autoTable(doc, {
         startY: tableStartY,
