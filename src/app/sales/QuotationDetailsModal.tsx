@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { X, RefreshCw, Box } from "lucide-react";
+import { X, RefreshCw, Box, Users } from "lucide-react";
+import { commissionersTotal, type Commissioner } from "@/lib/commissioners";
 
 type Item = {
     id: string;
@@ -24,6 +25,7 @@ type QuotationDetailsModalProps = {
         subtotal: number;
         vat_total: number;
         total: number;
+        commissioners?: Commissioner[] | null;
     };
     onClose: () => void;
 };
@@ -147,6 +149,31 @@ export default function QuotationDetailsModal({ quote, onClose }: QuotationDetai
                                             </td>
                                         </tr>
                                     ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+
+                    {quote.commissioners && quote.commissioners.length > 0 && (
+                        <div className="mt-6 border border-purple-500/20 rounded-xl overflow-hidden">
+                            <div className="flex items-center justify-between px-6 py-3 bg-purple-500/10 border-b border-purple-500/20">
+                                <h3 className="text-sm font-semibold text-purple-200 flex items-center gap-2">
+                                    <Users className="w-4 h-4" /> Comisionados
+                                </h3>
+                                <span className="text-xs text-neutral-400">Uso interno — no aparece en el PDF</span>
+                            </div>
+                            <table className="w-full text-left text-sm">
+                                <tbody className="divide-y divide-neutral-700/50 bg-neutral-800/20">
+                                    {quote.commissioners.map((c, i) => (
+                                        <tr key={i}>
+                                            <td className="px-6 py-3 text-neutral-200">{c.name || '—'}</td>
+                                            <td className="px-6 py-3 text-right font-medium text-purple-300">{formatCurrency(c.amount)}</td>
+                                        </tr>
+                                    ))}
+                                    <tr className="bg-purple-500/5">
+                                        <td className="px-6 py-3 font-semibold text-neutral-300">Total comisiones</td>
+                                        <td className="px-6 py-3 text-right font-bold text-purple-300">{formatCurrency(commissionersTotal(quote.commissioners))}</td>
+                                    </tr>
                                 </tbody>
                             </table>
                         </div>

@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { FileText, Plus, RefreshCw, ArrowLeft, Download, FileSpreadsheet, Edit3, CheckCircle, Upload, Eye, Link2 } from "lucide-react";
+import { FileText, Plus, RefreshCw, ArrowLeft, Download, FileSpreadsheet, Edit3, CheckCircle, Upload, Eye, Link2, Zap, Users } from "lucide-react";
 import Link from "next/link";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
 import { generateQuotationPDF } from "@/lib/generatePdf";
 import QuotationDetailsModal from "./QuotationDetailsModal";
+import { commissionersTotal, type Commissioner } from "@/lib/commissioners";
 
 function cn(...inputs: (string | undefined | null | false)[]) {
     return twMerge(clsx(inputs));
@@ -26,6 +27,7 @@ type Quotation = {
     delivery_time: string | null;
     terms_conditions: string | null;
     client_po_url: string | null;
+    commissioners: Commissioner[] | null;
     created_at: string;
     client?: {
         business_name: string;
@@ -70,6 +72,7 @@ export default function SalesPage() {
                     delivery_time,
                     terms_conditions,
                     client_po_url,
+                    commissioners,
                     created_at,
                     client:clients(business_name, rfc, email, address, payment_days, requires_advance, advance_pct)
                 `)
@@ -244,6 +247,12 @@ export default function SalesPage() {
                             )}
                         </Link>
                         <Link
+                            href="/sales/quick"
+                            className="flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 text-white px-6 py-3 rounded-xl font-medium transition-all hover:shadow-[0_0_20px_rgba(245,158,11,0.4)] active:scale-95"
+                        >
+                            <Zap className="w-5 h-5" /> Cotización Rápida
+                        </Link>
+                        <Link
                             href="/sales/new"
                             className="flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white px-6 py-3 rounded-xl font-medium transition-all hover:shadow-[0_0_20px_rgba(16,185,129,0.4)] active:scale-95"
                         >
@@ -312,7 +321,18 @@ export default function SalesPage() {
                                                 </span>
                                             </td>
                                             <td className="px-6 py-4 font-medium text-neutral-200">
-                                                {quote.client?.business_name || 'Unknown'}
+                                                <div className="flex flex-col gap-1">
+                                                    <span>{quote.client?.business_name || 'Unknown'}</span>
+                                                    {quote.commissioners && quote.commissioners.length > 0 && (
+                                                        <span
+                                                            className="inline-flex items-center gap-1 w-fit text-[11px] font-medium text-purple-300 bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 rounded-md"
+                                                            title={`Comisionada · ${formatCurrency(commissionersTotal(quote.commissioners))}`}
+                                                        >
+                                                            <Users className="w-3 h-3" />
+                                                            {quote.commissioners.length} comisionado{quote.commissioners.length > 1 ? 's' : ''}
+                                                        </span>
+                                                    )}
+                                                </div>
                                             </td>
                                             <td className="px-6 py-4 text-neutral-400">{quote.seller || '—'}</td>
                                             <td className="px-6 py-4 text-neutral-400 text-xs">{quote.delivery_time || '—'}</td>

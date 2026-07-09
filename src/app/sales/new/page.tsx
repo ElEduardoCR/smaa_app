@@ -11,6 +11,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
 import ServiceConceptsModal, { ServiceConcept } from "@/app/sales/ServiceConceptsModal";
+import CommissionersSection from "@/app/sales/CommissionersSection";
+import { normalizeCommissioners, rememberCommissionAgents } from "@/lib/commissioners";
 
 function cn(...inputs: (string | undefined | null | false)[]) {
     return twMerge(clsx(inputs));
@@ -51,12 +53,18 @@ const itemSchema = z
         }
     });
 
+const commissionerSchema = z.object({
+    name: z.string().optional().or(z.literal("")),
+    amount: z.coerce.number().catch(0),
+});
+
 const quotationSchema = z.object({
     client_id: z.string().min(1, "Please select a client"),
     seller: z.string().optional().or(z.literal("")),
     delivery_time: z.string().optional().or(z.literal("")),
     terms_conditions: z.string().optional().or(z.literal("")),
     items: z.array(itemSchema).min(1, "At least one item is required"),
+    commissioners: z.array(commissionerSchema).optional().default([]),
 });
 
 type QuotationFormValues = z.infer<typeof quotationSchema>;
@@ -118,6 +126,7 @@ function QuotationForm() {
             delivery_time: "",
             terms_conditions: "",
             items: [{ ...emptyProduct }],
+            commissioners: [],
         },
     });
 
@@ -224,6 +233,7 @@ function QuotationForm() {
                         margin_pct: i.margin_pct != null ? i.margin_pct : DEFAULT_MARGIN,
                         service_concepts: Array.isArray(i.service_concepts) ? i.service_concepts : [],
                     })),
+                    commissioners: normalizeCommissioners(quote.commissioners),
                 });
 
                 // Reconstruye el modo de utilidad: si todas las líneas comparten el mismo % => general
@@ -247,6 +257,7 @@ function QuotationForm() {
         setErrorMsg(null);
         try {
             let currentQuoteId = editId;
+            const cleanCommissioners = normalizeCommissioners(data.commissioners);
 
             if (isEditing) {
                 const { error: quoteError } = await supabase
@@ -256,6 +267,7 @@ function QuotationForm() {
                         seller: data.seller || null,
                         delivery_time: data.delivery_time || null,
                         terms_conditions: data.terms_conditions || null,
+                        commissioners: cleanCommissioners,
                         subtotal,
                         vat_total: vatTotal,
                         total,
@@ -277,6 +289,7 @@ function QuotationForm() {
                     seller: data.seller || null,
                     delivery_time: data.delivery_time || null,
                     terms_conditions: data.terms_conditions || null,
+                    commissioners: cleanCommissioners,
                     subtotal,
                     vat_total: vatTotal,
                     total,
@@ -343,6 +356,9 @@ function QuotationForm() {
             const { error: itemsError } = await supabase.from("quotation_items").insert(itemsToInsert);
 
             if (itemsError) throw itemsError;
+
+            // Recuerda los nombres de comisionados para reusarlos (no bloquea el guardado)
+            await rememberCommissionAgents(cleanCommissioners.map((c) => c.name));
 
             router.push("/sales");
         } catch (error: any) {
@@ -664,6 +680,9 @@ function QuotationForm() {
                             {typeof errors.items?.message === "string" && <p className="text-red-400 text-xs ml-1">{errors.items.message}</p>}
                         </div>
                     </div>
+
+                    {/* Comisionados */}
+                    <CommissionersSection control={control} register={register} />
 
                     {/* Totals & Submit */}
                     <div className="flex flex-col md:flex-row justify-between items-end gap-6 bg-neutral-800/20 p-6 rounded-3xl border border-neutral-700/30">

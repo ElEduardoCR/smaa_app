@@ -680,3 +680,27 @@ ALTER TABLE public.clients
 ALTER TABLE public.clients
   ADD COLUMN IF NOT EXISTS advance_pct NUMERIC;
 
+
+-- ===== 20260708000000_add_commissioners_to_quotations.sql =====
+-- Comisionados (special sales agents) per quotation. A quotation (normal OR
+-- "cotización rápida") can carry 1+ commissioners. We only track the agent name
+-- and the amount that corresponds to them ("lo que le toca"); the user computes
+-- that amount manually. This is INTERNAL reference only (not on the client PDF).
+-- Stored as JSONB array: [{ "name": "Juan Pérez", "amount": 1500 }, ...].
+ALTER TABLE public.quotations
+  ADD COLUMN IF NOT EXISTS commissioners JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+-- Lightweight catalog of commissioner names so they can be reused across
+-- quotations (fed into a datalist in the UI). Names accumulate automatically.
+CREATE TABLE IF NOT EXISTS public.commission_agents (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT UNIQUE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+ALTER TABLE public.commission_agents ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow all operations for commission_agents" ON public.commission_agents;
+CREATE POLICY "Allow all operations for commission_agents" ON public.commission_agents
+    FOR ALL USING (true) WITH CHECK (true);
+
