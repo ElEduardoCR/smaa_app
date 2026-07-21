@@ -51,14 +51,22 @@ function StepPart({ fileUrl, autoRotate, onLoaded, onError }: PartProps) {
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const buf = new Uint8Array(await res.arrayBuffer());
 
-                const result = occt.ReadStepFile(buf) ?? occt.ReadIgesFile(buf);
-                if (!result || !Array.isArray(result) || result.length === 0) {
-                    throw new Error("STEP vacío o sin geometría.");
+                // The API returns: { success, root, meshes: [...] } — NOT a flat array.
+                const fileName = (fileUrl || "").toLowerCase();
+                const isIges = fileName.endsWith(".igs") || fileName.endsWith(".iges");
+                const result = isIges ? occt.ReadIgesFile(buf, null) : occt.ReadStepFile(buf, null);
+                if (!result) throw new Error("El archivo no se pudo leer (resultado nulo).");
+                if (result.success === false) {
+                    throw new Error("OpenCascade no pudo parsear el archivo.");
+                }
+                const meshes: any[] = result.meshes || [];
+                if (meshes.length === 0) {
+                    throw new Error("STEP/IGES sin geometría.");
                 }
 
                 const geos: THREE.BufferGeometry[] = [];
                 let totalTris = 0;
-                for (const mesh of result) {
+                for (const mesh of meshes) {
                     const positions = mesh.attributes?.position?.array;
                     const normals = mesh.attributes?.normal?.array;
                     const indices = mesh.index?.array;
@@ -74,7 +82,7 @@ function StepPart({ fileUrl, autoRotate, onLoaded, onError }: PartProps) {
                     geos.push(g);
                     totalTris += indices.length / 3;
                 }
-                if (geos.length === 0) throw new Error("No se pudo extraer geometría del STEP.");
+                if (geos.length === 0) throw new Error("STEP sin triángulos extraíbles.");
                 if (cancelled) return;
                 setGeometries(geos);
                 onLoaded?.(totalTris);
