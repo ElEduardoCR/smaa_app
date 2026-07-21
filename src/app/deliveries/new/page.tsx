@@ -36,15 +36,17 @@ function NewDeliveryForm() {
     useEffect(() => {
         async function fetchWOs() {
             try {
-                // Only show WOs that are NOT Closed
+                // Only show WOs released by Quality
                 const { data, error } = await supabase
                     .from('work_orders')
-                    .select('id, order_number, notes, quotation:quotations(quotation_number, client:clients(business_name))')
-                    .neq('status', 'Closed')
-                    .order('created_at', { ascending: false });
+                    .select('id, order_number, notes, work_title, client_name, module_id, module:manufacturing_modules(code, name), quotation:quotations(quotation_number, client:clients(business_name, rfc, address, email))')
+                    .eq('status', 'QC_Released')
+                    .not('id', 'in', `(SELECT work_order_id FROM deliveries)`)
+                    .order('qc_released_at', { ascending: false });
                 if (error) throw error;
 
                 const formatted = (data as any[]).map(wo => {
+                    if (wo.module) wo.module = Array.isArray(wo.module) ? wo.module[0] : wo.module;
                     if (wo.quotation) wo.quotation = Array.isArray(wo.quotation) ? wo.quotation[0] : wo.quotation;
                     if (wo.quotation?.client) wo.quotation.client = Array.isArray(wo.quotation.client) ? wo.quotation.client[0] : wo.quotation.client;
                     return wo;
@@ -61,10 +63,10 @@ function NewDeliveryForm() {
 
     const selectedWO = workOrders.find(w => w.id === selectedWOId);
 
-    // Derive delivery number from the OT number: OT00001 -> NE00001
+    // Derive delivery number from the OT number: OT-MAQ-00001 -> NE-00001
     const deriveDeliveryNumber = (orderNumber: string) => {
         const digits = orderNumber.replace(/\D/g, '');
-        return `NE${digits}`;
+        return `NE-${digits}`;
     };
 
     const onSubmit = async () => {
@@ -79,7 +81,7 @@ function NewDeliveryForm() {
         try {
             const deliveryNumber = deriveDeliveryNumber(selectedWO!.order_number);
 
-            // 1. Create delivery record
+            // 1. Create delivery in stage = ready_for_packaging
             const { error: deliveryError } = await supabase.from('deliveries').insert([{
                 delivery_number: deliveryNumber,
                 work_order_id: selectedWOId,
@@ -88,12 +90,9 @@ function NewDeliveryForm() {
                 shipping_address: shippingAddress || null,
                 shipping_carrier: shippingCarrier || null,
                 tracking_number: trackingNumber || null,
+                stage: 'ready_for_packaging',
             }]);
             if (deliveryError) throw deliveryError;
-
-            // 2. Mark WO as Closed
-            const { error: woError } = await supabase.from('work_orders').update({ status: 'Closed' }).eq('id', selectedWOId);
-            if (woError) throw woError;
 
             router.push('/deliveries');
         } catch (error: any) {
@@ -121,7 +120,7 @@ function NewDeliveryForm() {
 
                 {/* WO Selection */}
                 <div className="bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
-                    <h2 className="text-lg font-semibold text-white mb-4">Orden de Trabajo</h2>
+                    <h2 className="text-lg font-semibold text-white mb-4">Orden de Trabajo (ya liberada por Calidad)</h2>
                     <div className="space-y-2">
                         <label className="text-sm font-medium text-neutral-300 ml-1">Seleccionar OT *</label>
                         <select value={selectedWOId} onChange={(e) => setSelectedWOId(e.target.value)}
@@ -130,7 +129,7 @@ function NewDeliveryForm() {
                             <option value="" disabled>Elige una orden de trabajo...</option>
                             {workOrders.map(wo => (
                                 <option key={wo.id} value={wo.id}>
-                                    {wo.order_number} — {wo.quotation?.client?.business_name || ''} ({wo.quotation?.quotation_number || ''})
+                                    {wo.order_number} — {(wo as any).module?.name || ''} — {wo.quotation?.client?.business_name || wo.notes?.slice(0, 40) || ''} ({wo.quotation?.quotation_number || 'ad-hoc'})
                                 </option>
                             ))}
                         </select>
@@ -142,7 +141,7 @@ function NewDeliveryForm() {
                                 <span className="font-mono font-bold text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-lg border border-emerald-500/20 text-lg">
                                     {deriveDeliveryNumber(selectedWO.order_number)}
                                 </span>
-                                <span className="text-xs text-neutral-500">• La OT se cerrará al crear esta entrega</span>
+                                <span className="text-xs text-neutral-500">• Aparecerá en la sección "Listo para embalaje"</span>
                             </div>
                         </div>
                     )}

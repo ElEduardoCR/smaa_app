@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useState, Suspense } from "react";
-import { useForm, useFieldArray } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import * as z from "zod";
-import { supabase } from "@/lib/supabase";
-import { ArrowLeft, Save, Plus, Trash2, Factory, AlertCircle, RefreshCw } from "lucide-react";
-import Link from "next/link";
+import { useEffect, useState, Suspense, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { supabase } from "@/lib/supabase";
+import {
+    ArrowLeft, Save, Factory, AlertCircle, RefreshCw, CheckCircle2, Lock,
+    Cog, Flame, Cpu, X, Search
+} from "lucide-react";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -15,121 +15,193 @@ function cn(...inputs: (string | undefined | null | false)[]) {
     return twMerge(clsx(inputs));
 }
 
-const OPERATION_TYPES = [
-    "Cortar", "Maquinar", "Soldar", "Doblar", "Pulir",
-    "Pintar", "Ensamblar", "Inspección", "Embalaje", "Otro"
-];
+const ICONS: Record<string, any> = { Cog, Flame, Cpu };
+const COLORS: Record<string, string> = { orange: "text-orange-400", amber: "text-amber-400", cyan: "text-cyan-400" };
 
-const operationSchema = z.object({
-    operation_type: z.string().min(1, "Select an operation"),
-    description: z.string().optional(),
-});
-
-const workOrderSchema = z.object({
-    quotation_id: z.string().min(1, "Select a quotation"),
-    notes: z.string().optional(),
-    operations: z.array(operationSchema).min(1, "At least one operation is required"),
-});
-
-type WorkOrderFormValues = z.infer<typeof workOrderSchema>;
-
+type Module = { id: string; code: string; name: string; color: string; icon: string };
 type Quotation = {
     id: string;
     quotation_number: string;
-    client: { business_name: string };
+    status: string;
+    total: number | null;
+    client: { business_name: string; rfc?: string };
+};
+type WpsProcedure = {
+    id: string;
+    code: string;
+    name: string;
+    joint_type: string | null;
+    base_metal: string | null;
+    filler_metal: string | null;
+    position: string | null;
 };
 
 function NewWorkOrderForm() {
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const initialModule = searchParams?.get("module") || "";
+
+    const [modules, setModules] = useState<Module[]>([]);
+    const [moduleCode, setModuleCode] = useState<string>(initialModule);
+    const [moduleId, setModuleId] = useState<string>("");
+
+    // Quotation vs. ad-hoc
+    const [mode, setMode] = useState<"quotation" | "adhoc">("quotation");
     const [quotations, setQuotations] = useState<Quotation[]>([]);
-    const [isLoadingQuotations, setIsLoadingQuotations] = useState(true);
-    const [isSubmitting, setIsSubmitting] = useState(false);
-    const [errorMsg, setErrorMsg] = useState<string | null>(null);
+    const [quotationSearch, setQuotationSearch] = useState("");
+    const [selectedQuotationId, setSelectedQuotationId] = useState<string>("");
+    const [confirmingQuotation, setConfirmingQuotation] = useState(false);
+    const [confirmError, setConfirmError] = useState<string | null>(null);
 
-    const {
-        register, control, handleSubmit, formState: { errors }
-    } = useForm<WorkOrderFormValues>({
-        resolver: zodResolver(workOrderSchema) as any,
-        defaultValues: {
-            quotation_id: "",
-            notes: "",
-            operations: [{ operation_type: "", description: "" }]
-        }
-    });
+    const [clientName, setClientName] = useState("");
+    const [clientRfc, setClientRfc] = useState("");
+    const [workTitle, setWorkTitle] = useState("");
+    const [priority, setPriority] = useState("Normal");
+    const [notes, setNotes] = useState("");
 
-    const { fields, append, remove } = useFieldArray({ control, name: "operations" });
+    // WPS (only for soldadura)
+    const [wpsList, setWpsList] = useState<WpsProcedure[]>([]);
+    const [selectedWpsIds, setSelectedWpsIds] = useState<string[]>([]);
 
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState<string | null>(null);
+
+    // Load modules
     useEffect(() => {
-        async function fetchQuotations() {
-            try {
-                const { data, error } = await supabase
-                    .from('quotations')
-                    .select('id, quotation_number, client:clients(business_name)')
-                    .eq('status', 'Approved')
-                    .order('created_at', { ascending: false });
-                if (error) throw error;
-                const formatted = (data as any[]).map(q => ({
-                    ...q,
-                    client: Array.isArray(q.client) ? q.client[0] : q.client
-                }));
-                setQuotations(formatted || []);
-            } catch (err) {
-                console.error("Failed to load quotations", err);
-            } finally {
-                setIsLoadingQuotations(false);
+        (async () => {
+            const { data } = await supabase.from("manufacturing_modules").select("*").eq("is_active", true).order("sort_order");
+            setModules(data || []);
+            if (initialModule) {
+                const m = (data || []).find((x: any) => x.code === initialModule);
+                if (m) setModuleId(m.id);
             }
-        }
-        fetchQuotations();
+        })();
+    }, [initialModule]);
+
+    // Load quotations when needed
+    useEffect(() => {
+        (async () => {
+            const { data, error } = await supabase
+                .from("quotations")
+                .select("id, quotation_number, status, total, client:clients(business_name, rfc)")
+                .in("status", ["Pending", "Approved", "Confirmed"])
+                .order("created_at", { ascending: false });
+            if (error) { console.error(error); return; }
+            const formatted = (data || []).map((q: any) => ({
+                ...q,
+                client: Array.isArray(q.client) ? q.client[0] : q.client,
+            }));
+            setQuotations(formatted);
+        })();
     }, []);
 
-    const onSubmit = async (data: WorkOrderFormValues) => {
-        setIsSubmitting(true);
-        setErrorMsg(null);
+    // Load WPS when soldadura
+    useEffect(() => {
+        if (moduleCode !== "soldadura") { setWpsList([]); setSelectedWpsIds([]); return; }
+        (async () => {
+            const { data } = await supabase
+                .from("wps_procedures")
+                .select("id, code, name, joint_type, base_metal, filler_metal, position")
+                .eq("is_active", true)
+                .order("code");
+            setWpsList(data || []);
+        })();
+    }, [moduleCode]);
+
+    const filteredQuotations = useMemo(() => {
+        const s = quotationSearch.trim().toLowerCase();
+        if (!s) return quotations;
+        return quotations.filter(q =>
+            (q.quotation_number || "").toLowerCase().includes(s) ||
+            (q.client?.business_name || "").toLowerCase().includes(s) ||
+            (q.client?.rfc || "").toLowerCase().includes(s)
+        );
+    }, [quotations, quotationSearch]);
+
+    const selectedModule = modules.find(m => m.id === moduleId) || null;
+    const selectedQuotation = quotations.find(q => q.id === selectedQuotationId) || null;
+    const isSoldadura = moduleCode === "soldadura";
+    const requiresWps = isSoldadura && selectedWpsIds.length === 0;
+
+    const handleConfirmQuotation = async () => {
+        if (!selectedQuotation) return;
+        setConfirmingQuotation(true);
+        setConfirmError(null);
         try {
-            // Find the quotation to derive the OT number
-            const selectedQ = quotations.find(q => q.id === data.quotation_id);
-            if (!selectedQ) throw new Error("Quotation not found");
-
-            // Derive OT number: SMAA00001 -> OT00001
-            const digits = selectedQ.quotation_number.replace('SMAA', '');
-            const orderNumber = `OT${digits}`;
-
-            // Insert Work Order
-            const { data: insertedWO, error: woError } = await supabase
-                .from('work_orders')
-                .insert([{
-                    order_number: orderNumber,
-                    quotation_id: data.quotation_id,
-                    notes: data.notes || null,
-                    status: 'Open'
-                }])
-                .select()
-                .single();
-
-            if (woError) throw woError;
-
-            // Insert Operations
-            const opsToInsert = data.operations.map((op, idx) => ({
-                work_order_id: insertedWO.id,
-                sequence: idx + 1,
-                operation_type: op.operation_type,
-                description: op.description || null,
-                status: 'Pending'
-            }));
-
-            const { error: opsError } = await supabase
-                .from('work_order_operations')
-                .insert(opsToInsert);
-
-            if (opsError) throw opsError;
-
-            router.push(`/manufacturing/${insertedWO.id}`);
-
-        } catch (error: any) {
-            console.error("Error creating work order:", error);
-            setErrorMsg(error.message || "Failed to create work order.");
+            const { error } = await supabase
+                .from("quotations")
+                .update({ status: "Approved" })
+                .eq("id", selectedQuotation.id);
+            if (error) throw error;
+            setQuotations(qs => qs.map(q => q.id === selectedQuotation.id ? { ...q, status: "Approved" } : q));
+        } catch (e: any) {
+            setConfirmError(e?.message || "No se pudo confirmar la cotización.");
         } finally {
-            setIsSubmitting(false);
+            setConfirmingQuotation(false);
+        }
+    };
+
+    const onSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setErr(null);
+        if (!moduleId) { setErr("Selecciona un módulo."); return; }
+        if (mode === "quotation" && !selectedQuotationId) { setErr("Selecciona una cotización."); return; }
+        if (mode === "quotation" && selectedQuotation && selectedQuotation.status !== "Approved") {
+            setErr("La cotización seleccionada debe estar aprobada/confirma da. Confírmala primero."); return;
+        }
+        if (mode === "adhoc" && !clientName.trim()) { setErr("Captura el nombre del cliente."); return; }
+        if (requiresWps) { setErr("Soldadura requiere al menos un WPS asignado."); return; }
+        if (!workTitle.trim()) { setErr("Captura el título del trabajo."); return; }
+
+        setBusy(true);
+        try {
+            // Generate order number: from quotation SMAA00001 -> OT-MAQ-00001, OT-SOLD-00001, OT-AUTO-00001
+            const modulePrefix: Record<string, string> = {
+                maquinado: "MAQ",
+                soldadura: "SOLD",
+                automatizacion: "AUTO",
+            };
+            const prefix = modulePrefix[moduleCode] || "OT";
+
+            // Count existing OTs in this module to generate a sequence
+            const { count } = await supabase
+                .from("work_orders")
+                .select("id", { count: "exact", head: true })
+                .eq("module_id", moduleId);
+            const seq = String((count || 0) + 1).padStart(5, "0");
+
+            let orderNumber: string;
+            if (mode === "quotation" && selectedQuotation) {
+                const qDigits = (selectedQuotation.quotation_number || "").replace(/\D/g, "") || seq;
+                orderNumber = `OT-${prefix}-${qDigits}`;
+            } else {
+                orderNumber = `OT-${prefix}-${seq}`;
+            }
+
+            const { data: wo, error: woErr } = await supabase.from("work_orders").insert([{
+                order_number: orderNumber,
+                module_id: moduleId,
+                quotation_id: mode === "quotation" ? selectedQuotationId : null,
+                client_name: mode === "adhoc" ? clientName : null,
+                client_rfc: mode === "adhoc" ? clientRfc : null,
+                work_title: workTitle,
+                priority,
+                notes: notes || null,
+                status: "Open",
+            }]).select().single();
+            if (woErr) throw woErr;
+
+            if (selectedWpsIds.length > 0) {
+                const links = selectedWpsIds.map(wid => ({ work_order_id: wo.id, wps_id: wid }));
+                const { error: wpsErr } = await supabase.from("work_order_wps").insert(links);
+                if (wpsErr) throw wpsErr;
+            }
+
+            router.push(`/manufacturing/${moduleCode}/${wo.id}`);
+        } catch (e: any) {
+            setErr(e?.message || "Error al crear la OT.");
+        } finally {
+            setBusy(false);
         }
     };
 
@@ -145,123 +217,263 @@ function NewWorkOrderForm() {
                             <Factory className="w-8 h-8 text-orange-400" />
                             Nueva Orden de Trabajo
                         </h1>
-                        <p className="text-neutral-400 text-sm mt-1">Create a work order linked to an approved quotation</p>
+                        <p className="text-neutral-400 text-sm mt-1">Crea una OT con o sin cotización anidada.</p>
                     </div>
                 </header>
 
-                {errorMsg && (
+                {err && (
                     <div className="p-4 rounded-xl border bg-red-500/10 border-red-500/30 text-red-400 flex items-center gap-3">
-                        <AlertCircle className="w-5 h-5 flex-shrink-0" />
-                        {errorMsg}
+                        <AlertCircle className="w-5 h-5 flex-shrink-0" /> {err}
                     </div>
                 )}
 
-                <form onSubmit={handleSubmit(onSubmit as any)} className="space-y-8">
-                    {/* Quotation Selection */}
+                <form onSubmit={onSubmit} className="space-y-6">
+                    {/* Módulo */}
                     <div className="bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
-                        <h2 className="text-lg font-semibold text-white mb-4">Cotización Asociada</h2>
-                        <div className="space-y-2 max-w-xl">
-                            <label className="text-sm font-medium text-neutral-300 ml-1">Seleccionar Cotización Aprobada *</label>
-                            <select
-                                {...register("quotation_id")}
-                                className={cn(
-                                    "w-full bg-neutral-900/50 border rounded-xl px-4 py-3 text-white appearance-none focus:outline-none focus:ring-2 transition-all",
-                                    errors.quotation_id ? "border-red-500 focus:ring-red-500/20" : "border-neutral-700 focus:border-orange-500 focus:ring-orange-500/20"
-                                )}
-                                disabled={isLoadingQuotations}
-                            >
-                                <option value="" disabled>Elige una cotización...</option>
-                                {quotations.map(q => (
-                                    <option key={q.id} value={q.id}>
-                                        {q.quotation_number} — {q.client?.business_name || 'Unknown'}
-                                    </option>
-                                ))}
-                            </select>
-                            {errors.quotation_id && <p className="text-red-400 text-xs ml-1">{errors.quotation_id.message}</p>}
+                        <h2 className="text-lg font-semibold text-white mb-4">1) Módulo de fabricación</h2>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            {modules.map(m => {
+                                const Icon = ICONS[m.icon] || Factory;
+                                const c = COLORS[m.color] || "text-orange-400";
+                                const isOn = moduleId === m.id;
+                                return (
+                                    <button
+                                        type="button"
+                                        key={m.id}
+                                        onClick={() => { setModuleId(m.id); setModuleCode(m.code); }}
+                                        className={cn(
+                                            "flex items-center gap-3 p-4 rounded-2xl border transition-all text-left",
+                                            isOn
+                                                ? "bg-neutral-700/40 border-orange-500/60 shadow-[0_0_0_2px_rgba(249,115,22,0.2)]"
+                                                : "bg-neutral-900/40 border-neutral-700/50 hover:bg-neutral-800/60"
+                                        )}
+                                    >
+                                        <Icon className={cn("w-7 h-7", c)} />
+                                        <div className="flex-1">
+                                            <p className="text-white font-semibold">{m.name}</p>
+                                            <p className="text-[11px] text-neutral-500 uppercase tracking-wider">{m.code}</p>
+                                        </div>
+                                        {isOn && <CheckCircle2 className="w-5 h-5 text-orange-400" />}
+                                    </button>
+                                );
+                            })}
                         </div>
-                        <div className="mt-4 max-w-xl space-y-2">
-                            <label className="text-sm font-medium text-neutral-300 ml-1">Notas (opcional)</label>
+                    </div>
+
+                    {/* Cotización vs ad-hoc */}
+                    <div className="bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm space-y-4">
+                        <h2 className="text-lg font-semibold text-white">2) Origen</h2>
+                        <div className="grid grid-cols-2 gap-2 max-w-md">
+                            <button
+                                type="button"
+                                onClick={() => setMode("quotation")}
+                                className={cn(
+                                    "px-4 py-2.5 rounded-xl border text-sm font-medium transition-colors",
+                                    mode === "quotation" ? "bg-orange-500/15 text-orange-300 border-orange-500/40" : "bg-neutral-900/40 text-neutral-400 border-neutral-700/50 hover:bg-neutral-800"
+                                )}
+                            >Con cotización</button>
+                            <button
+                                type="button"
+                                onClick={() => setMode("adhoc")}
+                                className={cn(
+                                    "px-4 py-2.5 rounded-xl border text-sm font-medium transition-colors",
+                                    mode === "adhoc" ? "bg-orange-500/15 text-orange-300 border-orange-500/40" : "bg-neutral-900/40 text-neutral-400 border-neutral-700/50 hover:bg-neutral-800"
+                                )}
+                            >Sin cotización (ad-hoc)</button>
+                        </div>
+
+                        {mode === "quotation" && (
+                            <div className="space-y-3">
+                                <div className="relative">
+                                    <Search className="w-4 h-4 absolute left-3 top-3.5 text-neutral-500" />
+                                    <input
+                                        type="text"
+                                        placeholder="Buscar por folio, cliente o RFC…"
+                                        value={quotationSearch}
+                                        onChange={(e) => setQuotationSearch(e.target.value)}
+                                        className="w-full pl-9 pr-3 py-2.5 bg-neutral-900/50 border border-neutral-700 rounded-lg text-white text-sm focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20"
+                                    />
+                                </div>
+                                <div className="max-h-72 overflow-y-auto rounded-xl border border-neutral-700/50 divide-y divide-neutral-800/60 bg-neutral-900/40">
+                                    {filteredQuotations.length === 0 ? (
+                                        <p className="p-4 text-sm text-neutral-500 text-center">No hay cotizaciones pendientes o aprobadas.</p>
+                                    ) : filteredQuotations.map(q => {
+                                        const approved = q.status === "Approved";
+                                        const isSel = selectedQuotationId === q.id;
+                                        return (
+                                            <button
+                                                type="button"
+                                                key={q.id}
+                                                onClick={() => setSelectedQuotationId(q.id)}
+                                                className={cn(
+                                                    "w-full text-left p-3 hover:bg-neutral-800/60 transition-colors flex items-center gap-3",
+                                                    isSel && "bg-orange-500/10 ring-1 ring-orange-500/40"
+                                                )}
+                                            >
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="font-mono text-emerald-300 text-xs bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                                                            {q.quotation_number}
+                                                        </span>
+                                                        <span className="text-sm text-white truncate">{q.client?.business_name}</span>
+                                                    </div>
+                                                    <p className="text-[11px] text-neutral-500 mt-1">
+                                                        {q.client?.rfc ? `RFC ${q.client.rfc} · ` : ""}{q.total ? `Total $${q.total.toLocaleString("es-MX", { minimumFractionDigits: 2 })}` : ""}
+                                                    </p>
+                                                </div>
+                                                <span className={cn(
+                                                    "text-[10px] font-semibold px-2 py-0.5 rounded-full border uppercase tracking-wider",
+                                                    approved
+                                                        ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
+                                                        : "bg-amber-500/10 text-amber-300 border-amber-500/30"
+                                                )}>
+                                                    {approved ? "Aprobada" : q.status}
+                                                </span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+
+                                {/* In-line confirmation */}
+                                {selectedQuotation && selectedQuotation.status !== "Approved" && (
+                                    <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+                                        <Lock className="w-5 h-5 text-amber-400 flex-shrink-0" />
+                                        <div className="flex-1">
+                                            <p className="text-sm text-amber-200">
+                                                Esta cotización aún no está aprobada. La OT no puede crearse hasta confirmarla.
+                                            </p>
+                                            {confirmError && <p className="text-xs text-red-400 mt-1">{confirmError}</p>}
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={handleConfirmQuotation}
+                                            disabled={confirmingQuotation}
+                                            className="text-sm font-semibold bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg flex items-center gap-1.5 disabled:opacity-50"
+                                        >
+                                            {confirmingQuotation ? <RefreshCw className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                                            Confirmar cotización
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {mode === "adhoc" && (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-xs text-neutral-400 ml-1">Cliente *</label>
+                                    <input
+                                        value={clientName}
+                                        onChange={e => setClientName(e.target.value)}
+                                        className="w-full mt-1 bg-neutral-900/50 border border-neutral-700 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20"
+                                        placeholder="Nombre del cliente"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-neutral-400 ml-1">RFC (opcional)</label>
+                                    <input
+                                        value={clientRfc}
+                                        onChange={e => setClientRfc(e.target.value.toUpperCase())}
+                                        className="w-full mt-1 bg-neutral-900/50 border border-neutral-700 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20"
+                                        placeholder="XAXX010101000"
+                                        maxLength={13}
+                                    />
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Detalles */}
+                    <div className="bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm space-y-3">
+                        <h2 className="text-lg font-semibold text-white">3) Detalles del trabajo</h2>
+                        <div>
+                            <label className="text-xs text-neutral-400 ml-1">Título del trabajo *</label>
+                            <input
+                                value={workTitle}
+                                onChange={e => setWorkTitle(e.target.value)}
+                                className="w-full mt-1 bg-neutral-900/50 border border-neutral-700 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20"
+                                placeholder="Ej. Fabricación de brida bridada 4″ Acero al carbón"
+                            />
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div>
+                                <label className="text-xs text-neutral-400 ml-1">Prioridad</label>
+                                <select
+                                    value={priority}
+                                    onChange={e => setPriority(e.target.value)}
+                                    className="w-full mt-1 bg-neutral-900/50 border border-neutral-700 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500"
+                                >
+                                    <option>Baja</option>
+                                    <option>Normal</option>
+                                    <option>Alta</option>
+                                    <option>Urgente</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div>
+                            <label className="text-xs text-neutral-400 ml-1">Notas (opcional)</label>
                             <textarea
-                                {...register("notes")}
-                                className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition-all min-h-[80px]"
-                                placeholder="Notes about this work order..."
+                                value={notes}
+                                onChange={e => setNotes(e.target.value)}
+                                className="w-full mt-1 bg-neutral-900/50 border border-neutral-700 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500 min-h-[80px]"
+                                placeholder="Indicaciones, materiales, tolerancias, etc."
                             />
                         </div>
                     </div>
 
-                    {/* Operations */}
-                    <div className="bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
-                        <div className="flex justify-between items-center mb-6">
-                            <h2 className="text-lg font-semibold text-white">Operaciones (Routing)</h2>
-                            <button type="button"
-                                onClick={() => append({ operation_type: "", description: "" })}
-                                className="flex items-center gap-2 text-sm text-orange-400 hover:text-orange-300 font-medium bg-orange-500/10 hover:bg-orange-500/20 px-4 py-2 rounded-lg transition-colors border border-orange-500/20"
-                            >
-                                <Plus className="w-4 h-4" /> Agregar Operación
-                            </button>
-                        </div>
-
-                        <div className="space-y-4">
-                            <div className="hidden md:grid grid-cols-12 gap-4 text-xs font-semibold text-neutral-400 uppercase tracking-wider px-2">
-                                <div className="col-span-1">#</div>
-                                <div className="col-span-4">Tipo de Operación</div>
-                                <div className="col-span-6">Descripción</div>
-                                <div className="col-span-1 text-center"></div>
+                    {/* WPS soldadura */}
+                    {isSoldadura && (
+                        <div className="bg-amber-500/5 border border-amber-500/30 p-6 rounded-3xl space-y-3">
+                            <div className="flex items-center gap-2">
+                                <Flame className="w-5 h-5 text-amber-400" />
+                                <h2 className="text-lg font-semibold text-white">WPS (Welding Procedure Specification) *</h2>
                             </div>
-
-                            {fields.map((field, index) => (
-                                <div key={field.id} className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start bg-neutral-900/30 p-4 md:p-3 rounded-xl border border-neutral-700/30 md:border-none focus-within:bg-neutral-800/60 transition-colors">
-                                    <div className="md:col-span-1 flex items-center justify-center">
-                                        <span className="text-neutral-500 font-mono text-sm bg-neutral-800/50 px-2 py-1 rounded">{index + 1}</span>
-                                    </div>
-
-                                    <div className="md:col-span-4 space-y-1">
-                                        <label className="md:hidden text-xs text-neutral-400 ml-1">Tipo</label>
-                                        <select
-                                            {...register(`operations.${index}.operation_type` as const)}
+                            <p className="text-sm text-amber-200/80">
+                                Soldadura requiere que el operador tenga claro qué procedimiento usar. Selecciona al menos un WPS.
+                            </p>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                {wpsList.length === 0 && (
+                                    <p className="text-sm text-neutral-500">Cargando WPS…</p>
+                                )}
+                                {wpsList.map(w => {
+                                    const on = selectedWpsIds.includes(w.id);
+                                    return (
+                                        <button
+                                            type="button"
+                                            key={w.id}
+                                            onClick={() => setSelectedWpsIds(ids => on ? ids.filter(x => x !== w.id) : [...ids, w.id])}
                                             className={cn(
-                                                "w-full bg-neutral-900/80 border rounded-lg px-3 py-2 text-white appearance-none focus:outline-none focus:ring-1 transition-all",
-                                                errors.operations?.[index]?.operation_type ? "border-red-500 focus:ring-red-500" : "border-neutral-700 focus:border-orange-500 focus:ring-orange-500"
+                                                "text-left p-3 rounded-xl border transition-colors",
+                                                on
+                                                    ? "bg-amber-500/15 border-amber-500/50 ring-1 ring-amber-500/30"
+                                                    : "bg-neutral-900/40 border-neutral-700/50 hover:bg-neutral-800/60"
                                             )}
                                         >
-                                            <option value="" disabled>Seleccionar...</option>
-                                            {OPERATION_TYPES.map(op => (
-                                                <option key={op} value={op}>{op}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-
-                                    <div className="md:col-span-6 space-y-1">
-                                        <label className="md:hidden text-xs text-neutral-400 ml-1">Descripción</label>
-                                        <input
-                                            {...register(`operations.${index}.description` as const)}
-                                            className="w-full bg-neutral-900/80 border border-neutral-700 rounded-lg px-3 py-2 text-white placeholder-neutral-600 focus:outline-none focus:ring-1 focus:border-orange-500 focus:ring-orange-500 transition-all"
-                                            placeholder="Details about this operation..."
-                                        />
-                                    </div>
-
-                                    <div className="md:col-span-1 flex items-center justify-end md:justify-center">
-                                        <button type="button" onClick={() => remove(index)} disabled={fields.length === 1}
-                                            className="text-neutral-500 hover:text-red-400 disabled:opacity-30 transition-colors p-2 rounded-lg hover:bg-neutral-800"
-                                        >
-                                            <Trash2 className="w-5 h-5" />
+                                            <div className="flex items-center justify-between">
+                                                <span className="font-mono text-amber-300 text-xs">{w.code}</span>
+                                                {on && <CheckCircle2 className="w-4 h-4 text-amber-300" />}
+                                            </div>
+                                            <p className="text-sm text-white mt-0.5">{w.name}</p>
+                                            <p className="text-[11px] text-neutral-400 mt-1">
+                                                {w.joint_type || "—"} · {w.base_metal || "—"} · {w.filler_metal || "—"} · Pos. {w.position || "—"}
+                                            </p>
                                         </button>
-                                    </div>
-                                </div>
-                            ))}
+                                    );
+                                })}
+                            </div>
                         </div>
-                    </div>
+                    )}
 
-                    {/* Submit */}
-                    <div className="flex justify-end">
-                        <button type="submit" disabled={isSubmitting}
-                            className="w-full md:w-auto bg-orange-500 hover:bg-orange-600 disabled:bg-orange-500/50 text-white px-10 py-4 rounded-xl font-bold transition-all shadow-[0_0_15px_rgba(249,115,22,0.2)] hover:shadow-[0_0_20px_rgba(249,115,22,0.4)] flex items-center justify-center gap-2 text-lg"
+                    <div className="flex justify-end gap-3">
+                        <Link href="/manufacturing" className="px-5 py-3 rounded-xl text-neutral-300 hover:text-white hover:bg-neutral-800 transition-colors text-sm font-medium">
+                            Cancelar
+                        </Link>
+                        <button
+                            type="submit"
+                            disabled={busy}
+                            className="bg-orange-500 hover:bg-orange-600 disabled:bg-orange-500/50 text-white px-8 py-3 rounded-xl font-bold transition-all shadow-[0_0_15px_rgba(249,115,22,0.2)] hover:shadow-[0_0_20px_rgba(249,115,22,0.4)] flex items-center justify-center gap-2"
                         >
-                            {isSubmitting ? (
-                                <><RefreshCw className="w-5 h-5 animate-spin" /> Creando...</>
-                            ) : (
-                                <><Save className="w-5 h-5" /> Crear Orden de Trabajo</>
-                            )}
+                            {busy ? <><RefreshCw className="w-5 h-5 animate-spin" /> Creando…</> : <><Save className="w-5 h-5" /> Crear Orden de Trabajo</>}
                         </button>
                     </div>
                 </form>
