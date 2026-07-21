@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
-import { Users, Server, LogOut, BarChart3, Receipt, ShieldCheck, Cog, Flame, Cpu, Wallet, Clock } from "lucide-react";
+import { Users, Server, LogOut, BarChart3, Receipt, ShieldCheck, Cog, Flame, Cpu, Wallet, Clock, BookOpen, History } from "lucide-react";
 import { logoutAction } from "@/app/actions/auth";
 import { useRouter } from "next/navigation";
 
@@ -320,6 +320,42 @@ export default function Home() {
                   Empleados, checador, nómina y declaraciones mensuales (IVA, ISR, DIOT).
                 </p>
                 <div className="mt-6 font-medium text-sm text-emerald-400 flex items-center group-hover:text-emerald-300">
+                  Open Module
+                  <svg className="w-4 h-4 ml-1 transform group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
+              </div>
+            </Link>
+
+            <Link href="/documents" className="block group">
+              <div className="bg-neutral-800/40 border border-neutral-700/50 hover:border-violet-500/50 hover:bg-neutral-800/80 transition-all duration-300 rounded-3xl p-6 h-full flex flex-col shadow-lg shadow-black/20 hover:shadow-violet-500/10 group-hover:-translate-y-1">
+                <div className="w-14 h-14 bg-gradient-to-br from-violet-500/20 to-purple-500/20 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
+                  <BookOpen className="w-7 h-7 text-violet-400 group-hover:text-violet-300" />
+                </div>
+                <h3 className="text-xl font-semibold text-white mb-2">Control de Documentos</h3>
+                <p className="text-neutral-400 text-sm flex-1 leading-relaxed">
+                  Procedimientos, formatos, manuales con foliado automático. ISO 9001:2015, firmas e historial de versiones.
+                </p>
+                <div className="mt-6 font-medium text-sm text-violet-400 flex items-center group-hover:text-violet-300">
+                  Open Module
+                  <svg className="w-4 h-4 ml-1 transform group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
+              </div>
+            </Link>
+
+            <Link href="/changes" className="block group">
+              <div className="bg-neutral-800/40 border border-neutral-700/50 hover:border-sky-500/50 hover:bg-neutral-800/80 transition-all duration-300 rounded-3xl p-6 h-full flex flex-col shadow-lg shadow-black/20 hover:shadow-sky-500/10 group-hover:-translate-y-1">
+                <div className="w-14 h-14 bg-gradient-to-br from-sky-500/20 to-cyan-500/20 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
+                  <History className="w-7 h-7 text-sky-400 group-hover:text-sky-300" />
+                </div>
+                <h3 className="text-xl font-semibold text-white mb-2">Control de Cambios</h3>
+                <p className="text-neutral-400 text-sm flex-1 leading-relaxed">
+                  Bitácora de todo lo que se modifica + commits de GitHub sincronizados.
+                </p>
+                <div className="mt-6 font-medium text-sm text-sky-400 flex items-center group-hover:text-sky-300">
                   Open Module
                   <svg className="w-4 h-4 ml-1 transform group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
