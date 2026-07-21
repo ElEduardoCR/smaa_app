@@ -127,8 +127,12 @@ export default function FinanceIndex() {
 
                 {/* Modules */}
                 <section>
-                    <h2 className="text-xl font-semibold text-white mb-4">Módulos</h2>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                    <h2 className="text-sm font-bold text-white mb-3 uppercase tracking-[0.15em] flex items-center gap-1.5">
+                        <span className="w-1 h-3 rounded-full bg-emerald-400/70" />
+                        Sub-módulos
+                        <span className="text-neutral-600 ml-1">· 6</span>
+                    </h2>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2.5">
                         <ModuleCard
                             href="/finance/employees"
                             title="Empleados"
@@ -155,7 +159,7 @@ export default function FinanceIndex() {
                         />
                         <ModuleCard
                             href="/finance/declarations"
-                            title="Declaraciones mensuales"
+                            title="Declaraciones"
                             desc="IVA, ISR provisional, DIOT. Acuses del SAT y control de pagos."
                             Icon={Receipt}
                             color="rose"
@@ -164,7 +168,7 @@ export default function FinanceIndex() {
                         <ModuleCard
                             href="/finance/iva"
                             title="Cálculo de IVA"
-                            desc="Vista rápida: iva cobrado (ventas) − iva acreditable (compras) = iva a pagar."
+                            desc="Tiempo real: iva cobrado (ventas) − iva acreditable (compras) = iva a pagar."
                             Icon={Calculator}
                             color="emerald"
                             badge="Tiempo real"
@@ -248,25 +252,32 @@ function StatCard({ title, value, Icon, color, sub }: any) {
 }
 
 function ModuleCard({ href, title, desc, Icon, color, badge }: any) {
-    const palette: Record<string, { card: string; icon: string; badge: string }> = {
-        emerald: { card: "border-emerald-500/30 hover:border-emerald-500/70", icon: "bg-emerald-500/20 text-emerald-300", badge: "bg-emerald-500/10 text-emerald-300 border-emerald-500/30" },
-        amber:   { card: "border-amber-500/30 hover:border-amber-500/70", icon: "bg-amber-500/20 text-amber-300", badge: "bg-amber-500/10 text-amber-300 border-amber-500/30" },
-        cyan:    { card: "border-cyan-500/30 hover:border-cyan-500/70", icon: "bg-cyan-500/20 text-cyan-300", badge: "bg-cyan-500/10 text-cyan-300 border-cyan-500/30" },
-        rose:    { card: "border-rose-500/30 hover:border-rose-500/70", icon: "bg-rose-500/20 text-rose-300", badge: "bg-rose-500/10 text-rose-300 border-rose-500/30" },
-        sky:     { card: "border-sky-500/30 hover:border-sky-500/70", icon: "bg-sky-500/20 text-sky-300", badge: "bg-sky-500/10 text-sky-300 border-sky-500/30" },
+    const palette: Record<string, { card: string; icon: string; text: string; }> = {
+        emerald: { card: "border-emerald-500/20 hover:border-emerald-500/60", icon: "bg-emerald-500/15 text-emerald-300", text: "text-emerald-300" },
+        amber:   { card: "border-amber-500/20 hover:border-amber-500/60",   icon: "bg-amber-500/15 text-amber-300",   text: "text-amber-300" },
+        cyan:    { card: "border-cyan-500/20 hover:border-cyan-500/60",     icon: "bg-cyan-500/15 text-cyan-300",     text: "text-cyan-300" },
+        rose:    { card: "border-rose-500/20 hover:border-rose-500/60",     icon: "bg-rose-500/15 text-rose-300",     text: "text-rose-300" },
+        sky:     { card: "border-sky-500/20 hover:border-sky-500/60",       icon: "bg-sky-500/15 text-sky-300",       text: "text-sky-300" },
     };
     const c = palette[color] || palette.emerald;
     return (
-        <Link href={href} className={cn("group bg-neutral-800/40 border rounded-2xl p-5 hover:bg-neutral-800/70 transition-all shadow-lg shadow-black/20 hover:-translate-y-0.5", c.card)}>
-            <div className="flex items-start justify-between">
-                <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center group-hover:scale-105 transition-transform", c.icon)}>
-                    <Icon className="w-6 h-6" />
+        <Link href={href} className={cn("group relative bg-neutral-800/40 border rounded-2xl p-3.5 hover:bg-neutral-800/80 transition-all duration-200 shadow-lg shadow-black/10 hover:-translate-y-0.5 flex flex-col overflow-hidden", c.card)}>
+            <div className="flex items-start justify-between mb-2.5">
+                <div className={cn("w-9 h-9 rounded-xl flex items-center justify-center group-hover:scale-105 transition-transform", c.icon)}>
+                    <Icon className="w-[18px] h-[18px]" />
                 </div>
-                <ChevronRight className="w-5 h-5 text-neutral-500 group-hover:text-white transition-colors" />
+                {badge && (
+                    <span className={cn("text-[9px] font-semibold px-1.5 py-0.5 rounded bg-neutral-700/60 text-neutral-300 uppercase tracking-wider")}>
+                        {badge}
+                    </span>
+                )}
             </div>
-            <h3 className="mt-3 text-lg font-semibold text-white">{title}</h3>
-            <p className="text-sm text-neutral-400 mt-1">{desc}</p>
-            {badge && <span className={cn("inline-block mt-3 text-[10px] font-semibold px-2 py-0.5 rounded-full border uppercase tracking-wider", c.badge)}>{badge}</span>}
+            <h3 className="text-sm font-bold text-white leading-tight">{title}</h3>
+            <p className="text-[11px] text-neutral-400 mt-1 line-clamp-2 leading-snug flex-1">{desc}</p>
+            <div className={cn("mt-2.5 pt-2 border-t border-neutral-700/40 flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider", c.text)}>
+                <span>Abrir</span>
+                <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+            </div>
         </Link>
     );
 }

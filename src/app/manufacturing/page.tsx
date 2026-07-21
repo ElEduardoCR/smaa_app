@@ -127,8 +127,12 @@ export default function ManufacturingIndex() {
 
                 {/* Module cards */}
                 <section>
-                    <h2 className="text-xl font-semibold text-white mb-4">Módulos</h2>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                    <h2 className="text-sm font-bold text-white mb-3 uppercase tracking-[0.15em] flex items-center gap-1.5">
+                        <span className="w-1 h-3 rounded-full bg-orange-400/70" />
+                        Módulos
+                        <span className="text-neutral-600 ml-1">· {modules.length}</span>
+                    </h2>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-3 gap-2.5">
                         {modules.map((m) => {
                             const c = COLOR_CLASSES[m.color] || COLOR_CLASSES.orange;
                             const Icon = ICONS[m.icon] || Cog;
@@ -138,25 +142,23 @@ export default function ManufacturingIndex() {
                                     key={m.id}
                                     href={`/manufacturing/${m.code}`}
                                     className={cn(
-                                        "group bg-neutral-800/40 border rounded-3xl p-6 hover:bg-neutral-800/70 transition-all duration-200 shadow-lg shadow-black/20 hover:-translate-y-0.5",
+                                        "group relative bg-neutral-800/40 border rounded-2xl p-4 hover:bg-neutral-800/80 transition-all duration-200 shadow-lg shadow-black/10 hover:-translate-y-0.5 flex flex-col overflow-hidden",
                                         c.card
                                     )}
                                 >
-                                    <div className="flex items-start justify-between">
-                                        <div className={cn("w-14 h-14 rounded-2xl bg-neutral-900/60 flex items-center justify-center border border-neutral-700/50 group-hover:scale-105 transition-transform", c.icon)}>
-                                            <Icon className="w-7 h-7" />
+                                    <div className="flex items-start justify-between mb-2.5">
+                                        <div className={cn("w-10 h-10 rounded-xl bg-neutral-900/60 flex items-center justify-center border border-neutral-700/50 group-hover:scale-105 transition-transform", c.icon)}>
+                                            <Icon className="w-5 h-5" />
                                         </div>
-                                        <ChevronRight className="w-5 h-5 text-neutral-500 group-hover:text-white transition-colors" />
+                                        <ChevronRight className="w-4 h-4 text-neutral-500 group-hover:text-white transition-colors" />
                                     </div>
-                                    <h3 className="mt-5 text-2xl font-bold text-white">{m.name}</h3>
-                                    <p className="text-sm text-neutral-400 mt-1">
-                                        Órdenes de trabajo, archivos, plano y 3D en el mismo lugar.
-                                    </p>
-                                    <div className="mt-5 flex flex-wrap gap-2 text-xs">
-                                        <span className={cn("px-2.5 py-1 rounded-full border", c.pill)}>{stats.open + stats.inProgress} activas</span>
-                                        {stats.paused > 0 && <span className="px-2.5 py-1 rounded-full border bg-amber-500/10 text-amber-300 border-amber-500/30">{stats.paused} pausadas</span>}
-                                        {stats.qc > 0 && <span className="px-2.5 py-1 rounded-full border bg-sky-500/10 text-sky-300 border-sky-500/30">{stats.qc} en calidad</span>}
-                                        {stats.qcReleased > 0 && <span className="px-2.5 py-1 rounded-full border bg-emerald-500/10 text-emerald-300 border-emerald-500/30">{stats.qcReleased} liberadas</span>}
+                                    <h3 className="text-base font-bold text-white leading-tight">{m.name}</h3>
+                                    <p className="text-[11px] text-neutral-400 mt-0.5 line-clamp-1">OTs, archivos, plano y 3D en el mismo lugar</p>
+                                    <div className="mt-3 pt-2.5 border-t border-neutral-700/40 flex flex-wrap gap-1.5 text-[10px] font-semibold">
+                                        <span className={cn("px-2 py-0.5 rounded-full border", c.pill)}>{stats.open + stats.inProgress} activas</span>
+                                        {stats.paused > 0 && <span className="px-2 py-0.5 rounded-full border bg-amber-500/10 text-amber-300 border-amber-500/30">{stats.paused} pausadas</span>}
+                                        {stats.qc > 0 && <span className="px-2 py-0.5 rounded-full border bg-sky-500/10 text-sky-300 border-sky-500/30">{stats.qc} en calidad</span>}
+                                        {stats.qcReleased > 0 && <span className="px-2 py-0.5 rounded-full border bg-emerald-500/10 text-emerald-300 border-emerald-500/30">{stats.qcReleased} liberadas</span>}
                                     </div>
                                 </Link>
                             );

@@ -3,370 +3,274 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
-import { Users, Server, LogOut, BarChart3, Receipt, ShieldCheck, Cog, Flame, Cpu, Wallet, Clock, BookOpen, History } from "lucide-react";
+import clsx from "clsx";
+import { twMerge } from "tailwind-merge";
+import {
+    Users, LogOut, BarChart3, Receipt, ShieldCheck, Cog,
+    Wallet, BookOpen, History, Factory, Truck, ChevronRight
+} from "lucide-react";
 import { logoutAction } from "@/app/actions/auth";
-import { useRouter } from "next/navigation";
+
+function cn(...inputs: (string | undefined | null | false)[]) {
+    return twMerge(clsx(inputs));
+}
+
+type ModuleCard = {
+    href: string;
+    title: string;
+    desc: string;
+    Icon: any;
+    color: "orange" | "emerald" | "amber" | "cyan" | "rose" | "violet" | "sky" | "slate";
+    category: "Operación" | "Comercial" | "Finanzas" | "Calidad" | "Sistema";
+    badge?: string;
+};
+
+const COLOR_CLASSES: Record<string, { border: string; icon: string; hover: string; }> = {
+    orange:  { border: "border-orange-500/20 hover:border-orange-500/60",  icon: "bg-orange-500/15 text-orange-300",   hover: "text-orange-300" },
+    emerald: { border: "border-emerald-500/20 hover:border-emerald-500/60", icon: "bg-emerald-500/15 text-emerald-300",  hover: "text-emerald-300" },
+    amber:   { border: "border-amber-500/20 hover:border-amber-500/60",   icon: "bg-amber-500/15 text-amber-300",     hover: "text-amber-300" },
+    cyan:    { border: "border-cyan-500/20 hover:border-cyan-500/60",     icon: "bg-cyan-500/15 text-cyan-300",       hover: "text-cyan-300" },
+    rose:    { border: "border-rose-500/20 hover:border-rose-500/60",     icon: "bg-rose-500/15 text-rose-300",       hover: "text-rose-300" },
+    violet:  { border: "border-violet-500/20 hover:border-violet-500/60",  icon: "bg-violet-500/15 text-violet-300",   hover: "text-violet-300" },
+    sky:     { border: "border-sky-500/20 hover:border-sky-500/60",       icon: "bg-sky-500/15 text-sky-300",         hover: "text-sky-300" },
+    slate:   { border: "border-slate-500/20 hover:border-slate-500/60",    icon: "bg-slate-500/15 text-slate-300",     hover: "text-slate-300" },
+};
+
+const MODULES: ModuleCard[] = [
+    // Operación
+    { href: "/manufacturing", title: "Fabricación", desc: "Maquinado, Soldadura y Automatización con WPS, planos y visor 3D.",
+      Icon: Factory, color: "orange", category: "Operación" },
+    { href: "/quality",        title: "Calidad",    desc: "Cola de OTs para revisión final y firma de liberación.",
+      Icon: ShieldCheck, color: "sky", category: "Operación" },
+    { href: "/deliveries",     title: "Entregas",   desc: "Listo para embalaje y Entregados con foto de factura + GPS.",
+      Icon: Truck, color: "emerald", category: "Operación" },
+
+    // Comercial
+    { href: "/clients",        title: "Clientes",   desc: "CFDI 4.0, RFC, datos fiscales y condiciones de pago.",
+      Icon: Users, color: "cyan", category: "Comercial" },
+    { href: "/sales",          title: "Ventas",     desc: "Cotizaciones con margen, OTs anidadas y comisiones.",
+      Icon: Receipt, color: "emerald", category: "Comercial" },
+    { href: "/purchases",      title: "Compras",    desc: "Órdenes de compra, 3 cotizaciones y buzón CFDI recibidos.",
+      Icon: Factory, color: "orange", category: "Comercial" },
+
+    // Finanzas
+    { href: "/finance",        title: "Nóminas y Contabilidad", desc: "Empleados, checador, nómina, IVA/ISR con OCR del SAT.",
+      Icon: Wallet, color: "emerald", category: "Finanzas" },
+
+    // Sistema / Calidad documental
+    { href: "/documents",      title: "Control de Documentos", desc: "14 procedimientos ISO 9001:2015, foliado y versionado.",
+      Icon: BookOpen, color: "violet", category: "Sistema" },
+    { href: "/changes",        title: "Control de Cambios", desc: "Bitácora de cambios + sync automático de GitHub.",
+      Icon: History, color: "sky", category: "Sistema" },
+    { href: "/dashboard",      title: "Dashboard",  desc: "Estadísticas del negocio: ventas, compras, gastos.",
+      Icon: BarChart3, color: "orange", category: "Sistema" },
+    { href: "/settings",       title: "Configuración", desc: "Datos de la empresa, logo y PDF.",
+      Icon: Cog, color: "slate", category: "Sistema" },
+];
+
+const CATEGORIES: { name: string; color: string }[] = [
+    { name: "Operación", color: "text-orange-300" },
+    { name: "Comercial", color: "text-cyan-300" },
+    { name: "Finanzas",  color: "text-emerald-300" },
+    { name: "Sistema",   color: "text-violet-300" },
+];
 
 export default function Home() {
-  const [connectionStatus, setConnectionStatus] = useState<'loading' | 'connected' | 'failed'>('loading');
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+    const [stats, setStats] = useState({
+        employees: 0,
+        otInProgress: 0,
+        otInQC: 0,
+        docsTotal: 0,
+        changesLast7d: 0,
+    });
+    const [loadingStats, setLoadingStats] = useState(true);
 
-  useEffect(() => {
-    async function checkConnection() {
-      try {
-        const { error } = await supabase.from('clients').select('id').limit(1);
+    useEffect(() => {
+        (async () => {
+            try {
+                const [
+                    { count: employees },
+                    { count: otInProgress },
+                    { count: otInQC },
+                    { count: docsTotal },
+                    { data: recentChanges },
+                ] = await Promise.all([
+                    supabase.from("employees").select("id", { count: "exact", head: true }).eq("status", "active"),
+                    supabase.from("work_orders").select("id", { count: "exact", head: true }).in("status", ["Open", "In Progress", "Paused"]),
+                    supabase.from("work_orders").select("id", { count: "exact", head: true }).eq("status", "QC"),
+                    supabase.from("documents").select("id", { count: "exact", head: true }),
+                    supabase.from("change_log").select("changed_at").gte("changed_at", new Date(Date.now() - 7 * 86400000).toISOString()),
+                ]);
+                setStats({
+                    employees: employees || 0,
+                    otInProgress: otInProgress || 0,
+                    otInQC: otInQC || 0,
+                    docsTotal: docsTotal || 0,
+                    changesLast7d: recentChanges?.length || 0,
+                });
+            } catch (e) {
+                console.error(e);
+            } finally {
+                setLoadingStats(false);
+            }
+        })();
+    }, []);
 
-        if (error) {
-          console.error("Supabase Connection Error:", error);
-          setErrorMessage(error.message);
-          setConnectionStatus('failed');
-        } else {
-          setConnectionStatus('connected');
-        }
-      } catch (err: any) {
-        console.error("Unexpected Supabase Error:", err);
-        setErrorMessage(err.message || 'Unknown error');
-        setConnectionStatus('failed');
-      }
-    }
+    return (
+        <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 font-[family-name:var(--font-sans)]">
+            <div className="max-w-[1800px] mx-auto p-3 md:p-5 lg:p-6 space-y-4">
+                {/* Header */}
+                <header className="bg-neutral-800/40 p-3.5 md:p-4 rounded-2xl border border-neutral-700/50 flex items-center justify-between flex-wrap gap-3">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-gradient-to-br from-orange-500/30 to-amber-500/30 rounded-xl flex items-center justify-center border border-orange-500/30">
+                            <Factory className="w-5 h-5 text-orange-300" />
+                        </div>
+                        <div>
+                            <h1 className="text-xl md:text-2xl font-bold text-white flex items-center gap-2">
+                                SMAA ERP
+                                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 uppercase tracking-wider">
+                                    ISO 9001:2015
+                                </span>
+                            </h1>
+                            <p className="text-[11px] md:text-xs text-neutral-400">Sistema de Gestión Integral — {MODULES.length} módulos</p>
+                        </div>
+                    </div>
+                    <button
+                        onClick={async () => {
+                            await logoutAction();
+                            window.location.href = "/login";
+                        }}
+                        className="hidden md:flex items-center gap-1.5 px-3 py-2 rounded-xl bg-neutral-800/60 hover:bg-rose-500/20 text-neutral-300 hover:text-rose-300 border border-neutral-700/50 hover:border-rose-500/40 transition-colors text-xs font-medium"
+                    >
+                        <LogOut className="w-3.5 h-3.5" />
+                        Salir
+                    </button>
+                </header>
 
-    checkConnection();
-  }, []);
+                {/* Quick stats row */}
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2.5">
+                    <StatChip
+                        label="Empleados activos"
+                        value={stats.employees}
+                        Icon={Users}
+                        color="emerald"
+                        loading={loadingStats}
+                    />
+                    <StatChip
+                        label="OTs en curso"
+                        value={stats.otInProgress}
+                        Icon={Factory}
+                        color="orange"
+                        loading={loadingStats}
+                    />
+                    <StatChip
+                        label="OTs en Calidad"
+                        value={stats.otInQC}
+                        Icon={ShieldCheck}
+                        color="sky"
+                        loading={loadingStats}
+                    />
+                    <StatChip
+                        label="Docs ISO"
+                        value={stats.docsTotal}
+                        Icon={BookOpen}
+                        color="violet"
+                        loading={loadingStats}
+                    />
+                    <StatChip
+                        label="Cambios (7d)"
+                        value={stats.changesLast7d}
+                        Icon={History}
+                        color="amber"
+                        loading={loadingStats}
+                    />
+                </div>
 
-  return (
-    <div className="min-h-screen bg-[#0a0a0a] bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(249,115,22,0.3),rgba(255,255,255,0))] flex flex-col items-center p-8 font-[family-name:var(--font-sans)]">
-      <main className="flex flex-col gap-10 max-w-5xl w-full z-10 pt-10">
-        <header className="flex flex-col md:flex-row justify-between items-center gap-6 pb-8 border-b border-orange-500/10">
-          <div className="flex w-full justify-between items-start md:w-auto md:block">
-            <div>
-              <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-white mb-2 bg-clip-text text-transparent bg-gradient-to-r from-orange-100 to-orange-500">
-                SMAA ERP
-              </h1>
-              <p className="text-orange-200/60 font-medium">Enterprise Resource Planning System</p>
+                {/* Modules grouped by category */}
+                {CATEGORIES.map(cat => {
+                    const items = MODULES.filter(m => m.category === cat.name);
+                    if (items.length === 0) return null;
+                    return (
+                        <section key={cat.name}>
+                            <h2 className={cn("text-[11px] font-bold uppercase tracking-[0.15em] mb-2 flex items-center gap-1.5", cat.color)}>
+                                <span className="w-1 h-3 rounded-full bg-current opacity-70" />
+                                {cat.name}
+                                <span className="text-neutral-600 ml-1">· {items.length}</span>
+                            </h2>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-6 gap-2.5">
+                                {items.map(m => <CompactModuleCard key={m.href} {...m} />)}
+                            </div>
+                        </section>
+                    );
+                })}
             </div>
-            <button
-              onClick={async () => {
-                await logoutAction();
-                window.location.href = '/login';
-              }}
-              className="md:hidden flex items-center justify-center p-2 rounded-xl bg-neutral-800/50 hover:bg-neutral-700/80 border border-neutral-700/50 text-neutral-300 transition-colors"
-              title="Cerrar sesión"
-            >
-              <LogOut className="w-5 h-5 text-rose-400" />
-            </button>
-          </div>
+        </div>
+    );
+}
 
-          <div className="flex gap-4">
-            <div className="flex bg-neutral-800/50 backdrop-blur-md rounded-2xl p-4 border border-neutral-700/50 min-w-64 max-w-sm">
-              <div className="flex gap-4 items-center w-full">
-                <div className="bg-orange-500/20 p-3 rounded-xl">
-                  <Server className="w-5 h-5 text-orange-400" />
+// -----------------------------------------------------------------
+// Compact module card — designed to fit densely in 5-6 column grids
+// -----------------------------------------------------------------
+function CompactModuleCard({ href, title, desc, Icon, color, badge }: ModuleCard) {
+    const c = COLOR_CLASSES[color] || COLOR_CLASSES.slate;
+    return (
+        <Link
+            href={href}
+            className={cn(
+                "group relative bg-neutral-800/40 border rounded-2xl p-3.5 hover:bg-neutral-800/80 transition-all duration-200 shadow-lg shadow-black/10 hover:-translate-y-0.5 flex flex-col overflow-hidden",
+                c.border
+            )}
+        >
+            {/* Top row: icon + (optional) badge */}
+            <div className="flex items-start justify-between mb-2.5">
+                <div className={cn("w-9 h-9 rounded-xl flex items-center justify-center group-hover:scale-105 transition-transform", c.icon)}>
+                    <Icon className="w-[18px] h-[18px]" />
                 </div>
-                <div className="flex-1">
-                  <p className="text-xs text-neutral-400 font-semibold mb-1 uppercase tracking-wider">Database Status</p>
-                  {connectionStatus === 'loading' && (
-                    <div className="text-orange-400 font-medium flex items-center gap-2 text-sm">
-                      <span className="relative flex h-2 w-2">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2 w-2 bg-orange-500"></span>
-                      </span>
-                      Connecting...
-                    </div>
-                  )}
-
-                  {connectionStatus === 'connected' && (
-                    <div className="text-emerald-400 font-medium flex items-center gap-2 text-sm">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]"></span>
-                      Operational
-                    </div>
-                  )}
-
-                  {connectionStatus === 'failed' && (
-                    <div className="flex flex-col">
-                      <div className="text-red-400 font-medium flex items-center gap-2 text-sm">
-                        <span className="w-2 h-2 rounded-full bg-red-500"></span>
-                        Disconnected
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
+                {badge && (
+                    <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-neutral-700/60 text-neutral-300 uppercase tracking-wider">
+                        {badge}
+                    </span>
+                )}
             </div>
+            {/* Title */}
+            <h3 className="text-sm font-bold text-white leading-tight">{title}</h3>
+            {/* Description — 2 lines max */}
+            <p className="text-[11px] text-neutral-400 mt-1 line-clamp-2 leading-snug flex-1">{desc}</p>
+            {/* Footer: open indicator */}
+            <div className={cn("mt-2.5 pt-2 border-t border-neutral-700/40 flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider", c.hover)}>
+                <span>Abrir</span>
+                <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+            </div>
+        </Link>
+    );
+}
 
-            <button
-              onClick={async () => {
-                await logoutAction();
-                window.location.href = '/login';
-              }}
-              className="hidden md:flex flex-col items-center justify-center px-4 rounded-2xl bg-neutral-800/50 hover:bg-neutral-700/80 border border-neutral-700/50 text-neutral-300 transition-colors group"
-              title="Cerrar sesión"
-            >
-              <LogOut className="w-6 h-6 text-neutral-400 group-hover:text-rose-400 mb-1 transition-colors" />
-              <span className="text-xs font-medium">Salir</span>
-            </button>
-          </div>
-        </header>
-
-        <section>
-          <h2 className="text-2xl font-semibold mb-6 text-neutral-200">Modules</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-
-            <Link href="/dashboard" className="block group">
-              <div className="bg-neutral-800/40 border border-neutral-700/50 hover:border-orange-500/50 hover:bg-neutral-800/80 transition-all duration-300 rounded-3xl p-6 h-full flex flex-col shadow-lg shadow-black/20 hover:shadow-orange-500/10 group-hover:-translate-y-1">
-                <div className="w-14 h-14 bg-gradient-to-br from-orange-500/20 to-orange-500/20 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
-                  <BarChart3 className="w-7 h-7 text-orange-400 group-hover:text-orange-300" />
-                </div>
-                <h3 className="text-xl font-semibold text-white mb-2">Dashboard</h3>
-                <p className="text-neutral-400 text-sm flex-1 leading-relaxed">
-                  Estadísticas del negocio: gasto en compras por año y por mes.
+// -----------------------------------------------------------------
+// Compact stat chip — fits in dense rows
+// -----------------------------------------------------------------
+function StatChip({ label, value, Icon, color, loading }: any) {
+    const colors: Record<string, string> = {
+        emerald: "border-emerald-500/20 bg-emerald-500/5 text-emerald-300",
+        orange:  "border-orange-500/20 bg-orange-500/5 text-orange-300",
+        sky:     "border-sky-500/20 bg-sky-500/5 text-sky-300",
+        violet:  "border-violet-500/20 bg-violet-500/5 text-violet-300",
+        amber:   "border-amber-500/20 bg-amber-500/5 text-amber-300",
+    };
+    return (
+        <div className={cn("rounded-2xl border p-3 flex items-center gap-2.5", colors[color] || colors.slate)}>
+            <div className="w-9 h-9 rounded-xl bg-neutral-900/40 flex items-center justify-center flex-shrink-0">
+                <Icon className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+                <p className="text-[9px] uppercase tracking-wider opacity-80 leading-tight">{label}</p>
+                <p className="text-xl font-bold text-white leading-tight tabular-nums">
+                    {loading ? "—" : value}
                 </p>
-                <div className="mt-6 font-medium text-sm text-orange-400 flex items-center group-hover:text-orange-300">
-                  Open Module
-                  <svg className="w-4 h-4 ml-1 transform group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                </div>
-              </div>
-            </Link>
+            </div>
+        </div>
+    );
+}
 
-            <Link href="/clients" className="block group">
-              <div className="bg-neutral-800/40 border border-neutral-700/50 hover:border-orange-500/50 hover:bg-neutral-800/80 transition-all duration-300 rounded-3xl p-6 h-full flex flex-col shadow-lg shadow-black/20 hover:shadow-orange-500/10 group-hover:-translate-y-1">
-                <div className="w-14 h-14 bg-gradient-to-br from-orange-500/20 to-orange-500/20 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
-                  <Users className="w-7 h-7 text-orange-400 group-hover:text-orange-300" />
-                </div>
-                <h3 className="text-xl font-semibold text-white mb-2">Clientes</h3>
-                <p className="text-neutral-400 text-sm flex-1 leading-relaxed">
-                  Manage CFDI 4.0 compliant client records, RFCs, and fiscal regimes.
-                </p>
-                <div className="mt-6 font-medium text-sm text-orange-400 flex items-center group-hover:text-orange-300">
-                  Open Module
-                  <svg className="w-4 h-4 ml-1 transform group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                </div>
-              </div>
-            </Link>
-
-            <Link href="/sales" className="block group">
-              <div className="bg-neutral-800/40 border border-neutral-700/50 hover:border-emerald-500/50 hover:bg-neutral-800/80 transition-all duration-300 rounded-3xl p-6 h-full flex flex-col shadow-lg shadow-black/20 hover:shadow-emerald-500/10 group-hover:-translate-y-1">
-                <div className="w-14 h-14 bg-gradient-to-br from-emerald-500/20 to-teal-500/20 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
-                  <svg className="w-7 h-7 text-emerald-400 group-hover:text-emerald-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                </div>
-                <h3 className="text-xl font-semibold text-white mb-2">Ventas</h3>
-                <p className="text-neutral-400 text-sm flex-1 leading-relaxed">
-                  Create and manage quotations, auto-calculate IVA, and export PDFs.
-                </p>
-                <div className="mt-6 font-medium text-sm text-emerald-400 flex items-center group-hover:text-emerald-300">
-                  Open Module
-                  <svg className="w-4 h-4 ml-1 transform group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                </div>
-              </div>
-            </Link>
-
-            <Link href="/settings" className="block group">
-              <div className="bg-neutral-800/40 border border-neutral-700/50 hover:border-amber-500/50 hover:bg-neutral-800/80 transition-all duration-300 rounded-3xl p-6 h-full flex flex-col shadow-lg shadow-black/20 hover:shadow-amber-500/10 group-hover:-translate-y-1">
-                <div className="w-14 h-14 bg-gradient-to-br from-amber-500/20 to-orange-500/20 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
-                  <svg className="w-7 h-7 text-amber-400 group-hover:text-amber-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                </div>
-                <h3 className="text-xl font-semibold text-white mb-2">Configuración</h3>
-                <p className="text-neutral-400 text-sm flex-1 leading-relaxed">
-                  Manage your company profile, logo, and PDF export details.
-                </p>
-                <div className="mt-6 font-medium text-sm text-amber-400 flex items-center group-hover:text-amber-300">
-                  Open Module
-                  <svg className="w-4 h-4 ml-1 transform group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                </div>
-              </div>
-            </Link>
-
-            <Link href="/manufacturing" className="block group">
-              <div className="bg-neutral-800/40 border border-neutral-700/50 hover:border-orange-500/50 hover:bg-neutral-800/80 transition-all duration-300 rounded-3xl p-6 h-full flex flex-col shadow-lg shadow-black/20 hover:shadow-orange-500/10 group-hover:-translate-y-1">
-                <div className="flex items-center gap-2 mb-6">
-                  <div className="w-12 h-12 bg-gradient-to-br from-orange-500/20 to-orange-500/20 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
-                    <Cog className="w-6 h-6 text-orange-400 group-hover:text-orange-300" />
-                  </div>
-                  <div className="w-12 h-12 bg-gradient-to-br from-amber-500/20 to-amber-500/20 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
-                    <Flame className="w-6 h-6 text-amber-400 group-hover:text-amber-300" />
-                  </div>
-                  <div className="w-12 h-12 bg-gradient-to-br from-cyan-500/20 to-cyan-500/20 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
-                    <Cpu className="w-6 h-6 text-cyan-400 group-hover:text-cyan-300" />
-                  </div>
-                </div>
-                <h3 className="text-xl font-semibold text-white mb-2">Fabricación</h3>
-                <p className="text-neutral-400 text-sm flex-1 leading-relaxed">
-                  Maquinado, Soldadura y Automatización. OTs con WPS, archivos, visor PDF y 3D integrado.
-                </p>
-                <div className="mt-6 font-medium text-sm text-orange-400 flex items-center group-hover:text-orange-300">
-                  Open Module
-                  <svg className="w-4 h-4 ml-1 transform group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                </div>
-              </div>
-            </Link>
-
-            <Link href="/quality" className="block group">
-              <div className="bg-neutral-800/40 border border-neutral-700/50 hover:border-sky-500/50 hover:bg-neutral-800/80 transition-all duration-300 rounded-3xl p-6 h-full flex flex-col shadow-lg shadow-black/20 hover:shadow-sky-500/10 group-hover:-translate-y-1">
-                <div className="w-14 h-14 bg-gradient-to-br from-sky-500/20 to-sky-500/20 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
-                  <ShieldCheck className="w-7 h-7 text-sky-400 group-hover:text-sky-300" />
-                </div>
-                <h3 className="text-xl font-semibold text-white mb-2">Calidad</h3>
-                <p className="text-neutral-400 text-sm flex-1 leading-relaxed">
-                  Cola de OTs esperando revisión final y liberación por Calidad.
-                </p>
-                <div className="mt-6 font-medium text-sm text-sky-400 flex items-center group-hover:text-sky-300">
-                  Open Module
-                  <svg className="w-4 h-4 ml-1 transform group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                </div>
-              </div>
-            </Link>
-
-            <Link href="/suppliers" className="block group">
-              <div className="bg-neutral-800/40 border border-neutral-700/50 hover:border-rose-500/50 hover:bg-neutral-800/80 transition-all duration-300 rounded-3xl p-6 h-full flex flex-col shadow-lg shadow-black/20 hover:shadow-rose-500/10 group-hover:-translate-y-1">
-                <div className="w-14 h-14 bg-gradient-to-br from-rose-500/20 to-orange-500/20 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
-                  <svg className="w-7 h-7 text-rose-400 group-hover:text-rose-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} />
-                  </svg>
-                </div>
-                <h3 className="text-xl font-semibold text-white mb-2">Proveedores</h3>
-                <p className="text-neutral-400 text-sm flex-1 leading-relaxed">
-                  Alta, edición y eliminación de proveedores con datos fiscales.
-                </p>
-                <div className="mt-6 font-medium text-sm text-rose-400 flex items-center group-hover:text-rose-300">
-                  Open Module
-                  <svg className="w-4 h-4 ml-1 transform group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                </div>
-              </div>
-            </Link>
-
-            <Link href="/purchases" className="block group">
-              <div className="bg-neutral-800/40 border border-neutral-700/50 hover:border-orange-500/50 hover:bg-neutral-800/80 transition-all duration-300 rounded-3xl p-6 h-full flex flex-col shadow-lg shadow-black/20 hover:shadow-orange-500/10 group-hover:-translate-y-1">
-                <div className="w-14 h-14 bg-gradient-to-br from-orange-500/20 to-orange-500/20 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
-                  <svg className="w-7 h-7 text-orange-400 group-hover:text-orange-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" />
-                  </svg>
-                </div>
-                <h3 className="text-xl font-semibold text-white mb-2">Compras</h3>
-                <p className="text-neutral-400 text-sm flex-1 leading-relaxed">
-                  Órdenes de compra, cotizaciones de proveedores y PDF de POs.
-                </p>
-                <div className="mt-6 font-medium text-sm text-orange-400 flex items-center group-hover:text-orange-300">
-                  Open Module
-                  <svg className="w-4 h-4 ml-1 transform group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                </div>
-              </div>
-            </Link>
-
-            <Link href="/issued-invoices" className="block group">
-              <div className="bg-neutral-800/40 border border-neutral-700/50 hover:border-teal-500/50 hover:bg-neutral-800/80 transition-all duration-300 rounded-3xl p-6 h-full flex flex-col shadow-lg shadow-black/20 hover:shadow-teal-500/10 group-hover:-translate-y-1">
-                <div className="w-14 h-14 bg-gradient-to-br from-teal-500/20 to-emerald-500/20 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
-                  <Receipt className="w-7 h-7 text-teal-400 group-hover:text-teal-300" />
-                </div>
-                <h3 className="text-xl font-semibold text-white mb-2">Facturas Emitidas</h3>
-                <p className="text-neutral-400 text-sm flex-1 leading-relaxed">
-                  Importa y consulta los CFDI que tu negocio ha emitido a clientes.
-                </p>
-                <div className="mt-6 font-medium text-sm text-teal-400 flex items-center group-hover:text-teal-300">
-                  Open Module
-                  <svg className="w-4 h-4 ml-1 transform group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                </div>
-              </div>
-            </Link>
-
-            <Link href="/deliveries" className="block group">
-              <div className="bg-neutral-800/40 border border-neutral-700/50 hover:border-emerald-500/50 hover:bg-neutral-800/80 transition-all duration-300 rounded-3xl p-6 h-full flex flex-col shadow-lg shadow-black/20 hover:shadow-emerald-500/10 group-hover:-translate-y-1">
-                <div className="w-14 h-14 bg-gradient-to-br from-emerald-500/20 to-teal-500/20 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
-                  <svg className="w-7 h-7 text-emerald-400 group-hover:text-emerald-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </div>
-                <h3 className="text-xl font-semibold text-white mb-2">Entregas</h3>
-                <p className="text-neutral-400 text-sm flex-1 leading-relaxed">
-                  Notas de entrega de OTs terminadas con folio NE y datos de envío.
-                </p>
-                <div className="mt-6 font-medium text-sm text-emerald-400 flex items-center group-hover:text-emerald-300">
-                  Open Module
-                  <svg className="w-4 h-4 ml-1 transform group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                </div>
-              </div>
-            </Link>
-
-            <Link href="/finance" className="block group">
-              <div className="bg-neutral-800/40 border border-neutral-700/50 hover:border-emerald-500/50 hover:bg-neutral-800/80 transition-all duration-300 rounded-3xl p-6 h-full flex flex-col shadow-lg shadow-black/20 hover:shadow-emerald-500/10 group-hover:-translate-y-1">
-                <div className="w-14 h-14 bg-gradient-to-br from-emerald-500/20 to-amber-500/20 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
-                  <Wallet className="w-7 h-7 text-emerald-400 group-hover:text-emerald-300" />
-                </div>
-                <h3 className="text-xl font-semibold text-white mb-2">Nóminas y Contabilidad</h3>
-                <p className="text-neutral-400 text-sm flex-1 leading-relaxed">
-                  Empleados, checador, nómina y declaraciones mensuales (IVA, ISR, DIOT).
-                </p>
-                <div className="mt-6 font-medium text-sm text-emerald-400 flex items-center group-hover:text-emerald-300">
-                  Open Module
-                  <svg className="w-4 h-4 ml-1 transform group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                </div>
-              </div>
-            </Link>
-
-            <Link href="/documents" className="block group">
-              <div className="bg-neutral-800/40 border border-neutral-700/50 hover:border-violet-500/50 hover:bg-neutral-800/80 transition-all duration-300 rounded-3xl p-6 h-full flex flex-col shadow-lg shadow-black/20 hover:shadow-violet-500/10 group-hover:-translate-y-1">
-                <div className="w-14 h-14 bg-gradient-to-br from-violet-500/20 to-purple-500/20 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
-                  <BookOpen className="w-7 h-7 text-violet-400 group-hover:text-violet-300" />
-                </div>
-                <h3 className="text-xl font-semibold text-white mb-2">Control de Documentos</h3>
-                <p className="text-neutral-400 text-sm flex-1 leading-relaxed">
-                  Procedimientos, formatos, manuales con foliado automático. ISO 9001:2015, firmas e historial de versiones.
-                </p>
-                <div className="mt-6 font-medium text-sm text-violet-400 flex items-center group-hover:text-violet-300">
-                  Open Module
-                  <svg className="w-4 h-4 ml-1 transform group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                </div>
-              </div>
-            </Link>
-
-            <Link href="/changes" className="block group">
-              <div className="bg-neutral-800/40 border border-neutral-700/50 hover:border-sky-500/50 hover:bg-neutral-800/80 transition-all duration-300 rounded-3xl p-6 h-full flex flex-col shadow-lg shadow-black/20 hover:shadow-sky-500/10 group-hover:-translate-y-1">
-                <div className="w-14 h-14 bg-gradient-to-br from-sky-500/20 to-cyan-500/20 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
-                  <History className="w-7 h-7 text-sky-400 group-hover:text-sky-300" />
-                </div>
-                <h3 className="text-xl font-semibold text-white mb-2">Control de Cambios</h3>
-                <p className="text-neutral-400 text-sm flex-1 leading-relaxed">
-                  Bitácora de todo lo que se modifica + commits de GitHub sincronizados.
-                </p>
-                <div className="mt-6 font-medium text-sm text-sky-400 flex items-center group-hover:text-sky-300">
-                  Open Module
-                  <svg className="w-4 h-4 ml-1 transform group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                </div>
-              </div>
-            </Link>
-
-          </div>
-        </section>
-      </main>
-    </div>
-  );
+function cn2(...inputs: (string | undefined | null | false)[]) {
+    return (inputs || []).filter(Boolean).join(" ");
 }
