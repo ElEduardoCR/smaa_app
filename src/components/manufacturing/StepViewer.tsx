@@ -35,7 +35,18 @@ function StepPart({ fileUrl, autoRotate, onLoaded, onError }: PartProps) {
         (async () => {
             try {
                 const mod: any = await import("occt-import-js");
-                const occt = await mod.default();
+                // occt-import-js loads its WASM at runtime. By default it tries to fetch it
+                // from `/_next/static/chunks/occt-import-js.wasm` which doesn't exist because
+                // Next/Turbopack doesn't bundle it. We copied the .wasm to /public so we can
+                // tell the loader to fetch it from there.
+                const occt = await mod.default({
+                    locateFile: (path: string) => {
+                        if (path.endsWith(".wasm")) {
+                            return `${window.location.origin}/occt-import-js.wasm`;
+                        }
+                        return path;
+                    },
+                });
                 const res = await fetch(fileUrl);
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const buf = new Uint8Array(await res.arrayBuffer());
