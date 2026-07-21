@@ -92,13 +92,16 @@ export default function DeclarationsPage() {
         if (!newDec.period || !newDec.declaration_type) { flash("error", "Periodo y tipo requeridos."); return; }
         setBusy(true);
         try {
-            // Si es IVA, intentar pre-llenar desde facturas
+            // Si es IVA, intentar pre-llenar desde facturas (tabla resumen)
             let total_to_pay = 0, in_favor = 0;
             if (newDec.declaration_type === "IVA") {
-                const { data: sales } = await supabase.from("v_monthly_sales_iva").select("*").eq("period", newDec.period).single();
-                const { data: purchases } = await supabase.from("v_monthly_purchases_iva").select("*").eq("period", newDec.period).single();
-                const ivaCobrado = sales?.iva_cobrado || 0;
-                const ivaAcreditable = purchases?.iva || 0;
+                const { data: sum } = await supabase
+                    .from("monthly_iva_summary")
+                    .select("*")
+                    .eq("period", newDec.period)
+                    .maybeSingle();
+                const ivaCobrado = sum?.iva_cobrado_total || 0;
+                const ivaAcreditable = sum?.iva_acreditable_total || 0;
                 const iva_a_pagar = Math.max(0, ivaCobrado - ivaAcreditable);
                 in_favor = Math.max(0, ivaAcreditable - ivaCobrado);
                 total_to_pay = iva_a_pagar;
@@ -117,17 +120,21 @@ export default function DeclarationsPage() {
                 // Crear detalle IVA con datos pre-llenados
                 await supabase.from("declaration_iva").insert([{
                     declaration_id: dec.id,
-                    iva_cobrado_16: ivaCobrado,
+                    iva_cobrado_16: sum?.iva_cobrado_16 || ivaCobrado,
+                    iva_cobrado_8: sum?.iva_cobrado_8 || 0,
+                    iva_cobrado_0: sum?.iva_cobrado_0 || 0,
                     iva_cobrado_total: ivaCobrado,
-                    iva_acreditable_16: ivaAcreditable,
+                    iva_acreditable_16: sum?.iva_acreditable_16 || ivaAcreditable,
+                    iva_acreditable_8: sum?.iva_acreditable_8 || 0,
+                    iva_acreditable_0: sum?.iva_acreditable_0 || 0,
                     iva_acreditable_total: ivaAcreditable,
-                    ingresos_gravados_16: sales?.ingresos_gravados || 0,
-                    deducciones_gravadas_16: purchases?.subtotal || 0,
+                    ingresos_gravados_16: sum?.total_ventas_gravadas || 0,
+                    deducciones_gravadas_16: sum?.total_compras_gravadas || 0,
                     iva_a_pagar,
                     saldo_a_favor_nuevo: in_favor,
                 }]);
 
-                flash("success", "Declaración IVA creada con datos pre-llenados.");
+                flash("success", `Declaración IVA creada con datos pre-llenados · ${sum?.invoice_count_sales || 0} ventas + ${sum?.invoice_count_purchases || 0} compras`);
                 window.location.href = `/finance/declarations/${dec.id}`;
                 return;
             } else {

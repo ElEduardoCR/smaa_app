@@ -6,10 +6,12 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import {
     ArrowLeft, Receipt, Save, CheckCircle2, X, Upload, FileText, RefreshCw,
-    Calculator, AlertCircle, Download, Trash2, ExternalLink
+    Calculator, AlertCircle, Download, Trash2, ExternalLink, ScanLine,
+    Loader2, Sparkles, ArrowRight, CheckCircle
 } from "lucide-react";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
+import { extractAndParseAcuse, buildComparison, ComparisonRow, ExtractedAcuse } from "@/lib/satAcuseParser";
 
 function cn(...inputs: (string | undefined | null | false)[]) {
     return twMerge(clsx(inputs));
@@ -31,6 +33,14 @@ type Declaration = {
     due_date: string | null; filed_at: string | null; paid_at: string | null;
     folio_sat: string | null; total_to_pay: number; in_favor: number;
     pdf_url: string | null; pdf_file_name: string | null; notes: string | null;
+    sat_folio: string | null; sat_iva_a_pagar: number | null; sat_isr_a_pagar: number | null;
+    sat_iva_a_favor: number | null; sat_iva_cobrado: number | null; sat_iva_acreditable: number | null;
+    sat_ingresos_nominales: number | null; sat_deducciones_autorizadas: number | null;
+    sat_filing_date: string | null; sat_due_date: string | null; sat_cantidad_a_pagar: number | null;
+    sat_linea_captura: string | null; sat_tipo_declaracion: string | null;
+    sat_periodo: string | null; sat_raw_text: string | null; extracted_data: any;
+    comparison_diff_iva: number | null; comparison_diff_isr: number | null;
+    comparison_diff_pct: number | null; comparison_notes: string | null;
 };
 
 export default function DeclarationDetailPage() {
@@ -42,8 +52,16 @@ export default function DeclarationDetailPage() {
     const [isr, setIsr] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [busy, setBusy] = useState(false);
+    const [extracting, setExtracting] = useState(false);
+    const [extractionProgress, setExtractionProgress] = useState("");
     const [msg, setMsg] = useState<{ type: "error" | "success" | "info"; text: string } | null>(null);
+    const [comparison, setComparison] = useState<ComparisonRow[]>([]);
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const flash = (type: "error" | "success" | "info", text: string) => {
+        setMsg({ type, text });
+        setTimeout(() => setMsg(null), 5000);
+    };
 
     const load = async () => {
         setLoading(true);
@@ -52,22 +70,61 @@ export default function DeclarationDetailPage() {
             if (error) throw error;
             setDec(data);
 
+            let ours = { iva_a_pagar: 0, isr_a_pagar: 0, iva_cobrado_total: 0, iva_acreditable_total: 0 };
+
             if (data.declaration_type === "IVA") {
                 const { data: ivaData } = await supabase.from("declaration_iva").select("*").eq("declaration_id", id).maybeSingle();
                 setIva(ivaData);
+                ours = {
+                    iva_a_pagar: Number(ivaData?.iva_a_pagar || data.total_to_pay || 0),
+                    isr_a_pagar: 0,
+                    iva_cobrado_total: Number(ivaData?.iva_cobrado_total || 0),
+                    iva_acreditable_total: Number(ivaData?.iva_acreditable_total || 0),
+                };
             } else if (data.declaration_type === "ISR_PROVISIONAL") {
                 const { data: isrData } = await supabase.from("declaration_isr").select("*").eq("declaration_id", id).maybeSingle();
                 setIsr(isrData);
+                ours = {
+                    iva_a_pagar: 0,
+                    isr_a_pagar: Number(isrData?.isr_a_pagar || data.total_to_pay || 0),
+                    iva_cobrado_total: 0,
+                    iva_acreditable_total: 0,
+                };
+            } else {
+                // For other types, use total_to_pay as a proxy
+                ours.iva_a_pagar = data.declaration_type === "IVA" ? Number(data.total_to_pay || 0) : 0;
+                ours.isr_a_pagar = data.declaration_type === "ISR_PROVISIONAL" ? Number(data.total_to_pay || 0) : 0;
+            }
+
+            // Build comparison if we have SAT data
+            if (data.sat_iva_a_pagar !== null || data.sat_isr_a_pagar !== null || data.sat_cantidad_a_pagar !== null) {
+                const fakeSat: ExtractedAcuse = {
+                    raw_text: data.sat_raw_text || "",
+                    sat_folio: data.sat_folio,
+                    sat_tipo_declaracion: data.sat_tipo_declaracion,
+                    sat_periodo: data.sat_periodo,
+                    sat_filing_date: data.sat_filing_date,
+                    sat_due_date: data.sat_due_date,
+                    sat_iva_a_pagar: data.sat_iva_a_pagar,
+                    sat_iva_a_favor: data.sat_iva_a_favor,
+                    sat_isr_a_pagar: data.sat_isr_a_pagar,
+                    sat_iva_cobrado: data.sat_iva_cobrado,
+                    sat_iva_acreditable: data.sat_iva_acreditable,
+                    sat_ingresos_nominales: data.sat_ingresos_nominales,
+                    sat_deducciones_autorizadas: data.sat_deducciones_autorizadas,
+                    sat_cantidad_a_pagar: data.sat_cantidad_a_pagar,
+                    sat_linea_captura: data.sat_linea_captura,
+                    rfc: null,
+                    razon_social: null,
+                };
+                setComparison(buildComparison(ours, fakeSat));
+            } else {
+                setComparison([]);
             }
         } catch (e: any) { setMsg({ type: "error", text: e?.message || "Error" }); }
         finally { setLoading(false); }
     };
     useEffect(() => { if (id) load(); }, [id]);
-
-    const flash = (type: "error" | "success" | "info", text: string) => {
-        setMsg({ type, text });
-        setTimeout(() => setMsg(null), 3500);
-    };
 
     const updateDec = async (patch: Partial<Declaration>) => {
         setBusy(true);
@@ -83,7 +140,6 @@ export default function DeclarationDetailPage() {
     const saveIva = async (patch: any) => {
         setBusy(true);
         try {
-            // Recalcular total a pagar
             const ivaCobrado = Number(patch.iva_cobrado_16 || 0) + Number(patch.iva_cobrado_8 || 0) + Number(patch.iva_cobrado_0 || 0);
             const ivaAcreditable = Number(patch.iva_acreditable_16 || 0) + Number(patch.iva_acreditable_8 || 0) + Number(patch.iva_acreditable_0 || 0);
             const saldoFavAnt = Number(patch.saldo_a_favor_anterior || 0);
@@ -92,7 +148,6 @@ export default function DeclarationDetailPage() {
             const finalPatch = { ...patch, iva_cobrado_total: ivaCobrado, iva_acreditable_total: ivaAcreditable, iva_a_pagar: ivaAPagar, saldo_a_favor_nuevo: saldoFavNuevo };
             const { error } = await supabase.from("declaration_iva").update(finalPatch).eq("declaration_id", id);
             if (error) throw error;
-            // Actualizar totales en la declaración
             await supabase.from("monthly_declarations").update({ total_to_pay: ivaAPagar, in_favor: saldoFavNuevo }).eq("id", id);
             await load();
             flash("success", "IVA recalculado.");
@@ -120,21 +175,120 @@ export default function DeclarationDetailPage() {
         finally { setBusy(false); }
     };
 
-    const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const f = e.target.files?.[0];
-        if (!f) return;
+    // Auto-refresh from monthly_iva_summary
+    const refreshFromInvoices = async () => {
+        if (!dec || dec.declaration_type !== "IVA") return;
         setBusy(true);
         try {
+            const { data: sum } = await supabase
+                .from("monthly_iva_summary")
+                .select("*")
+                .eq("period", dec.period)
+                .maybeSingle();
+            if (!sum) { flash("info", "Aún no hay movimientos para este periodo."); setBusy(false); return; }
+            const saldoFavAnt = iva?.saldo_a_favor_anterior || 0;
+            const ivaAPagar = Math.max(0, Number(sum.iva_cobrado_total) - Number(sum.iva_acreditable_total) - Number(saldoFavAnt));
+            const saldoFavNuevo = Math.max(0, Number(sum.iva_acreditable_total) + Number(saldoFavAnt) - Number(sum.iva_cobrado_total));
+            const patch = {
+                iva_cobrado_16: Number(sum.iva_cobrado_16) || 0,
+                iva_cobrado_8: Number(sum.iva_cobrado_8) || 0,
+                iva_cobrado_0: Number(sum.iva_cobrado_0) || 0,
+                iva_cobrado_total: Number(sum.iva_cobrado_total) || 0,
+                iva_acreditable_16: Number(sum.iva_acreditable_16) || 0,
+                iva_acreditable_8: Number(sum.iva_acreditable_8) || 0,
+                iva_acreditable_0: Number(sum.iva_acreditable_0) || 0,
+                iva_acreditable_total: Number(sum.iva_acreditable_total) || 0,
+                ingresos_gravados_16: Number(sum.total_ventas_gravadas) || 0,
+                deducciones_gravadas_16: Number(sum.total_compras_gravadas) || 0,
+                iva_a_pagar: ivaAPagar,
+                saldo_a_favor_nuevo: saldoFavNuevo,
+            };
+            const { error } = await supabase.from("declaration_iva").update(patch).eq("declaration_id", id);
+            if (error) throw error;
+            await supabase.from("monthly_declarations").update({ total_to_pay: ivaAPagar, in_favor: saldoFavNuevo }).eq("id", id);
+            await load();
+            flash("success", `Refrescado: ${sum.invoice_count_sales} ventas + ${sum.invoice_count_purchases} compras`);
+        } catch (e: any) { flash("error", e?.message || "Error al refrescar."); }
+        finally { setBusy(false); }
+    };
+
+    const handleAcuseUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const f = e.target.files?.[0];
+        if (!f) return;
+        setExtracting(true);
+        setExtractionProgress("Subiendo archivo…");
+        try {
+            // 1) Upload
             const path = `declarations/${dec?.declaration_type}/${dec?.period}_${Date.now()}_${f.name}`;
             const { error: upErr } = await supabase.storage.from("finance_files").upload(path, f, { cacheControl: "3600", upsert: false, contentType: f.type });
             if (upErr) throw upErr;
-            const { data } = supabase.storage.from("finance_files").getPublicUrl(path);
-            await supabase.from("monthly_declarations").update({ pdf_url: data.publicUrl, pdf_file_name: f.name }).eq("id", id);
-            flash("success", "Acuse del SAT guardado.");
+            const { data: urlData } = supabase.storage.from("finance_files").getPublicUrl(path);
+
+            // 2) Extract + parse
+            setExtractionProgress("Extrayendo texto del acuse…");
+            const extracted = await extractAndParseAcuse(f);
+
+            // 3) Compute diff vs ours
+            let diffIva: number | null = null;
+            let diffIsr: number | null = null;
+            let diffPct: number | null = null;
+            const satIva = extracted.sat_iva_a_pagar ?? extracted.sat_cantidad_a_pagar;
+            const satIsr = extracted.sat_isr_a_pagar;
+            if (dec?.declaration_type === "IVA" && satIva != null) {
+                const ourIva = Number(dec.total_to_pay || 0);
+                diffIva = satIva - ourIva;
+                diffPct = ourIva !== 0 ? (diffIva / ourIva) * 100 : null;
+            }
+            if (dec?.declaration_type === "ISR_PROVISIONAL" && satIsr != null) {
+                const ourIsr = Number(dec.total_to_pay || 0);
+                diffIsr = satIsr - ourIsr;
+            }
+
+            // 4) Save extracted + diff + auto-fill some fields
+            const update: any = {
+                pdf_url: urlData.publicUrl,
+                pdf_file_name: f.name,
+                extracted_data: extracted,
+                sat_raw_text: extracted.raw_text,
+                sat_folio: extracted.sat_folio,
+                sat_tipo_declaracion: extracted.sat_tipo_declaracion,
+                sat_periodo: extracted.sat_periodo,
+                sat_filing_date: extracted.sat_filing_date,
+                sat_due_date: extracted.sat_due_date,
+                sat_cantidad_a_pagar: extracted.sat_cantidad_a_pagar,
+                sat_iva_a_pagar: extracted.sat_iva_a_pagar,
+                sat_iva_a_favor: extracted.sat_iva_a_favor,
+                sat_isr_a_pagar: extracted.sat_isr_a_pagar,
+                sat_iva_cobrado: extracted.sat_iva_cobrado,
+                sat_iva_acreditable: extracted.sat_iva_acreditable,
+                sat_ingresos_nominales: extracted.sat_ingresos_nominales,
+                sat_deducciones_autorizadas: extracted.sat_deducciones_autorizadas,
+                sat_linea_captura: extracted.sat_linea_captura,
+                comparison_diff_iva: diffIva,
+                comparison_diff_isr: diffIsr,
+                comparison_diff_pct: diffPct,
+            };
+            // Auto-fill visible fields if currently empty
+            if (!dec?.folio_sat && extracted.sat_folio) update.folio_sat = extracted.sat_folio;
+            if (!dec?.filed_at && extracted.sat_filing_date) update.filed_at = extracted.sat_filing_date;
+            if (!dec?.due_date && extracted.sat_due_date) update.due_date = extracted.sat_due_date;
+
+            // Mark as filed automatically
+            if (dec?.status === "draft") {
+                update.status = "filed";
+                if (!dec.filed_at && extracted.sat_filing_date) update.filed_at = extracted.sat_filing_date;
+            }
+
+            const { error: updErr } = await supabase.from("monthly_declarations").update(update).eq("id", id);
+            if (updErr) throw updErr;
+
+            flash("success", `Acuse procesado. ${extracted.sat_folio ? `Folio: ${extracted.sat_folio}.` : ""} ${diffIva != null ? `Diferencia IVA: ${fmt(diffIva)}.` : ""}`);
             await load();
-        } catch (e: any) { flash("error", e?.message || "Error al subir."); }
-        finally {
-            setBusy(false);
+        } catch (e: any) {
+            flash("error", e?.message || "Error al procesar el acuse.");
+        } finally {
+            setExtracting(false);
+            setExtractionProgress("");
             if (fileInputRef.current) fileInputRef.current.value = "";
         }
     };
@@ -185,7 +339,116 @@ export default function DeclarationDetailPage() {
                         msg.type === "success" ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300" :
                         "bg-sky-500/10 border-sky-500/30 text-sky-300"
                     )}>
-                        {msg.type === "error" ? <AlertCircle className="w-4 h-4" /> : msg.type === "success" ? <CheckCircle2 className="w-4 h-4" /> : <Calculator className="w-4 h-4" />} {msg.text}
+                        {msg.type === "error" ? <AlertCircle className="w-4 h-4" /> : msg.type === "success" ? <CheckCircle2 className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />} {msg.text}
+                    </div>
+                )}
+
+                {/* Acuse + extracción SAT */}
+                <div className="bg-neutral-800/40 p-5 rounded-2xl border border-neutral-700/50">
+                    <h3 className="text-sm font-semibold text-white flex items-center gap-2 mb-3">
+                        <ScanLine className="w-4 h-4 text-rose-400" /> Acuse del SAT (auto-extracción)
+                    </h3>
+                    {extracting ? (
+                        <div className="bg-sky-500/10 border border-sky-500/30 rounded-xl p-4 flex items-center gap-3">
+                            <Loader2 className="w-5 h-5 animate-spin text-sky-300" />
+                            <div>
+                                <p className="text-sm text-sky-200 font-medium">Procesando acuse…</p>
+                                <p className="text-xs text-sky-300/80">{extractionProgress}</p>
+                            </div>
+                        </div>
+                    ) : dec.pdf_url ? (
+                        <div className="space-y-2">
+                            <div className="flex items-center gap-3 bg-neutral-900/40 p-3 rounded-xl border border-neutral-700/50">
+                                <FileText className="w-8 h-8 text-rose-400 flex-shrink-0" />
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-sm text-white truncate">{dec.pdf_file_name || "Acuse.pdf"}</p>
+                                    <a href={dec.pdf_url} target="_blank" rel="noopener noreferrer" className="text-xs text-rose-400 hover:text-rose-300 flex items-center gap-1">
+                                        <ExternalLink className="w-3 h-3" /> Abrir en nueva pestaña
+                                    </a>
+                                </div>
+                                <button onClick={removePdf} className="p-1.5 text-neutral-500 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors"><Trash2 className="w-4 h-4" /></button>
+                            </div>
+                            {dec.sat_folio && (
+                                <p className="text-xs text-emerald-300 flex items-center gap-1.5">
+                                    <CheckCircle className="w-3.5 h-3.5" /> Folio extraído: <span className="font-mono">{dec.sat_folio}</span>
+                                </p>
+                            )}
+                        </div>
+                    ) : (
+                        <label className="text-sm flex items-center justify-center gap-2 text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 px-4 py-3 rounded-lg border border-rose-500/20 cursor-pointer transition-colors">
+                            <Upload className="w-4 h-4" />
+                            Subir acuse del SAT (PDF o imagen) — se extraen folio, periodo, IVA/ISR y se compara
+                            <input ref={fileInputRef} type="file" accept=".pdf,image/*" className="hidden" onChange={handleAcuseUpload} disabled={extracting} />
+                        </label>
+                    )}
+                </div>
+
+                {/* Comparación con SAT */}
+                {comparison.length > 0 && (
+                    <div className="bg-neutral-800/40 p-5 rounded-2xl border border-rose-500/30 space-y-3">
+                        <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                            <ArrowRight className="w-4 h-4 text-rose-400" /> Comparación: nuestro cálculo vs SAT
+                        </h3>
+                        {dec.sat_filing_date && (
+                            <p className="text-xs text-neutral-400">
+                                Presentada el {new Date(dec.sat_filing_date).toLocaleString()} {dec.sat_folio && <>· Folio <span className="font-mono text-rose-300">{dec.sat_folio}</span></>}
+                            </p>
+                        )}
+                        <table className="w-full text-sm">
+                            <thead>
+                                <tr className="text-xs text-neutral-400 uppercase tracking-wider border-b border-neutral-700/50">
+                                    <th className="text-left py-2">Concepto</th>
+                                    <th className="text-right py-2">Nuestro cálculo</th>
+                                    <th className="text-right py-2">SAT (extraído)</th>
+                                    <th className="text-right py-2">Diferencia</th>
+                                    <th className="text-right py-2">%</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-neutral-700/30">
+                                {comparison.map((r) => {
+                                    const significantDiff = r.diff !== null && Math.abs(r.diff) > 1 && Math.abs(r.pct || 0) > 0.5;
+                                    return (
+                                        <tr key={r.field} className={significantDiff ? "bg-amber-500/5" : ""}>
+                                            <td className="py-2 text-neutral-300">{r.label}</td>
+                                            <td className="py-2 text-right font-mono text-neutral-200">{r.ours != null ? fmt(r.ours) : "—"}</td>
+                                            <td className="py-2 text-right font-mono text-rose-200">{r.sat != null ? fmt(r.sat) : "—"}</td>
+                                            <td className={cn("py-2 text-right font-mono font-bold",
+                                                r.diff == null ? "text-neutral-500" :
+                                                Math.abs(r.diff) < 1 ? "text-emerald-300" :
+                                                Math.abs(r.pct || 0) < 5 ? "text-amber-300" : "text-rose-300"
+                                            )}>
+                                                {r.diff != null ? (r.diff >= 0 ? "+" : "") + fmt(r.diff) : "—"}
+                                            </td>
+                                            <td className={cn("py-2 text-right font-mono",
+                                                r.pct == null ? "text-neutral-500" :
+                                                Math.abs(r.pct) < 0.5 ? "text-emerald-300" :
+                                                Math.abs(r.pct) < 5 ? "text-amber-300" : "text-rose-300"
+                                            )}>
+                                                {r.pct != null ? (r.pct >= 0 ? "+" : "") + r.pct.toFixed(2) + "%" : "—"}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                        {dec.comparison_diff_pct !== null && Math.abs(dec.comparison_diff_pct) > 0.5 && (
+                            <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-xs text-amber-200 space-y-1">
+                                <p className="font-semibold flex items-center gap-1.5">
+                                    <AlertCircle className="w-3.5 h-3.5" /> Diferencia significativa detectada
+                                </p>
+                                <p>
+                                    Hay un {dec.comparison_diff_pct.toFixed(2)}% de diferencia entre nuestro cálculo y el SAT.
+                                    Esto puede deberse a: facturas no clasificadas como gravadas/exentas, ajustes manuales,
+                                    retenciones no consideradas, o créditos fiscales aplicados en el SAT.
+                                </p>
+                                <textarea
+                                    placeholder="Notas de la diferencia (opcional)…"
+                                    defaultValue={dec.comparison_notes || ""}
+                                    onBlur={(e) => updateDec({ comparison_notes: e.target.value || null })}
+                                    className="w-full mt-2 bg-neutral-900/50 border border-amber-500/30 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-amber-500 min-h-[50px]"
+                                />
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -208,38 +471,21 @@ export default function DeclarationDetailPage() {
                     </div>
                 </div>
 
-                {/* Detalle según tipo */}
+                {/* IVA form (with refresh button) */}
                 {dec.declaration_type === "IVA" && iva && (
-                    <IvaForm iva={iva} onSave={saveIva} busy={busy} />
+                    <div className="space-y-3">
+                        <div className="flex justify-between items-center">
+                            <h3 className="text-sm font-semibold text-emerald-200">Cálculo de IVA</h3>
+                            <button onClick={refreshFromInvoices} disabled={busy} className="text-xs bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 px-3 py-1.5 rounded-lg border border-cyan-500/20 flex items-center gap-1.5">
+                                <RefreshCw className={cn("w-3.5 h-3.5", busy && "animate-spin")} /> Refrescar desde facturas
+                            </button>
+                        </div>
+                        <IvaForm iva={iva} onSave={saveIva} busy={busy} />
+                    </div>
                 )}
                 {dec.declaration_type === "ISR_PROVISIONAL" && (
                     <IsrForm isr={isr} onSave={saveIsr} busy={busy} period={dec.period} />
                 )}
-
-                {/* Archivo adjunto */}
-                <div className="bg-neutral-800/40 p-5 rounded-2xl border border-neutral-700/50">
-                    <h3 className="text-sm font-semibold text-white flex items-center gap-2 mb-3">
-                        <FileText className="w-4 h-4 text-rose-400" /> Acuse del SAT
-                    </h3>
-                    {dec.pdf_url ? (
-                        <div className="flex items-center gap-3 bg-neutral-900/40 p-3 rounded-xl border border-neutral-700/50">
-                            <FileText className="w-8 h-8 text-rose-400 flex-shrink-0" />
-                            <div className="flex-1 min-w-0">
-                                <p className="text-sm text-white truncate">{dec.pdf_file_name || "Acuse.pdf"}</p>
-                                <a href={dec.pdf_url} target="_blank" rel="noopener noreferrer" className="text-xs text-rose-400 hover:text-rose-300 flex items-center gap-1">
-                                    <ExternalLink className="w-3 h-3" /> Abrir en nueva pestaña
-                                </a>
-                            </div>
-                            <button onClick={removePdf} className="p-1.5 text-neutral-500 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors"><Trash2 className="w-4 h-4" /></button>
-                        </div>
-                    ) : (
-                        <label className="text-sm flex items-center justify-center gap-2 text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 px-4 py-3 rounded-lg border border-rose-500/20 cursor-pointer transition-colors">
-                            {busy ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                            Subir acuse del SAT (PDF o imagen)
-                            <input ref={fileInputRef} type="file" accept=".pdf,image/*" className="hidden" onChange={handlePdfUpload} disabled={busy} />
-                        </label>
-                    )}
-                </div>
             </div>
         </div>
     );
@@ -252,7 +498,6 @@ function IvaForm({ iva, onSave, busy }: any) {
     const update = (k: string, v: any) => setData((d: any) => ({ ...d, [k]: v }));
     return (
         <div className="bg-neutral-800/40 p-5 rounded-2xl border border-emerald-500/30 space-y-4">
-            <h3 className="text-sm font-semibold text-emerald-200 flex items-center gap-2"><Calculator className="w-4 h-4" /> Cálculo de IVA</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                     <h4 className="text-xs uppercase tracking-wider text-emerald-300 mb-2">IVA cobrado (ventas)</h4>

@@ -32,22 +32,34 @@ export default function IvaCalcPage() {
     const load = async () => {
         setLoading(true);
         try {
-            const [{ data: s }, { data: p }] = await Promise.all([
-                supabase.from("v_monthly_sales_iva").select("*").eq("period", period).maybeSingle(),
-                supabase.from("v_monthly_purchases_iva").select("*").eq("period", period).maybeSingle(),
-            ]);
-            setSales({ iva: s?.iva_cobrado || 0, ingresos: s?.ingresos_gravados || 0, count: s?.invoice_count || 0 });
-            setPurchases({ iva: p?.iva || 0, subtotal: p?.subtotal || 0, count: p?.invoice_count || 0 });
+            // La tabla monthly_iva_summary se actualiza automáticamente
+            // por trigger al subir/modificar facturas (ventas o compras).
+            const { data: s } = await supabase
+                .from("monthly_iva_summary")
+                .select("*")
+                .eq("period", period)
+                .maybeSingle();
+            setSales({
+                iva: s?.iva_cobrado_total || 0,
+                ingresos: s?.total_ventas_gravadas || 0,
+                count: s?.invoice_count_sales || 0,
+            });
+            setPurchases({
+                iva: s?.iva_acreditable_total || 0,
+                subtotal: s?.total_compras_gravadas || 0,
+                count: s?.invoice_count_purchases || 0,
+            });
 
-            // Saldo a favor anterior: último saldo_a_favor_nuevo
+            // Saldo a favor anterior: última declaración anterior
             const { data: prev } = await supabase
-                .from("declaration_iva")
-                .select("saldo_a_favor_nuevo")
-                .lt("created_at", `${period}-01`)
-                .order("created_at", { ascending: false })
+                .from("monthly_declarations")
+                .select("in_favor, declaration_iva(saldo_a_favor_nuevo)")
+                .lt("period", period)
+                .order("period", { ascending: false })
                 .limit(1)
                 .maybeSingle();
-            setSaldoFavorAnt(prev?.saldo_a_favor_nuevo || 0);
+            const ivaData = Array.isArray(prev?.declaration_iva) ? prev.declaration_iva[0] : prev?.declaration_iva;
+            setSaldoFavorAnt(ivaData?.saldo_a_favor_nuevo ?? prev?.in_favor ?? 0);
         } catch (e) { console.error(e); }
         finally { setLoading(false); }
     };
