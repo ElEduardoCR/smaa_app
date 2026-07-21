@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
-import { Users, Server, LogOut, BarChart3, Receipt, ShieldCheck, Cog, Flame, Cpu } from "lucide-react";
+import { Users, Server, LogOut, BarChart3, Receipt, ShieldCheck, Cog, Flame, Cpu, Wallet, Clock } from "lucide-react";
 import { logoutAction } from "@/app/actions/auth";
 import { useRouter } from "next/navigation";
 
@@ -300,6 +300,24 @@ export default function Home() {
                 <h3 className="text-xl font-semibold text-white mb-2">Entregas</h3>
                 <p className="text-neutral-400 text-sm flex-1 leading-relaxed">
                   Notas de entrega de OTs terminadas con folio NE y datos de envío.
+                </p>
+                <div className="mt-6 font-medium text-sm text-emerald-400 flex items-center group-hover:text-emerald-300">
+                  Open Module
+                  <svg className="w-4 h-4 ml-1 transform group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
+              </div>
+            </Link>
+
+            <Link href="/finance" className="block group">
+              <div className="bg-neutral-800/40 border border-neutral-700/50 hover:border-emerald-500/50 hover:bg-neutral-800/80 transition-all duration-300 rounded-3xl p-6 h-full flex flex-col shadow-lg shadow-black/20 hover:shadow-emerald-500/10 group-hover:-translate-y-1">
+                <div className="w-14 h-14 bg-gradient-to-br from-emerald-500/20 to-amber-500/20 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
+                  <Wallet className="w-7 h-7 text-emerald-400 group-hover:text-emerald-300" />
+                </div>
+                <h3 className="text-xl font-semibold text-white mb-2">Nóminas y Contabilidad</h3>
+                <p className="text-neutral-400 text-sm flex-1 leading-relaxed">
+                  Empleados, checador, nómina y declaraciones mensuales (IVA, ISR, DIOT).
                 </p>
                 <div className="mt-6 font-medium text-sm text-emerald-400 flex items-center group-hover:text-emerald-300">
                   Open Module
