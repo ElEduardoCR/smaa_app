@@ -208,3 +208,37 @@ BEGIN
         RAISE NOTICE 'Schema storage no existe (no es Supabase) — saltando creación de buckets y policies de storage.';
     END IF;
 END $$;
+
+-- -----------------------------------------------------
+-- 9) Self-healing: si las FKs de las tablas de este script quedaron
+--    apuntando a payroll_employees (porque antes había una tabla
+--    'employees' de RRHH que se renombró), las re-apuntamos a employees.
+-- -----------------------------------------------------
+DO $$
+DECLARE
+    r RECORD;
+BEGIN
+    -- employee_permissions.employee_id → employees
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'payroll_employees')
+       AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'employee_permissions') THEN
+        FOR r IN
+            SELECT conname, conrelid::regclass::text AS tabla
+            FROM pg_constraint
+            WHERE contype = 'f'
+              AND confrelid::regclass::text = 'payroll_employees'
+              AND conrelid::regclass::text IN ('employee_permissions', 'requisitions', 'requisition_quotations')
+        LOOP
+            EXECUTE format('ALTER TABLE %I DROP CONSTRAINT %I', r.tabla, r.conname);
+            IF r.conname = 'employee_permissions_employee_id_fkey' THEN
+                EXECUTE 'ALTER TABLE public.employee_permissions ADD CONSTRAINT employee_permissions_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES public.employees(id) ON DELETE CASCADE';
+            ELSIF r.conname = 'requisitions_requested_by_fkey' THEN
+                EXECUTE 'ALTER TABLE public.requisitions ADD CONSTRAINT requisitions_requested_by_fkey FOREIGN KEY (requested_by) REFERENCES public.employees(id)';
+            ELSIF r.conname = 'requisitions_purchased_by_fkey' THEN
+                EXECUTE 'ALTER TABLE public.requisitions ADD CONSTRAINT requisitions_purchased_by_fkey FOREIGN KEY (purchased_by) REFERENCES public.employees(id)';
+            ELSIF r.conname = 'requisition_quotations_uploaded_by_fkey' THEN
+                EXECUTE 'ALTER TABLE public.requisition_quotations ADD CONSTRAINT requisition_quotations_uploaded_by_fkey FOREIGN KEY (uploaded_by) REFERENCES public.employees(id)';
+            END IF;
+            RAISE NOTICE 'FK % reparada → employees', r.conname;
+        END LOOP;
+    END IF;
+END $$;
