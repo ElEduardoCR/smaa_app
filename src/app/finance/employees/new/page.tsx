@@ -56,7 +56,7 @@ function EmployeeForm() {
     useEffect(() => {
         if (editId) {
             (async () => {
-                const { data, error } = await supabase.from("employees").select("*").eq("id", editId).single();
+                const { data, error } = await supabase.from("payroll_employees").select("*").eq("id", editId).single();
                 if (error) { setErr(error.message); return; }
                 if (data) {
                     setCode(data.code || "");
@@ -88,7 +88,7 @@ function EmployeeForm() {
         } else {
             // Auto-generate next code
             (async () => {
-                const { count } = await supabase.from("employees").select("id", { count: "exact", head: true });
+                const { count } = await supabase.from("payroll_employees").select("id", { count: "exact", head: true });
                 setCode(`EMP-${String((count || 0) + 1).padStart(4, "0")}`);
             })();
         }
@@ -131,10 +131,10 @@ function EmployeeForm() {
                 status: "active",
             };
             if (editId) {
-                const { error } = await supabase.from("employees").update(payload).eq("id", editId);
+                const { error } = await supabase.from("payroll_employees").update(payload).eq("id", editId);
                 if (error) throw error;
             } else {
-                const { data, error } = await supabase.from("employees").insert([payload]).select().single();
+                const { data, error } = await supabase.from("payroll_employees").insert([payload]).select().single();
                 if (error) throw error;
                 router.push(`/finance/employees/${data.id}`);
                 return;

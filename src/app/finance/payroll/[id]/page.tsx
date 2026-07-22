@@ -83,7 +83,7 @@ export default function PayrollDetailPage() {
             if (pErr) throw pErr;
             setPeriod(p);
 
-            const { data: emps } = await supabase.from("employees").select("*").eq("status", "active").order("full_name");
+            const { data: emps } = await supabase.from("payroll_employees").select("*").eq("status", "active").order("full_name");
             setEmployees(emps || []);
 
             const { data: bs } = await supabase.from("employee_bonuses").select("*").eq("active", true);

@@ -39,7 +39,7 @@ export default function FinanceIndex() {
         setLoading(true);
         try {
             const [{ count: empCount }, { data: periods }, { data: declarations }, { count: moveCount }] = await Promise.all([
-                supabase.from("employees").select("id", { count: "exact", head: true }).eq("status", "active"),
+                supabase.from("payroll_employees").select("id", { count: "exact", head: true }).eq("status", "active"),
                 supabase.from("payroll_periods").select("id, period_type, start_date, end_date, status, total_net").in("status", ["draft", "calculated", "approved"]),
                 supabase.from("monthly_declarations").select("*").order("period", { ascending: false }).limit(6),
                 supabase.from("bank_movements").select("id", { count: "exact", head: true }),

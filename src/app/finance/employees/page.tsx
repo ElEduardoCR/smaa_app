@@ -53,7 +53,7 @@ export default function EmployeesPage() {
         setLoading(true);
         try {
             const { data, error } = await supabase
-                .from("employees")
+                .from("payroll_employees")
                 .select("id, code, full_name, rfc, position, department, payment_type, base_salary, hourly_rate, status, hire_date")
                 .order("full_name", { ascending: true });
             if (error) throw error;

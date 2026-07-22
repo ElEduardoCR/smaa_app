@@ -52,7 +52,7 @@ export default function EmployeeDetailPage() {
     const load = async () => {
         setLoading(true);
         try {
-            const { data, error } = await supabase.from("employees").select("*").eq("id", id).single();
+            const { data, error } = await supabase.from("payroll_employees").select("*").eq("id", id).single();
             if (error) throw error;
             setEmp(data);
             const [{ data: bs }, { data: ds }, { data: rs }] = await Promise.all([
@@ -79,7 +79,7 @@ export default function EmployeeDetailPage() {
         const reason = prompt("Motivo de baja (opcional):");
         if (reason === null) return;
         if (!confirm("¿Dar de baja a este empleado? Esta acción se puede revertir.")) return;
-        await supabase.from("employees").update({
+        await supabase.from("payroll_employees").update({
             status: "terminated",
             termination_date: new Date().toISOString().slice(0, 10),
         }).eq("id", emp.id);

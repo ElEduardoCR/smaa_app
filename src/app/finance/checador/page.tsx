@@ -157,7 +157,7 @@ export default function ChecadorPage() {
             }
             // Match employees
             const codes = Array.from(new Set(rows.map(r => r.employee_code).filter(Boolean)));
-            const { data: emps } = await supabase.from("employees").select("id, code, full_name, payment_type, hourly_rate, weekly_hours, overtime_factor").in("code", codes as string[]);
+            const { data: emps } = await supabase.from("payroll_employees").select("id, code, full_name, payment_type, hourly_rate, weekly_hours, overtime_factor").in("code", codes as string[]);
             const empMap: Record<string, any> = {};
             (emps || []).forEach((e: any) => { empMap[e.code] = e; });
 
