@@ -27,10 +27,16 @@ type ModuleCard = {
     href: string;
     title: string;
     desc: string;
-    Icon: any;
+    Icon: string;
     color: "orange" | "emerald" | "amber" | "cyan" | "rose" | "violet" | "sky" | "slate";
     category: "Operación" | "Comercial" | "Finanzas" | "Calidad" | "Sistema";
     badge?: string;
+};
+
+const ICONS: Record<string, any> = {
+    Users, BarChart3, Receipt, ShieldCheck, Cog,
+    Wallet, BookOpen, History, Factory, Truck,
+    ClipboardList, UserCog,
 };
 
 const COLOR_CLASSES: Record<string, { border: string; icon: string; hover: string; }> = {
@@ -175,6 +181,7 @@ export default function DashboardClient({
 
 function CompactModuleCard({ href, title, desc, Icon, color, badge }: ModuleCard) {
     const c = COLOR_CLASSES[color] || COLOR_CLASSES.slate;
+    const IconCmp = ICONS[Icon] || Factory;
     return (
         <Link
             href={href}
@@ -185,7 +192,7 @@ function CompactModuleCard({ href, title, desc, Icon, color, badge }: ModuleCard
         >
             <div className="flex items-start justify-between mb-2.5">
                 <div className={cn("w-9 h-9 rounded-xl flex items-center justify-center group-hover:scale-105 transition-transform", c.icon)}>
-                    <Icon className="w-[18px] h-[18px]" />
+                    <IconCmp className="w-[18px] h-[18px]" />
                 </div>
                 {badge && (
                     <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-300 uppercase tracking-wider border border-orange-500/30">
