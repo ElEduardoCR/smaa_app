@@ -35,6 +35,17 @@ export async function loginEmployeeAction(
         return { success: false, error: 'Selecciona un usuario e ingresa tu contraseña.' };
     }
 
+    // Diagnóstico temporal: ayuda a entender si la contraseña llega vacía o con
+    // caracteres inesperados cuando el usuario reporta que "no entra".
+    try {
+        console.log(
+            '[loginEmployeeAction] username=' + JSON.stringify(username) +
+            ' password_len=' + (password?.length ?? 0) +
+            ' password_codepoints=' + JSON.stringify([...(password ?? '')].map((c) => c.codePointAt(0))) +
+            ' redirectTo=' + JSON.stringify(redirectTo ?? null)
+        );
+    } catch { /* noop */ }
+
     let employee;
     try {
         employee = await authenticateEmployee(username, password);
@@ -47,15 +58,20 @@ export async function loginEmployeeAction(
         return { success: false, error: 'Usuario o contraseña incorrectos.' };
     }
 
-    await setSession({
-        employeeId: employee.id,
-        username: employee.username,
-        fullName: employee.full_name,
-        role: employee.role,
-        position: employee.position,
-        photoUrl: employee.photo_url,
-        permissions: employee.permissions,
-    });
+    try {
+        await setSession({
+            employeeId: employee.id,
+            username: employee.username,
+            fullName: employee.full_name,
+            role: employee.role,
+            position: employee.position,
+            photoUrl: employee.photo_url,
+            permissions: employee.permissions,
+        });
+    } catch (err: any) {
+        console.error('setSession error', err);
+        return { success: false, error: 'No se pudo iniciar la sesión: ' + (err?.message || 'error desconocido') };
+    }
 
     return {
         success: true,
