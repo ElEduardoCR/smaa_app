@@ -1,12 +1,19 @@
 import 'server-only';
 import { SignJWT, jwtVerify } from 'jose';
 import { cookies } from 'next/headers';
+import type { EmployeePermission, EmployeeRole } from './employees';
 
 const secretKey = process.env.SESSION_SECRET || 'smaa-default-secret-key-change-me-in-production';
 const encodedKey = new TextEncoder().encode(secretKey);
 
 export type SessionPayload = {
-    permissions: string[]; // e.g. ['system', 'purchases', 'sales', 'config', 'ot', 'master']
+    employeeId: string;
+    username: string;
+    fullName: string;
+    role: EmployeeRole;
+    position: string | null;
+    photoUrl: string | null;
+    permissions: EmployeePermission[];
     expiresAt: Date;
 };
 
@@ -36,23 +43,9 @@ export async function getSession() {
     return await decrypt(sessionCookie);
 }
 
-export async function updateSession(newPermissions: string[]) {
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-
-    // Get existing permissions and merge
-    const session = await getSession();
-    const currentPermissions = session?.permissions || [];
-
-    // Unique permissions
-    const permissions = Array.from(new Set([...currentPermissions, ...newPermissions]));
-
-    const sessionData: SessionPayload = {
-        permissions,
-        expiresAt,
-    };
-
-    const sessionString = await encrypt(sessionData);
-
+export async function setSession(payload: Omit<SessionPayload, 'expiresAt'>) {
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const sessionString = await encrypt({ ...payload, expiresAt });
     const cookieStore = await cookies();
     cookieStore.set('smaa_session', sessionString, {
         httpOnly: true,

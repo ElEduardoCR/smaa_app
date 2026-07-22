@@ -103,6 +103,21 @@ export default function WorkOrderDetailPage() {
     const [loading, setLoading] = useState(true);
     const [statusMsg, setStatusMsg] = useState<{ type: "error" | "success" | "info"; text: string } | null>(null);
 
+    // Permisos del usuario para este módulo/sub-módulo
+    const [perms, setPerms] = useState<{ can_view: boolean; can_create: boolean; can_edit: boolean; can_delete: boolean; can_start: boolean; can_pause: boolean; can_complete: boolean; can_request_supplies: boolean; can_purchase: boolean } | null>(null);
+    useEffect(() => {
+        let aborted = false;
+        (async () => {
+            try {
+                const res = await fetch(`/api/me/permissions?module=manufacturing&sub=${encodeURIComponent(code)}`);
+                if (!res.ok) return;
+                const j = await res.json();
+                if (!aborted) setPerms(j.permissions);
+            } catch (e) { /* ignore */ }
+        })();
+        return () => { aborted = true; };
+    }, [code]);
+
     // Operator flow
     const [operatorName, setOperatorName] = useState("");
     const [pauseModalOpen, setPauseModalOpen] = useState(false);
@@ -182,6 +197,10 @@ export default function WorkOrderDetailPage() {
     // --- Operator actions ---
     const handleStart = async () => {
         if (!wo) return;
+        if (perms && !perms.can_start) {
+            flash("error", "No tienes permiso para iniciar esta OT.");
+            return;
+        }
         setBusy(true);
         try {
             const { error } = await supabase
@@ -197,6 +216,10 @@ export default function WorkOrderDetailPage() {
 
     const handlePause = async () => {
         if (!wo) return;
+        if (perms && !perms.can_pause) {
+            flash("error", "No tienes permiso para pausar esta OT.");
+            return;
+        }
         if (pauseReason === "Otro" && !pauseCustom.trim()) {
             flash("error", "Especifica el motivo de la pausa.");
             return;
@@ -224,6 +247,10 @@ export default function WorkOrderDetailPage() {
 
     const handleResume = async () => {
         if (!wo) return;
+        if (perms && !perms.can_start) {
+            flash("error", "No tienes permiso para reanudar esta OT.");
+            return;
+        }
         setBusy(true);
         try {
             const lastPause = pauses.find(p => !p.resumed_at);
@@ -243,6 +270,10 @@ export default function WorkOrderDetailPage() {
 
     const handleFinish = async (signatureDataUrl: string) => {
         if (!wo) return;
+        if (perms && !perms.can_complete) {
+            flash("error", "No tienes permiso para terminar esta OT.");
+            return;
+        }
         if (!operatorName.trim()) {
             flash("error", "Captura tu nombre antes de firmar.");
             return;
@@ -267,6 +298,10 @@ export default function WorkOrderDetailPage() {
 
     const handleCancel = async () => {
         if (!wo) return;
+        if (perms && !perms.can_delete) {
+            flash("error", "No tienes permiso para cancelar esta OT.");
+            return;
+        }
         if (!confirm("¿Cancelar esta OT? Esta acción no se puede deshacer.")) return;
         setBusy(true);
         try {
@@ -442,6 +477,7 @@ export default function WorkOrderDetailPage() {
                                 onPrimary={handleStart}
                                 busy={busy}
                                 Icon={Play}
+                                enabled={!perms || perms.can_start}
                             />
                         )}
 
@@ -459,6 +495,7 @@ export default function WorkOrderDetailPage() {
                                     Icon={Pause}
                                     onCompleteShortcut
                                     openCompleteTrigger={() => document.getElementById("complete-section")?.scrollIntoView({ behavior: "smooth" })}
+                                    enabled={!perms || perms.can_pause}
                                 />
                                 {wo.started_at && (
                                     <p className="text-xs text-neutral-500 text-center">
@@ -489,6 +526,7 @@ export default function WorkOrderDetailPage() {
                                     onPrimary={handleResume}
                                     busy={busy}
                                     Icon={Play}
+                                    enabled={!perms || perms.can_start}
                                 />
                             </div>
                         )}
@@ -599,6 +637,12 @@ export default function WorkOrderDetailPage() {
                         {/* Completion (operator) */}
                         {wo.status === "In Progress" && (
                             <div id="complete-section" className="bg-neutral-800/40 p-5 rounded-2xl border border-neutral-700/50 space-y-4">
+                                {perms && !perms.can_complete ? (
+                                    <div className="flex items-center gap-2 text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-sm">
+                                        <Lock className="w-4 h-4 flex-shrink-0" />
+                                        <span>No tienes permiso para terminar esta OT.</span>
+                                    </div>
+                                ) : null}
                                 <h3 className="text-base font-bold text-white flex items-center gap-2">
                                     <CheckCircle2 className="w-5 h-5 text-emerald-400" /> Terminar trabajo
                                 </h3>
@@ -637,6 +681,7 @@ export default function WorkOrderDetailPage() {
                                         saving={finishing}
                                         savingLabel="Enviando a Calidad…"
                                         saveLabel="Firmar y enviar a Calidad"
+                                        disabled={perms ? !perms.can_complete : false}
                                     />
                                 </div>
                             </div>
@@ -682,7 +727,7 @@ export default function WorkOrderDetailPage() {
                         )}
 
                         {/* Cancel action */}
-                        {wo.status !== "Cancelled" && wo.status !== "QC_Released" && (
+                        {wo.status !== "Cancelled" && wo.status !== "QC_Released" && perms && perms.can_delete && (
                             <div className="flex justify-end">
                                 <button onClick={handleCancel} className="text-xs text-neutral-500 hover:text-red-400 transition-colors">
                                     Cancelar OT
@@ -812,6 +857,7 @@ export default function WorkOrderDetailPage() {
 
 function ActionCard({
     color, title, desc, primaryLabel, onPrimary, secondaryLabel, onSecondary, busy, Icon, onCompleteShortcut, openCompleteTrigger,
+    enabled = true,
 }: {
     color: "orange" | "sky" | "emerald" | "amber";
     title: string; desc: string;
@@ -821,6 +867,7 @@ function ActionCard({
     Icon: any;
     onCompleteShortcut?: boolean;
     openCompleteTrigger?: () => void;
+    enabled?: boolean;
 }) {
     const palette: Record<string, string> = {
         orange:  "border-orange-500/30 bg-orange-500/5 text-orange-200",
@@ -834,6 +881,18 @@ function ActionCard({
         emerald: "bg-emerald-500 hover:bg-emerald-600",
         amber:   "bg-amber-500 hover:bg-amber-600",
     };
+    if (!enabled) {
+        return (
+            <div className={cn("rounded-2xl border p-5 flex items-center gap-3 opacity-60", palette[color])}>
+                <Lock className="w-6 h-6 flex-shrink-0" />
+                <div className="flex-1">
+                    <p className="font-bold">{title}</p>
+                    <p className="text-sm opacity-80">No tienes permiso para realizar esta acción. Pide al administrador que te asigne el permiso correspondiente.</p>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className={cn("rounded-2xl border p-5 flex flex-col sm:flex-row sm:items-center gap-3", palette[color])}>
             <Icon className="w-7 h-7 flex-shrink-0" />

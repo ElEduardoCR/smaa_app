@@ -14,6 +14,7 @@ type Props = {
     color?: string;       // stroke color
     savingLabel?: string; // e.g. "Firmando…"
     saveLabel?: string;   // e.g. "Firmar y liberar"
+    disabled?: boolean;
 };
 
 /**
@@ -30,6 +31,7 @@ export default function SignaturePad({
     color = "#f97316",
     savingLabel = "Guardando…",
     saveLabel = "Guardar firma",
+    disabled = false,
 }: Props) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const drawing = useRef(false);
@@ -111,7 +113,7 @@ export default function SignaturePad({
     };
 
     return (
-        <div className="flex flex-col gap-2">
+        <div className={clsx("flex flex-col gap-2", disabled && "opacity-50 pointer-events-none")}>
             <div className="bg-neutral-900/60 rounded-xl border border-neutral-700/50 p-2 inline-block">
                 <canvas
                     ref={canvasRef}
@@ -148,7 +150,7 @@ export default function SignaturePad({
                 <button
                     type="button"
                     onClick={save}
-                    disabled={isEmpty || saving}
+                    disabled={isEmpty || saving || disabled}
                     className="text-sm flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 disabled:bg-neutral-700 disabled:text-neutral-500 text-white px-4 py-2 rounded-lg font-medium transition-colors"
                 >
                     <Check className="w-4 h-4" /> {saving ? savingLabel : saveLabel}

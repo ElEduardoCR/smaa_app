@@ -1,23 +1,44 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { decrypt } from '@/lib/session';
+import { resolvePermission } from '@/lib/permissions';
 
-// Define which permission string guards which paths
-const PROTECTED_ROUTES: Record<string, string[]> = {
-    '/purchases': ['purchases', 'master'],
-    '/sales': ['sales', 'master'],
-    '/settings': ['config', 'master'],
-    '/manufacturing/new': ['ot', 'master'],
-    '/': ['system', 'master'],
-    '/clients': ['system', 'master'],
-    '/deliveries': ['system', 'master'],
-    '/suppliers': ['system', 'master']
-};
+// module_code por ruta + acción mínima requerida + (opcional) cómo extraer sub_code
+const PROTECTED_ROUTES: Array<{
+    match: (pathname: string) => boolean;
+    moduleCode: string;
+    action: 'view' | 'create' | 'edit' | 'delete' | 'start' | 'pause' | 'complete' | 'request_supplies' | 'purchase';
+    getSubCode?: (pathname: string) => string | null;
+}> = [
+    { match: (p) => p === '/',                                   moduleCode: 'dashboard',    action: 'view' },
+    { match: (p) => p === '/dashboard',                          moduleCode: 'dashboard',    action: 'view' },
+    { match: (p) => p.startsWith('/clients'),                    moduleCode: 'clients',      action: 'view' },
+    { match: (p) => p.startsWith('/sales'),                      moduleCode: 'sales',        action: 'view' },
+    { match: (p) => p.startsWith('/purchases'),                  moduleCode: 'purchases',    action: 'view' },
+    { match: (p) => p.startsWith('/suppliers'),                  moduleCode: 'suppliers',    action: 'view' },
+    { match: (p) => p.startsWith('/deliveries'),                 moduleCode: 'deliveries',   action: 'view' },
+    { match: (p) => p.startsWith('/finance'),                    moduleCode: 'finance',      action: 'view' },
+    { match: (p) => p.startsWith('/quality'),                    moduleCode: 'quality',      action: 'view' },
+    { match: (p) => p.startsWith('/documents'),                  moduleCode: 'documents',    action: 'view' },
+    { match: (p) => p.startsWith('/changes'),                    moduleCode: 'documents',    action: 'view' },
+    { match: (p) => p.startsWith('/settings'),                   moduleCode: 'settings',     action: 'view' },
+    { match: (p) => p.startsWith('/requisitions'),               moduleCode: 'requisitions', action: 'view' },
+    { match: (p) => p.startsWith('/settings/employees'),         moduleCode: 'employees',    action: 'view' },
+
+    // manufacturing — sub_code = code del módulo
+    { match: (p) => p === '/manufacturing',                      moduleCode: 'manufacturing', action: 'view' },
+    { match: (p) => p === '/manufacturing/new',                  moduleCode: 'manufacturing', action: 'create' },
+    {
+        match: (p) => /^\/manufacturing\/[^/]+(\/.*)?$/.test(p),
+        moduleCode: 'manufacturing',
+        action: 'view',
+        getSubCode: (p) => p.split('/')[2] || null,
+    },
+];
 
 export async function middleware(request: NextRequest) {
     const { pathname } = request.nextUrl;
 
-    // Skip completely public or internal paths
     if (
         pathname === '/login' ||
         pathname.startsWith('/_next/') ||
@@ -27,45 +48,55 @@ export async function middleware(request: NextRequest) {
         return NextResponse.next();
     }
 
-    // Manufacturing view (and detail views below it, except 'new') is public
-    if (pathname.startsWith('/manufacturing') && !pathname.startsWith('/manufacturing/new')) {
-        return NextResponse.next();
-    }
-
-    // Check the session
     const sessionCookie = request.cookies.get('smaa_session')?.value;
     const session = await decrypt(sessionCookie);
-    const userPermissions = session?.permissions || [];
 
-    let isAuthorized = true;
-
-    // Find if this path requires a specific permission
-    for (const [route, requiredPerms] of Object.entries(PROTECTED_ROUTES)) {
-        // If it's an exact match or a sub-path of a protected route
-        // Note: for '/' we only check exact match to avoid blocking everything unexpectedly if logic fails, 
-        // but here we block everything that isn't explicitly public if it falls into a rule.
-        if (pathname === route || (pathname.startsWith(route + '/') && route !== '/')) {
-            const hasPermission = requiredPerms.some((perm) => userPermissions.includes(perm));
-            if (!hasPermission) {
-                isAuthorized = false;
-                break;
-            }
-        }
-    }
-
-    // Special check for root path (system)
-    if (pathname === '/' && !userPermissions.includes('system') && !userPermissions.includes('master')) {
-        isAuthorized = false;
-    }
-
-    if (!isAuthorized) {
-        // Redirect to login, appending the intended destination
+    if (!session) {
         const url = request.nextUrl.clone();
         url.pathname = '/login';
         url.search = `?redirect=${encodeURIComponent(pathname)}`;
         return NextResponse.redirect(url);
     }
 
+    // Master bypass total
+    if (session.role === 'master') {
+        return NextResponse.next();
+    }
+
+    // Buscar la regla que aplique
+    for (const rule of PROTECTED_ROUTES) {
+        if (!rule.match(pathname)) continue;
+
+        const sub = rule.getSubCode ? rule.getSubCode(pathname) : null;
+        const p = resolvePermission(session.permissions, rule.moduleCode, sub);
+
+        let allowed = false;
+        if (p) {
+            switch (rule.action) {
+                case 'view':             allowed = p.can_view; break;
+                case 'create':           allowed = p.can_create; break;
+                case 'edit':             allowed = p.can_edit; break;
+                case 'delete':           allowed = p.can_delete; break;
+                case 'start':            allowed = p.can_start; break;
+                case 'pause':            allowed = p.can_pause; break;
+                case 'complete':         allowed = p.can_complete; break;
+                case 'request_supplies': allowed = p.can_request_supplies; break;
+                case 'purchase':         allowed = p.can_purchase; break;
+            }
+        }
+
+        if (!allowed) {
+            const url = request.nextUrl.clone();
+            url.pathname = '/login';
+            url.search = `?redirect=${encodeURIComponent(pathname)}&denied=1`;
+            return NextResponse.redirect(url);
+        }
+        // regla aplicada: ya validamos, dejamos pasar
+        return NextResponse.next();
+    }
+
+    // Si la ruta no está en PROTECTED_ROUTES pero hay session, dejamos pasar
+    // (páginas públicas o futuras)
     return NextResponse.next();
 }
 
