@@ -3,17 +3,21 @@ import { SignJWT, jwtVerify } from 'jose';
 import { cookies } from 'next/headers';
 import { supabase } from './supabase';
 import type { EmployeePermission, EmployeeRole } from './employees';
+import { computeAccessList } from './moduleCatalog';
 
 const secretKey = process.env.SESSION_SECRET || 'smaa-default-secret-key-change-me-in-production';
 const encodedKey = new TextEncoder().encode(secretKey);
 
 /**
- * Lo que se mete en el JWT de la cookie. NO incluye permisos: si los
- * metiéramos, el JWT crece linealmente con el número de permisos y supera
- * el límite de 4KB de las cookies del navegador (caso real: 7 permisos ya
- * ocupaban 4,088 bytes y el navegador rechazaba la Set-Cookie silenciosamente).
+ * Payload del JWT (lo que se mete en la cookie).
  *
- * Los permisos se consultan a la BD cada vez que se necesitan (en `getSession`).
+ * `accessList` es la lista compacta de `module:sub` a los que el usuario
+ * puede acceder (con cualquier flag activo). Sirve para que el middleware
+ * gatee sin ir a la BD en cada request. Tamaño: ~25 chars por entry,
+ * típicamente <500 bytes incluso con 15+ permisos.
+ *
+ * Si `accessList` viene vacío, el middleware trata al usuario como sin
+ * acceso a ningún módulo (force re-login en sesiones preexistentes).
  */
 export type SessionPayload = {
     employeeId: string;
@@ -22,10 +26,10 @@ export type SessionPayload = {
     role: EmployeeRole;
     position: string | null;
     photoUrl: string | null;
+    accessList: string;  // "manufacturing:maquinado,manufacturing:soldadura,requisitions:,clients:"
     expiresAt: Date;
 };
 
-/** Lo que devuelven `getSession` / `setSession` a las páginas: payload + permisos en vivo. */
 export type Session = SessionPayload & { permissions: EmployeePermission[] };
 
 export async function encrypt(payload: SessionPayload) {
@@ -48,10 +52,11 @@ export async function decrypt(session: string | undefined = ''): Promise<Session
 }
 
 /**
- * Decodifica el JWT y consulta los permisos en la BD.
- * Devuelve null si no hay cookie o el JWT no es válido.
+ * Decodifica el JWT, consulta los permisos en la BD y los agrega a la sesión.
+ * Esta es la función que páginas/API deberían usar para leer la sesión.
  *
- * Es la única función que las páginas/API deberían usar para leer la sesión.
+ * Si el JWT no trae `accessList` (sesión pre-existente al upgrade), lo
+ * recalculamos a partir de los permisos de la BD.
  */
 export async function getSession(): Promise<Session | null> {
     const cookieStore = await cookies();
@@ -60,24 +65,24 @@ export async function getSession(): Promise<Session | null> {
     const payload = await decrypt(sessionCookie);
     if (!payload) return null;
 
-    // Permisos siempre desde la BD — el JWT ya no los carga.
-    // Si falla la query, devolvemos la sesión con [] permisos; las páginas
-    // que filtren con `can()` van a tratar al usuario como sin permisos en
-    // esos módulos (fail-closed), que es el comportamiento seguro.
     try {
         const { data: perms } = await supabase
             .from('employee_permissions')
             .select('*')
             .eq('employee_id', payload.employeeId);
-        return { ...payload, permissions: (perms || []) as EmployeePermission[] };
+        const permsList = (perms || []) as EmployeePermission[];
+        const accessList = payload.accessList
+            ? payload.accessList
+            : computeAccessList(permsList).join(',');
+        return { ...payload, accessList, permissions: permsList };
     } catch {
-        return { ...payload, permissions: [] };
+        return { ...payload, accessList: payload.accessList || '', permissions: [] };
     }
 }
 
 /**
- * Setea la cookie con un JWT minimal. `permissions` se acepta por
- * compatibilidad (la API route la pasa), pero NO se mete al JWT.
+ * Setea la cookie. Acepta `permissions` por compatibilidad (la API route
+ * de login los trae), y calcula el `accessList` compacto para el JWT.
  */
 export async function setSession(payload: {
     employeeId: string;
@@ -88,9 +93,10 @@ export async function setSession(payload: {
     photoUrl: string | null;
     permissions?: EmployeePermission[];
 }) {
-    const { permissions: _ignored, ...jwtPayload } = payload;
+    const { permissions = [], ...rest } = payload;
+    const accessList = computeAccessList(permissions).join(',');
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-    const sessionString = await encrypt({ ...(jwtPayload as any), expiresAt });
+    const sessionString = await encrypt({ ...rest, accessList, expiresAt });
     const cookieStore = await cookies();
     cookieStore.set('smaa_session', sessionString, {
         httpOnly: true,

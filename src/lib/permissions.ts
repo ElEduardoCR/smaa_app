@@ -1,6 +1,6 @@
 import 'server-only';
 import type { EmployeePermission, EmployeeRole } from './employees';
-import { hasSubModules } from './moduleCatalog';
+import { hasSubModules, getSubCodes } from './moduleCatalog';
 
 export type Action =
     | 'view'
@@ -53,11 +53,8 @@ export function can(
 /**
  * ¿El usuario puede ver este módulo? Considera sub-módulos: si el módulo
  * los tiene (ej. manufacturing → maquinado/soldadura/automatizacion),
- * basta con que pueda ver al menos uno para que la tarjeta del módulo
- * padre se muestre en el dashboard.
- *
- * Esto evita el bug de UX donde activar permisos solo en sub-módulos no
- * hace aparecer la tarjeta del módulo padre.
+ * basta con que pueda ver al menos uno para que el módulo padre sea
+ * accesible.
  */
 export function canViewModule(
     role: EmployeeRole,
@@ -65,15 +62,43 @@ export function canViewModule(
     moduleCode: string
 ): boolean {
     if (role === 'master') return true;
-    // Permiso explícito a nivel módulo (sub_code=null) tiene prioridad.
     if (can(role, perms, moduleCode, 'view', null)) return true;
-    // Si el módulo tiene sub-módulos, basta con tener can_view en uno.
     if (hasSubModules(moduleCode)) {
         return perms.some(
             (p) => p.module_code === moduleCode && p.sub_code && p.can_view
         );
     }
     return false;
+}
+
+/**
+ * ¿El usuario puede entrar a este (module, sub)? El sub_code puede ser null
+ * para el módulo raíz. Esta es la función que usa el middleware y los
+ * layouts para gatear de forma gruesa antes de pasar a checks finos.
+ *
+ * Para módulos con sub-módulos, el "módulo raíz" (sub=null) NO se considera
+ * accesible por sí solo — el usuario debe poder ver al menos un sub.
+ * (Si quieres que pueda ver la página /manufacturing raíz, dale permisos en
+ * cada sub y `canViewModule` los junta para mostrar la tarjeta.)
+ */
+export function canAccessPath(
+    role: EmployeeRole,
+    perms: EmployeePermission[],
+    moduleCode: string,
+    subCode: string | null
+): boolean {
+    if (role === 'master') return true;
+    if (subCode) {
+        // Sub-módulo específico: necesita can_view explícito
+        return can(role, perms, moduleCode, 'view', subCode);
+    }
+    // Módulo raíz
+    if (hasSubModules(moduleCode)) {
+        // El módulo raíz sin sub no es "una entrada" propia — el usuario
+        // entra por un sub. canViewModule ya lo entiende para mostrar la UI.
+        return canViewModule(role, perms, moduleCode);
+    }
+    return can(role, perms, moduleCode, 'view');
 }
 
 /** Lista los sub-códigos a los que el usuario puede entrar dentro de un módulo. */
@@ -83,7 +108,6 @@ export function listAccessibleSubCodes(
     moduleCode: string
 ): string[] {
     if (role === 'master') {
-        // master ve todos los sub-módulos que existan; el caller puede cruzar con catálogo real
         return perms
             .filter((p) => p.module_code === moduleCode && !!p.sub_code)
             .map((p) => p.sub_code as string);

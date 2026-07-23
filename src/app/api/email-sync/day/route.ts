@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSupabase, runEmailSync } from '@/lib/emailSync';
+import { getSession } from '@/lib/session';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300; // 5 min en Vercel
@@ -17,6 +18,14 @@ function getDayBoundsCDMX(dateStr: string): { after: Date; before: Date } {
 }
 
 export async function POST(req: NextRequest) {
+    // Solo master puede disparar sincronizaciones manuales de email
+    const session = await getSession();
+    if (!session) {
+        return NextResponse.json({ error: 'No autenticado.' }, { status: 401 });
+    }
+    if (session.role !== 'master') {
+        return NextResponse.json({ error: 'Solo master puede ejecutar sync manual.' }, { status: 403 });
+    }
     const body = await req.json().catch(() => ({}));
     const date = body.date as string | undefined; // "YYYY-MM-DD"
     if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {

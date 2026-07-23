@@ -1,10 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSupabase, runEmailSync } from '@/lib/emailSync';
+import { getSession } from '@/lib/session';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
+    // Solo master puede disparar backfills de email (operación admin pesada)
+    const session = await getSession();
+    if (!session) {
+        return NextResponse.json({ error: 'No autenticado.' }, { status: 401 });
+    }
+    if (session.role !== 'master') {
+        return NextResponse.json({ error: 'Solo master puede ejecutar backfill.' }, { status: 403 });
+    }
+
     const body = await req.json().catch(() => ({}));
     const integrationId = body.integrationId as string | undefined;
     const months = Math.max(1, Math.min(12, Number(body.months ?? 5)));

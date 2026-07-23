@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSupabase } from '@/lib/emailSync';
+import { requireApiPermission } from '@/lib/permissionGate';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
+    const auth = await requireApiPermission({ moduleCode: 'purchases', action: 'edit' });
+    if (!auth.ok) return auth.error;
+
     const body = await req.json().catch(() => ({}));
     const inboxId = body.inboxId as string | undefined;
     const reason = body.reason as string | undefined;
