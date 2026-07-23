@@ -123,17 +123,17 @@ export default function DocumentsIndex() {
 
                 <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-3xl overflow-hidden">
                     <div className="overflow-x-auto">
-                        <table className="w-full text-left text-sm whitespace-nowrap">
+                        <table className="w-full text-left text-sm">
                             <thead className="bg-neutral-900/50 text-neutral-400 uppercase text-xs font-semibold tracking-wider">
                                 <tr>
-                                    <th className="px-6 py-4 rounded-tl-xl">Folio</th>
-                                    <th className="px-6 py-4">Tipo</th>
-                                    <th className="px-6 py-4">Título</th>
-                                    <th className="px-6 py-4">Versión</th>
-                                    <th className="px-6 py-4">Vigencia</th>
-                                    <th className="px-6 py-4">Próxima revisión</th>
-                                    <th className="px-6 py-4">Estatus</th>
-                                    <th className="px-6 py-4 rounded-tr-xl text-right">Acciones</th>
+                                    <th className="px-4 py-3 rounded-tl-xl whitespace-nowrap">Folio</th>
+                                    <th className="px-4 py-3 whitespace-nowrap">Tipo</th>
+                                    <th className="px-4 py-3 min-w-[200px] max-w-xs">Título</th>
+                                    <th className="px-4 py-3 whitespace-nowrap">Versión</th>
+                                    <th className="px-4 py-3 hidden md:table-cell whitespace-nowrap">Vigencia</th>
+                                    <th className="px-4 py-3 hidden lg:table-cell whitespace-nowrap">Próx. revisión</th>
+                                    <th className="px-4 py-3 whitespace-nowrap">Estatus</th>
+                                    <th className="px-4 py-3 rounded-tr-xl text-right whitespace-nowrap">Acciones</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-neutral-700/50">
@@ -147,25 +147,25 @@ export default function DocumentsIndex() {
                                     </td></tr>
                                 ) : filtered.map(d => (
                                     <tr key={d.id} className="hover:bg-neutral-800/80 transition-colors group">
-                                        <td className="px-6 py-4">
+                                        <td className="px-4 py-3 whitespace-nowrap">
                                             <span className="font-mono font-medium text-violet-300 bg-violet-500/10 px-2.5 py-1 rounded-md border border-violet-500/20">
                                                 {d.folio}
                                             </span>
                                         </td>
-                                        <td className="px-6 py-4 text-xs text-neutral-300">
+                                        <td className="px-4 py-3 text-xs text-neutral-300 whitespace-nowrap">
                                             <div>{d.type?.name || "—"}</div>
                                             <div className="text-[10px] text-neutral-500 uppercase">{d.type?.code}</div>
                                         </td>
-                                        <td className="px-6 py-4 text-neutral-200 max-w-md truncate" title={d.title}>{d.title}</td>
-                                        <td className="px-6 py-4 text-neutral-300 font-mono">v{d.version}</td>
-                                        <td className="px-6 py-4 text-neutral-400 text-xs">{d.effective_date ? new Date(d.effective_date).toLocaleDateString() : "—"}</td>
-                                        <td className="px-6 py-4 text-neutral-400 text-xs">{d.next_review_date ? new Date(d.next_review_date).toLocaleDateString() : "—"}</td>
-                                        <td className="px-6 py-4">
+                                        <td className="px-4 py-3 text-neutral-200 truncate" title={d.title}>{d.title}</td>
+                                        <td className="px-4 py-3 text-neutral-300 font-mono whitespace-nowrap">v{d.version}</td>
+                                        <td className="px-4 py-3 text-neutral-400 text-xs hidden md:table-cell whitespace-nowrap">{d.effective_date ? new Date(d.effective_date).toLocaleDateString() : "—"}</td>
+                                        <td className="px-4 py-3 text-neutral-400 text-xs hidden lg:table-cell whitespace-nowrap">{d.next_review_date ? new Date(d.next_review_date).toLocaleDateString() : "—"}</td>
+                                        <td className="px-4 py-3 whitespace-nowrap">
                                             <span className={cn("px-2.5 py-1 rounded-full text-xs font-semibold border", STATUS_STYLES[d.status])}>
                                                 {STATUS_LABEL[d.status] || d.status}
                                             </span>
                                         </td>
-                                        <td className="px-6 py-4 text-right">
+                                        <td className="px-4 py-3 text-right whitespace-nowrap">
                                             <Link href={`/documents/${d.id}`} className="inline-flex items-center gap-1.5 text-xs font-medium text-violet-400 hover:text-violet-300 bg-violet-500/10 hover:bg-violet-500/20 px-3 py-1.5 rounded-lg border border-violet-500/20">
                                                 <Eye className="w-3.5 h-3.5" /> Ver
                                             </Link>
