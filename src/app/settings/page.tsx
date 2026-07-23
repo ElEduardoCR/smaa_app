@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, Save, Upload, AlertCircle, Building, CheckCircle, RefreshCw, Hexagon, Mail, Inbox, Zap } from "lucide-react";
+import { ArrowLeft, Save, Upload, AlertCircle, Building, CheckCircle, RefreshCw, Hexagon, Mail, Inbox, Zap, Github, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -531,6 +531,30 @@ export default function SettingsPage() {
                 </form>
 
                 <GmailIntegrationSection />
+
+                {/* Links a configuraciones relacionadas */}
+                <div className="bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm space-y-3">
+                    <h2 className="text-sm font-bold text-white flex items-center gap-2">
+                        <Github className="w-4 h-4 text-neutral-300" />
+                        Integraciones externas
+                    </h2>
+                    <p className="text-xs text-neutral-500">
+                        Configuraciones que viven en su propia página por la cantidad de campos.
+                    </p>
+                    <Link
+                        href="/changes/settings"
+                        className="flex items-center justify-between gap-3 p-4 rounded-xl bg-neutral-900/50 border border-neutral-700/50 hover:border-neutral-600 hover:bg-neutral-800/40 transition-colors"
+                    >
+                        <div className="flex items-center gap-3">
+                            <Github className="w-5 h-5 text-neutral-300" />
+                            <div>
+                                <p className="text-sm text-white font-medium">GitHub Sync</p>
+                                <p className="text-[11px] text-neutral-500">Configurar repo y sincronizar commits al control de cambios</p>
+                            </div>
+                        </div>
+                        <ChevronRight className="w-4 h-4 text-neutral-500" />
+                    </Link>
+                </div>
             </div>
         </div>
     );
