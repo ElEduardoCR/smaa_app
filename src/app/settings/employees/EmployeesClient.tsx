@@ -14,6 +14,11 @@ import {
     updateEmployeeAction,
     uploadEmployeePhotoAction,
 } from "@/app/actions/employees";
+import {
+    MODULE_CATALOG,
+    ALL_FLAG_KEYS,
+    type PermFlagKey,
+} from "@/lib/moduleCatalog";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -21,9 +26,7 @@ function cn(...inputs: (string | undefined | null | false)[]) {
     return twMerge(clsx(inputs));
 }
 
-type PermFlag = "can_view" | "can_create" | "can_edit" | "can_delete"
-    | "can_start" | "can_pause" | "can_complete"
-    | "can_request_supplies" | "can_purchase";
+type PermFlag = PermFlagKey;
 
 type Permission = {
     id?: string;
@@ -60,152 +63,8 @@ const ROLE_LABEL: Record<string, { label: string; chip: string }> = {
     operator: { label: "Operador", chip: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" },
 };
 
-// ============================================================
-// Catálogo de módulos y sub-módulos que se pueden asignar
-// ============================================================
-type ModuleDef = {
-    code: string;
-    label: string;
-    icon?: string;
-    subs?: { code: string; label: string }[];
-    actions: { key: PermFlag; label: string }[];
-};
-
-const MODULE_CATALOG: ModuleDef[] = [
-    {
-        code: "dashboard",
-        label: "Dashboard / Inicio",
-        actions: [{ key: "can_view", label: "Ver" }],
-    },
-    {
-        code: "manufacturing",
-        label: "Fabricación (OTs)",
-        subs: [
-            { code: "maquinado",      label: "Maquinado" },
-            { code: "soldadura",      label: "Soldadura" },
-            { code: "automatizacion", label: "Automatización" },
-        ],
-        actions: [
-            { key: "can_view",     label: "Ver" },
-            { key: "can_create",   label: "Crear OT" },
-            { key: "can_edit",     label: "Editar OT" },
-            { key: "can_delete",   label: "Eliminar" },
-            { key: "can_start",    label: "Iniciar" },
-            { key: "can_pause",    label: "Pausar" },
-            { key: "can_complete", label: "Terminar" },
-        ],
-    },
-    {
-        code: "quality",
-        label: "Calidad",
-        actions: [
-            { key: "can_view",   label: "Ver" },
-            { key: "can_edit",   label: "Liberar/Rechazar" },
-        ],
-    },
-    {
-        code: "requisitions",
-        label: "Requisiciones",
-        actions: [
-            { key: "can_view",             label: "Ver" },
-            { key: "can_create",           label: "Crear" },
-            { key: "can_edit",             label: "Editar" },
-            { key: "can_request_supplies", label: "Solicitar insumos" },
-            { key: "can_purchase",         label: "Convertir a compra" },
-        ],
-    },
-    {
-        code: "sales",
-        label: "Ventas / Cotizaciones",
-        actions: [
-            { key: "can_view",   label: "Ver" },
-            { key: "can_create", label: "Crear" },
-            { key: "can_edit",   label: "Editar" },
-            { key: "can_delete", label: "Eliminar" },
-        ],
-    },
-    {
-        code: "purchases",
-        label: "Compras / POs",
-        actions: [
-            { key: "can_view",   label: "Ver" },
-            { key: "can_create", label: "Crear" },
-            { key: "can_edit",   label: "Editar" },
-            { key: "can_delete", label: "Eliminar" },
-        ],
-    },
-    {
-        code: "clients",
-        label: "Clientes",
-        actions: [
-            { key: "can_view",   label: "Ver" },
-            { key: "can_create", label: "Crear" },
-            { key: "can_edit",   label: "Editar" },
-            { key: "can_delete", label: "Eliminar" },
-        ],
-    },
-    {
-        code: "suppliers",
-        label: "Proveedores",
-        actions: [
-            { key: "can_view",   label: "Ver" },
-            { key: "can_create", label: "Crear" },
-            { key: "can_edit",   label: "Editar" },
-            { key: "can_delete", label: "Eliminar" },
-        ],
-    },
-    {
-        code: "deliveries",
-        label: "Entregas",
-        actions: [
-            { key: "can_view",   label: "Ver" },
-            { key: "can_create", label: "Crear" },
-            { key: "can_edit",   label: "Editar" },
-        ],
-    },
-    {
-        code: "finance",
-        label: "Nóminas y Contabilidad",
-        actions: [
-            { key: "can_view",   label: "Ver" },
-            { key: "can_create", label: "Crear" },
-            { key: "can_edit",   label: "Editar" },
-        ],
-    },
-    {
-        code: "documents",
-        label: "Documentos / Cambios",
-        actions: [
-            { key: "can_view",   label: "Ver" },
-            { key: "can_create", label: "Crear" },
-            { key: "can_edit",   label: "Editar" },
-        ],
-    },
-    {
-        code: "settings",
-        label: "Configuración empresa",
-        actions: [
-            { key: "can_view",   label: "Ver" },
-            { key: "can_edit",   label: "Editar" },
-        ],
-    },
-    {
-        code: "employees",
-        label: "Empleados (este módulo)",
-        actions: [
-            { key: "can_view",   label: "Ver" },
-            { key: "can_create", label: "Crear" },
-            { key: "can_edit",   label: "Editar" },
-            { key: "can_delete", label: "Eliminar" },
-        ],
-    },
-];
-
-const ALL_FLAG_KEYS: PermFlag[] = [
-    "can_view", "can_create", "can_edit", "can_delete",
-    "can_start", "can_pause", "can_complete",
-    "can_request_supplies", "can_purchase",
-];
+// MODULE_CATALOG y ALL_FLAG_KEYS vienen de @/lib/moduleCatalog — fuente única.
+// Si agregas un módulo, edita solo ese archivo.
 
 function blankPerm(module_code: string, sub_code: string | null): Permission {
     return {

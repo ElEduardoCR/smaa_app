@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/session';
-import { can } from '@/lib/permissions';
+import { canViewModule } from '@/lib/permissions';
 import { supabase } from '@/lib/supabase';
 import DashboardClient from './DashboardClient';
 
@@ -57,9 +57,11 @@ export default async function HomePage() {
     const session = await getSession();
     if (!session) redirect('/login?redirect=/');
 
-    // Filtrar módulos según permisos (master ve todo)
+    // Filtrar módulos según permisos (master ve todo). canViewModule entiende
+    // módulos con sub-módulos: si el usuario puede ver al menos un sub, la
+    // tarjeta del módulo padre aparece.
     const visible = ALL_MODULES.filter((m) =>
-        can(session.role, session.permissions, m.moduleCode, 'view', m.subCode ?? null)
+        canViewModule(session.role, session.permissions, m.moduleCode)
     );
 
     // Stats rápidas

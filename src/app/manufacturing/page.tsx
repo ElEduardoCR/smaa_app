@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/session';
-import { can, listAccessibleSubCodes } from '@/lib/permissions';
+import { can, canViewModule, listAccessibleSubCodes } from '@/lib/permissions';
 import { supabase } from '@/lib/supabase';
 import ManufacturingIndex from './ManufacturingIndex';
 
@@ -8,7 +8,9 @@ export default async function ManufacturingIndexPage() {
     const session = await getSession();
     if (!session) redirect('/login?redirect=/manufacturing');
 
-    if (!can(session.role, session.permissions, 'manufacturing', 'view') && session.role !== 'master') {
+    // canViewModule considera sub-módulos: si el usuario puede ver al menos
+    // uno (maquinado/soldadura/automatizacion), dejamos que entre.
+    if (!canViewModule(session.role, session.permissions, 'manufacturing')) {
         redirect('/?denied=1');
     }
 

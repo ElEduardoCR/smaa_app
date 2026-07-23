@@ -1,5 +1,6 @@
 import 'server-only';
 import type { EmployeePermission, EmployeeRole } from './employees';
+import { hasSubModules } from './moduleCatalog';
 
 export type Action =
     | 'view'
@@ -47,6 +48,32 @@ export function can(
         case 'request_supplies': return p.can_request_supplies;
         case 'purchase': return p.can_purchase;
     }
+}
+
+/**
+ * ¿El usuario puede ver este módulo? Considera sub-módulos: si el módulo
+ * los tiene (ej. manufacturing → maquinado/soldadura/automatizacion),
+ * basta con que pueda ver al menos uno para que la tarjeta del módulo
+ * padre se muestre en el dashboard.
+ *
+ * Esto evita el bug de UX donde activar permisos solo en sub-módulos no
+ * hace aparecer la tarjeta del módulo padre.
+ */
+export function canViewModule(
+    role: EmployeeRole,
+    perms: EmployeePermission[],
+    moduleCode: string
+): boolean {
+    if (role === 'master') return true;
+    // Permiso explícito a nivel módulo (sub_code=null) tiene prioridad.
+    if (can(role, perms, moduleCode, 'view', null)) return true;
+    // Si el módulo tiene sub-módulos, basta con tener can_view en uno.
+    if (hasSubModules(moduleCode)) {
+        return perms.some(
+            (p) => p.module_code === moduleCode && p.sub_code && p.can_view
+        );
+    }
+    return false;
 }
 
 /** Lista los sub-códigos a los que el usuario puede entrar dentro de un módulo. */
