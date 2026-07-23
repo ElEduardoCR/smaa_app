@@ -1,7 +1,7 @@
 'use server';
 
-import { authenticateEmployee, listActiveEmployeesPublic } from '@/lib/employees';
-import { destroySession, setSession } from '@/lib/session';
+import { listActiveEmployeesPublic } from '@/lib/employees';
+import { destroySession } from '@/lib/session';
 
 export type LoginResult = {
     success: boolean;
@@ -23,74 +23,4 @@ export async function logoutAction() {
 
 export async function listLoginUsersAction() {
     return await listActiveEmployeesPublic();
-}
-
-/** Login con selección de usuario + contraseña. */
-export async function loginEmployeeAction(
-    username: string,
-    password: string,
-    redirectTo?: string
-): Promise<LoginResult> {
-    if (!username || !password) {
-        return { success: false, error: 'Selecciona un usuario e ingresa tu contraseña.' };
-    }
-
-    // Diagnóstico temporal: ayuda a entender si la contraseña llega vacía o con
-    // caracteres inesperados cuando el usuario reporta que "no entra".
-    try {
-        console.log(
-            '[loginEmployeeAction] username=' + JSON.stringify(username) +
-            ' password_len=' + (password?.length ?? 0) +
-            ' password_codepoints=' + JSON.stringify([...(password ?? '')].map((c) => c.codePointAt(0))) +
-            ' redirectTo=' + JSON.stringify(redirectTo ?? null)
-        );
-    } catch { /* noop */ }
-
-    let employee;
-    try {
-        employee = await authenticateEmployee(username, password);
-    } catch (err: any) {
-        console.error('auth error', err);
-        return { success: false, error: 'Error al validar las credenciales.' };
-    }
-
-    if (!employee) {
-        return { success: false, error: 'Usuario o contraseña incorrectos.' };
-    }
-
-    try {
-        await setSession({
-            employeeId: employee.id,
-            username: employee.username,
-            fullName: employee.full_name,
-            role: employee.role,
-            position: employee.position,
-            photoUrl: employee.photo_url,
-            permissions: employee.permissions,
-        });
-    } catch (err: any) {
-        console.error('setSession error', err);
-        return { success: false, error: 'No se pudo iniciar la sesión: ' + (err?.message || 'error desconocido') };
-    }
-
-    return {
-        success: true,
-        redirectTo: redirectTo || '/',
-        user: {
-            id: employee.id,
-            fullName: employee.full_name,
-            username: employee.username,
-            role: employee.role,
-            position: employee.position,
-            photoUrl: employee.photo_url,
-        },
-    };
-}
-
-/** Compatibilidad con código viejo: por si algún sitio sigue llamando loginAction. */
-export async function loginAction(_password: string, redirectTo?: string): Promise<LoginResult> {
-    return {
-        success: false,
-        error: 'Este sistema ahora usa login con usuario. Ingresa por la pantalla de selección de usuario.',
-    };
 }

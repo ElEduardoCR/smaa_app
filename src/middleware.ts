@@ -1,44 +1,17 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { decrypt } from '@/lib/session';
-import { resolvePermission } from '@/lib/permissions';
 
-// module_code por ruta + acción mínima requerida + (opcional) cómo extraer sub_code
-const PROTECTED_ROUTES: Array<{
-    match: (pathname: string) => boolean;
-    moduleCode: string;
-    action: 'view' | 'create' | 'edit' | 'delete' | 'start' | 'pause' | 'complete' | 'request_supplies' | 'purchase';
-    getSubCode?: (pathname: string) => string | null;
-}> = [
-    { match: (p) => p === '/',                                   moduleCode: 'dashboard',    action: 'view' },
-    { match: (p) => p === '/dashboard',                          moduleCode: 'dashboard',    action: 'view' },
-    { match: (p) => p.startsWith('/clients'),                    moduleCode: 'clients',      action: 'view' },
-    { match: (p) => p.startsWith('/sales'),                      moduleCode: 'sales',        action: 'view' },
-    { match: (p) => p.startsWith('/purchases'),                  moduleCode: 'purchases',    action: 'view' },
-    { match: (p) => p.startsWith('/suppliers'),                  moduleCode: 'suppliers',    action: 'view' },
-    { match: (p) => p.startsWith('/deliveries'),                 moduleCode: 'deliveries',   action: 'view' },
-    { match: (p) => p.startsWith('/finance'),                    moduleCode: 'finance',      action: 'view' },
-    { match: (p) => p.startsWith('/quality'),                    moduleCode: 'quality',      action: 'view' },
-    { match: (p) => p.startsWith('/documents'),                  moduleCode: 'documents',    action: 'view' },
-    { match: (p) => p.startsWith('/changes'),                    moduleCode: 'documents',    action: 'view' },
-    { match: (p) => p.startsWith('/settings'),                   moduleCode: 'settings',     action: 'view' },
-    { match: (p) => p.startsWith('/requisitions'),               moduleCode: 'requisitions', action: 'view' },
-    { match: (p) => p.startsWith('/settings/employees'),         moduleCode: 'employees',    action: 'view' },
-
-    // manufacturing — sub_code = code del módulo
-    { match: (p) => p === '/manufacturing',                      moduleCode: 'manufacturing', action: 'view' },
-    { match: (p) => p === '/manufacturing/new',                  moduleCode: 'manufacturing', action: 'create' },
-    {
-        match: (p) => /^\/manufacturing\/[^/]+(\/.*)?$/.test(p),
-        moduleCode: 'manufacturing',
-        action: 'view',
-        getSubCode: (p) => p.split('/')[2] || null,
-    },
-];
+// Desde el refactor de sesiones, el JWT ya no carga permisos (porque con
+// 7+ permisos se pasaba del límite de 4KB de las cookies y el navegador
+// rechazaba la Set-Cookie silenciosamente). Por eso el middleware solo
+// valida "hay sesión" + bypass de master; el chequeo fino de permisos
+// lo hace cada página/API con `can()` después de llamar `getSession()`.
 
 export async function middleware(request: NextRequest) {
     const { pathname } = request.nextUrl;
 
+    // Rutas públicas: el login, assets de Next, API, y archivos estáticos
     if (
         pathname === '/login' ||
         pathname.startsWith('/_next/') ||
@@ -51,6 +24,7 @@ export async function middleware(request: NextRequest) {
     const sessionCookie = request.cookies.get('smaa_session')?.value;
     const session = await decrypt(sessionCookie);
 
+    // Sin sesión válida → a /login
     if (!session) {
         const url = request.nextUrl.clone();
         url.pathname = '/login';
@@ -58,45 +32,14 @@ export async function middleware(request: NextRequest) {
         return NextResponse.redirect(url);
     }
 
-    // Master bypass total
+    // Master pasa todo en el middleware; las páginas de settings/admin
+    // también tienen su propio chequeo de role por si acaso.
     if (session.role === 'master') {
         return NextResponse.next();
     }
 
-    // Buscar la regla que aplique
-    for (const rule of PROTECTED_ROUTES) {
-        if (!rule.match(pathname)) continue;
-
-        const sub = rule.getSubCode ? rule.getSubCode(pathname) : null;
-        const p = resolvePermission(session.permissions, rule.moduleCode, sub);
-
-        let allowed = false;
-        if (p) {
-            switch (rule.action) {
-                case 'view':             allowed = p.can_view; break;
-                case 'create':           allowed = p.can_create; break;
-                case 'edit':             allowed = p.can_edit; break;
-                case 'delete':           allowed = p.can_delete; break;
-                case 'start':            allowed = p.can_start; break;
-                case 'pause':            allowed = p.can_pause; break;
-                case 'complete':         allowed = p.can_complete; break;
-                case 'request_supplies': allowed = p.can_request_supplies; break;
-                case 'purchase':         allowed = p.can_purchase; break;
-            }
-        }
-
-        if (!allowed) {
-            const url = request.nextUrl.clone();
-            url.pathname = '/login';
-            url.search = `?redirect=${encodeURIComponent(pathname)}&denied=1`;
-            return NextResponse.redirect(url);
-        }
-        // regla aplicada: ya validamos, dejamos pasar
-        return NextResponse.next();
-    }
-
-    // Si la ruta no está en PROTECTED_ROUTES pero hay session, dejamos pasar
-    // (páginas públicas o futuras)
+    // Para roles no-master, dejamos pasar y las páginas/API se encargan
+    // del chequeo fino de permisos con `getSession()` + `can()`.
     return NextResponse.next();
 }
 
