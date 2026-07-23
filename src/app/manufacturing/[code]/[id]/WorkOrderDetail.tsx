@@ -458,7 +458,7 @@ export default function WorkOrderDetail({ code, woId }: { code: string; woId: st
                                 <input
                                     value={operatorName}
                                     onChange={e => setOperatorName(e.target.value)}
-                                    className="flex-1 bg-neutral-900/60 border border-neutral-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
+                                    className="flex-1 min-w-0 bg-neutral-900/60 border border-neutral-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
                                     placeholder="Tu nombre completo"
                                 />
                             </div>

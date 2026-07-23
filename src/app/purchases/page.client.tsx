@@ -206,7 +206,7 @@ export default function PurchasesPage() {
     ];
 
     return (
-        <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 p-6 md:p-10 font-[family-name:var(--font-sans)]">
+        <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 p-3 sm:p-6 md:p-8 lg:p-10 font-[family-name:var(--font-sans)]">
             <div className="w-full space-y-8">
                 <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
                     <div className="flex items-center gap-4">
@@ -239,7 +239,7 @@ export default function PurchasesPage() {
                         </div>
                         <div className="flex flex-col sm:flex-row gap-3 flex-1 flex-wrap">
                             {/* Búsqueda por nombre / PO / RFC */}
-                            <div className="relative flex-1 min-w-[240px]">
+                            <div className="relative flex-1 min-w-0 min-w-[240px]">
                                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 pointer-events-none" />
                                 <input
                                     type="text"

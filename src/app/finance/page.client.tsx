@@ -80,7 +80,7 @@ export default function FinanceIndex() {
     useEffect(() => { load(); }, []);
 
     return (
-        <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 p-6 md:p-10 font-[family-name:var(--font-sans)]">
+        <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 p-3 sm:p-6 md:p-8 lg:p-10 font-[family-name:var(--font-sans)]">
             <div className="max-w-6xl mx-auto space-y-8">
                 <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
                     <div className="flex items-center gap-4">
@@ -208,7 +208,7 @@ export default function FinanceIndex() {
                                     )}>
                                         <Receipt className="w-5 h-5" />
                                     </div>
-                                    <div className="flex-1 min-w-0">
+                                    <div className="flex-1 min-w-0 min-w-0">
                                         <p className="text-white font-medium text-sm">{d.declaration_type.replace("_", " ")} · {monthLabel(d.period)}</p>
                                         <p className="text-[11px] text-neutral-500">
                                             {d.status === "filed" ? `Presentada ${d.filed_at ? new Date(d.filed_at).toLocaleDateString() : ""}` :

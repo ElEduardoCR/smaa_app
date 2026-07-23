@@ -304,7 +304,7 @@ export default function DeclarationDetailPage() {
     if (!dec) return <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 flex items-center justify-center">Declaración no encontrada.</div>;
 
     return (
-        <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 p-6 md:p-10 font-[family-name:var(--font-sans)]">
+        <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 p-3 sm:p-6 md:p-8 lg:p-10 font-[family-name:var(--font-sans)]">
             <div className="max-w-5xl mx-auto space-y-6">
                 <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50">
                     <div className="flex items-center gap-4">
@@ -360,7 +360,7 @@ export default function DeclarationDetailPage() {
                         <div className="space-y-2">
                             <div className="flex items-center gap-3 bg-neutral-900/40 p-3 rounded-xl border border-neutral-700/50">
                                 <FileText className="w-8 h-8 text-rose-400 flex-shrink-0" />
-                                <div className="flex-1 min-w-0">
+                                <div className="flex-1 min-w-0 min-w-0">
                                     <p className="text-sm text-white truncate">{dec.pdf_file_name || "Acuse.pdf"}</p>
                                     <a href={dec.pdf_url} target="_blank" rel="noopener noreferrer" className="text-xs text-rose-400 hover:text-rose-300 flex items-center gap-1">
                                         <ExternalLink className="w-3 h-3" /> Abrir en nueva pestaña

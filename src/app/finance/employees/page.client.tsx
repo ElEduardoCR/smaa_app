@@ -120,7 +120,7 @@ export default function EmployeesPage() {
     });
 
     return (
-        <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 p-6 md:p-10 font-[family-name:var(--font-sans)]">
+        <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 p-3 sm:p-6 md:p-8 lg:p-10 font-[family-name:var(--font-sans)]">
             <div className="max-w-7xl mx-auto space-y-6">
                 <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50">
                     <div className="flex items-center gap-4">
@@ -174,7 +174,7 @@ export default function EmployeesPage() {
                         value={search}
                         onChange={e => setSearch(e.target.value)}
                         placeholder="Buscar por nombre, usuario, código, RFC…"
-                        className="flex-1 min-w-[200px] bg-neutral-900/50 border border-neutral-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
+                        className="flex-1 min-w-0 min-w-[200px] bg-neutral-900/50 border border-neutral-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
                     />
                     <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="bg-neutral-900/50 border border-neutral-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500">
                         <option value="all">Todos los status</option>

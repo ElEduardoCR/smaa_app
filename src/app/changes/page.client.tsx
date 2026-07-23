@@ -131,7 +131,7 @@ export default function ChangesPage() {
     };
 
     return (
-        <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 p-6 md:p-10 font-[family-name:var(--font-sans)]">
+        <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 p-3 sm:p-6 md:p-8 lg:p-10 font-[family-name:var(--font-sans)]">
             <div className="max-w-6xl mx-auto space-y-6">
                 <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
                     <div className="flex items-center gap-4">
@@ -178,7 +178,7 @@ export default function ChangesPage() {
                         value={search}
                         onChange={e => setSearch(e.target.value)}
                         placeholder="Buscar por descripción, autor, folio…"
-                        className="flex-1 bg-neutral-900/50 border border-neutral-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-sky-500"
+                        className="flex-1 min-w-0 bg-neutral-900/50 border border-neutral-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-sky-500"
                     />
                     <select value={filterEntity} onChange={e => setFilterEntity(e.target.value)} className="bg-neutral-900/50 border border-neutral-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-sky-500">
                         <option value="all">Todos los tipos</option>
@@ -218,7 +218,7 @@ export default function ChangesPage() {
                                             )}>
                                                 <ActionIcon className="w-4 h-4" />
                                             </div>
-                                            <div className="flex-1 min-w-0">
+                                            <div className="flex-1 min-w-0 min-w-0">
                                                 <div className="flex items-center gap-2 flex-wrap">
                                                     <span className="text-sm text-white font-medium">
                                                         {ENTITY_ICON[c.entity_type] || "📝"}{' '}

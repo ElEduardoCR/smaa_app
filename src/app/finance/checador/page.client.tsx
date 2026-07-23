@@ -307,7 +307,7 @@ export default function ChecadorPage() {
     }, {});
 
     return (
-        <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 p-6 md:p-10 font-[family-name:var(--font-sans)]">
+        <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 p-3 sm:p-6 md:p-8 lg:p-10 font-[family-name:var(--font-sans)]">
             <div className="max-w-6xl mx-auto space-y-6">
                 <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
                     <div className="flex items-center gap-4">
@@ -414,7 +414,7 @@ export default function ChecadorPage() {
                             {uploads.map(u => (
                                 <li key={u.id} className="py-3 flex items-center gap-3">
                                     <FileText className="w-5 h-5 text-cyan-400 flex-shrink-0" />
-                                    <div className="flex-1 min-w-0">
+                                    <div className="flex-1 min-w-0 min-w-0">
                                         <p className="text-sm text-white truncate">{u.file_name}</p>
                                         <p className="text-[11px] text-neutral-500">
                                             {new Date(u.period_start).toLocaleDateString()} → {new Date(u.period_end).toLocaleDateString()} ·
@@ -455,7 +455,7 @@ export default function ChecadorPage() {
                             {Object.values(summary).map((s: any) => (
                                 <div key={s.code} className="bg-neutral-900/40 border border-neutral-700/40 rounded-xl p-3 flex items-center gap-3">
                                     <Users className="w-5 h-5 text-emerald-400 flex-shrink-0" />
-                                    <div className="flex-1 min-w-0">
+                                    <div className="flex-1 min-w-0 min-w-0">
                                         <p className="text-sm text-white truncate">{s.employee?.full_name || s.code}</p>
                                         <p className="text-[10px] text-neutral-500">{s.days} días · {fmt(s.hours)} h normales · <span className="text-amber-300">{fmt(s.overtime)} h extras</span></p>
                                     </div>

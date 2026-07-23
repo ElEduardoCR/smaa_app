@@ -206,7 +206,7 @@ function NewWorkOrderForm() {
     };
 
     return (
-        <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 p-6 md:p-10 font-[family-name:var(--font-sans)]">
+        <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 p-3 sm:p-6 md:p-8 lg:p-10 font-[family-name:var(--font-sans)]">
             <div className="max-w-5xl mx-auto space-y-8">
                 <header className="flex items-center gap-4 bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
                     <Link href="/manufacturing" className="p-3 bg-neutral-800 hover:bg-neutral-700 rounded-xl transition-colors text-neutral-400 hover:text-white border border-neutral-700">
@@ -310,7 +310,7 @@ function NewWorkOrderForm() {
                                                     isSel && "bg-orange-500/10 ring-1 ring-orange-500/40"
                                                 )}
                                             >
-                                                <div className="flex-1 min-w-0">
+                                                <div className="flex-1 min-w-0 min-w-0">
                                                     <div className="flex items-center gap-2">
                                                         <span className="font-mono text-emerald-300 text-xs bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
                                                             {q.quotation_number}

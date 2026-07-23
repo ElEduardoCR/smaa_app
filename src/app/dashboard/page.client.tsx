@@ -360,7 +360,7 @@ export default function DashboardPage() {
     };
 
     return (
-        <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 p-6 md:p-10 font-[family-name:var(--font-sans)]">
+        <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 p-3 sm:p-6 md:p-8 lg:p-10 font-[family-name:var(--font-sans)]">
             <div className="w-full space-y-8">
                 <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
                     <div className="flex items-center gap-4">
@@ -541,7 +541,7 @@ export default function DashboardPage() {
                                 {monthsForSelectedYear.map(m => (
                                     <div key={m.idx} className="flex items-center gap-4">
                                         <span className="w-24 text-sm text-neutral-400 flex-shrink-0">{m.name}</span>
-                                        <div className="flex-1 h-7 bg-neutral-900/50 rounded-lg overflow-hidden relative">
+                                        <div className="flex-1 min-w-0 h-7 bg-neutral-900/50 rounded-lg overflow-hidden relative">
                                             <div
                                                 className={cn(
                                                     "h-full rounded-lg transition-all duration-500",
