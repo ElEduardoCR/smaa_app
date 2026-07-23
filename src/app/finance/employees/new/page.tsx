@@ -1,9 +1,9 @@
-import { requirePermission } from '@/lib/permissionGate';
-import ClientPage from './page.client';
+import { redirect } from 'next/navigation';
 
-export const dynamic = 'force-dynamic';
-
-export default async function Page() {
-    await requirePermission({ moduleCode: 'finance', action: 'create' });
-    return <ClientPage />;
+// Los empleados ahora se crean en /settings/employees. La página de
+// "nuevo empleado" de payroll ya no existe — el trigger crea el stub
+// automáticamente al insertar en employees, y el admin llena los datos
+// de nómina después desde /finance/employees.
+export default function NewFinanceEmployeePage() {
+    redirect('/finance/employees?info=create-in-settings');
 }
