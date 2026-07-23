@@ -7,7 +7,6 @@ import {
 } from "lucide-react";
 import {
     listLoginUsersAction,
-    loginEmployeeAction,
 } from "@/app/actions/auth";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -103,15 +102,28 @@ function LoginInner() {
         setError(null);
         setSubmitting(true);
         try {
-            const result = await loginEmployeeAction(selected.username, password, redirectUrl);
-            if (result.success && result.redirectTo) {
-                router.push(result.redirectTo);
+            // Llamamos a la API route en lugar del server action, porque
+            // `cookies().set()` desde un server action prerendered en Next 15/16
+            // a veces no llega al browser. La API route es 100% confiable.
+            const r = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    username: selected.username,
+                    password,
+                    redirectTo: redirectUrl,
+                }),
+                credentials: 'same-origin',
+            });
+            const data = await r.json().catch(() => ({} as any));
+            if (r.ok && data?.ok) {
+                router.push(data.redirectTo || '/');
                 router.refresh();
             } else {
-                setError(result.error || "Error al iniciar sesión.");
+                setError(data?.error || `Error al iniciar sesión (${r.status}).`);
             }
         } catch (err: any) {
-            setError(err.message || "Error inesperado.");
+            setError(err?.message || "Error inesperado.");
         } finally {
             setSubmitting(false);
         }
