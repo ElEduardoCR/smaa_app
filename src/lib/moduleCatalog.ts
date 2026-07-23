@@ -228,7 +228,7 @@ export const DASHBOARD_CARDS: Array<{
 
     { moduleCode: 'documents',     href: '/documents',      title: 'Control de Documentos', desc: '14 procedimientos ISO 9001:2015, foliado y versionado.',
       Icon: 'BookOpen', color: 'violet', category: 'Sistema' },
-    { moduleCode: 'documents',     href: '/changes',        title: 'Control de Cambios', desc: 'Bitácora de cambios + sync automático de GitHub.',
+    { moduleCode: 'documents',     href: '/changes',        title: 'Control de Cambios', desc: 'Bitácora ISO 9001:2015 de versiones, status y firmas de documentos.',
       Icon: 'History', color: 'sky', category: 'Sistema' },
     { moduleCode: 'dashboard',     href: '/dashboard',      title: 'Dashboard',   desc: 'Estadísticas del negocio: ventas, compras, gastos.',
       Icon: 'BarChart3', color: 'orange', category: 'Sistema' },

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import {
@@ -44,10 +44,17 @@ type Document = {
 type Version = { id: string; version: string; revision: number; title: string; change_summary: string | null; changed_by: string | null; changed_at: string };
 type Sig = { id: string; version: string; signer_name: string; signer_role: string | null; signature_url: string; signed_at: string; purpose: string };
 
-export default function DocumentDetailPage() {
-    const params = useParams();
+export default function DocumentDetailPage({
+    id: idProp,
+    canEdit,
+    canDelete,
+}: {
+    id: string;
+    canEdit: boolean;
+    canDelete: boolean;
+}) {
     const router = useRouter();
-    const id = params?.id as string;
+    const id = idProp;
 
     const [doc, setDoc] = useState<Document | null>(null);
     const [versions, setVersions] = useState<Version[]>([]);
@@ -84,6 +91,10 @@ export default function DocumentDetailPage() {
     };
 
     const changeStatus = async (newStatus: string) => {
+        if (!canEdit) {
+            flash("error", "No tienes permisos para cambiar el estatus del documento.");
+            return;
+        }
         if (!doc) return;
         setBusy(true);
         try {
@@ -96,6 +107,10 @@ export default function DocumentDetailPage() {
     };
 
     const obsolete = async () => {
+        if (!canEdit) {
+            flash("error", "No tienes permisos para cambiar el estatus del documento.");
+            return;
+        }
         if (!doc) return;
         const reason = prompt("Motivo de obsolescencia:");
         if (reason === null) return;
@@ -143,6 +158,10 @@ export default function DocumentDetailPage() {
     };
 
     const del = async () => {
+        if (!canDelete) {
+            flash("error", "No tienes permisos para eliminar documentos.");
+            return;
+        }
         if (!doc) return;
         if (!confirm("¿Eliminar este documento y todo su historial? Esta acción no se puede deshacer.")) return;
         await supabase.from("documents").delete().eq("id", doc.id);
@@ -171,20 +190,22 @@ export default function DocumentDetailPage() {
                         </div>
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
-                        <Link href={`/documents/new?id=${doc.id}`} className="text-sm flex items-center gap-1.5 bg-neutral-800 hover:bg-neutral-700 text-white px-3 py-2 rounded-lg border border-neutral-700">
-                            <Edit2 className="w-4 h-4" /> Editar
-                        </Link>
-                        {doc.status === "draft" && (
+                        {canEdit && (
+                            <Link href={`/documents/new?id=${doc.id}`} className="text-sm flex items-center gap-1.5 bg-neutral-800 hover:bg-neutral-700 text-white px-3 py-2 rounded-lg border border-neutral-700">
+                                <Edit2 className="w-4 h-4" /> Editar
+                            </Link>
+                        )}
+                        {canEdit && doc.status === "draft" && (
                             <button onClick={() => changeStatus("in_review")} disabled={busy} className="text-sm bg-amber-500 hover:bg-amber-600 text-white px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5">
                                 Pasar a revisión
                             </button>
                         )}
-                        {(doc.status === "draft" || doc.status === "in_review") && (
+                        {canEdit && (doc.status === "draft" || doc.status === "in_review") && (
                             <button onClick={() => setShowSignModal(true)} className="text-sm bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5">
                                 <ShieldCheck className="w-4 h-4" /> Firmar y aprobar
                             </button>
                         )}
-                        {doc.status === "approved" && (
+                        {canEdit && doc.status === "approved" && (
                             <>
                                 <button onClick={() => changeStatus("pending_obsolete")} className="text-sm bg-violet-500 hover:bg-violet-600 text-white px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5">
                                     Marcar como a obsolescer
@@ -194,9 +215,14 @@ export default function DocumentDetailPage() {
                                 </button>
                             </>
                         )}
-                        <button onClick={del} className="text-sm text-red-300 hover:text-white bg-red-500/10 hover:bg-red-500/30 px-3 py-2 rounded-lg border border-red-500/30">
-                            Eliminar
-                        </button>
+                        {canDelete && (
+                            <button onClick={del} className="text-sm text-red-300 hover:text-white bg-red-500/10 hover:bg-red-500/30 px-3 py-2 rounded-lg border border-red-500/30">
+                                Eliminar
+                            </button>
+                        )}
+                        {!canEdit && !canDelete && (
+                            <span className="text-xs text-neutral-500 italic">Solo lectura — no tienes permisos de edición.</span>
+                        )}
                     </div>
                 </header>
 
