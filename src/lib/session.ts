@@ -95,7 +95,6 @@ export async function setSession(payload: {
 }) {
     const { permissions = [], ...rest } = payload;
     const accessList = computeAccessList(permissions).join(',');
-    console.log('[setSession] permissions count:', permissions.length, 'accessList:', JSON.stringify(accessList));
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     const sessionString = await encrypt({ ...rest, accessList, expiresAt });
     const cookieStore = await cookies();
