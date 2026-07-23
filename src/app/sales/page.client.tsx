@@ -234,12 +234,14 @@ export default function SalesPage() {
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2 flex-wrap">
                         <Link
                             href="/sales/billing-inbox"
-                            className="relative flex items-center justify-center gap-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 px-5 py-3 rounded-xl font-medium transition-all border border-neutral-700 active:scale-95"
+                            className="relative flex items-center justify-center gap-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 px-4 py-2.5 sm:px-5 sm:py-3 rounded-xl text-sm sm:text-base font-medium transition-all border border-neutral-700 active:scale-95"
                         >
-                            <Link2 className="w-5 h-5 text-orange-400" /> Facturación IA
+                            <Link2 className="w-5 h-5 text-orange-400" />
+                            <span className="hidden sm:inline">Facturación IA</span>
+                            <span className="sm:hidden">Fact. IA</span>
                             {pendingMatches > 0 && (
                                 <span className="absolute -top-2 -right-2 bg-orange-500 text-white text-xs font-bold rounded-full min-w-[20px] h-5 px-1.5 flex items-center justify-center">
                                     {pendingMatches}
@@ -248,15 +250,18 @@ export default function SalesPage() {
                         </Link>
                         <Link
                             href="/sales/quick"
-                            className="flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 text-white px-6 py-3 rounded-xl font-medium transition-all hover:shadow-[0_0_20px_rgba(245,158,11,0.4)] active:scale-95"
+                            className="flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 text-white px-4 py-2.5 sm:px-6 sm:py-3 rounded-xl text-sm sm:text-base font-medium transition-all hover:shadow-[0_0_20px_rgba(245,158,11,0.4)] active:scale-95"
                         >
-                            <Zap className="w-5 h-5" /> Cotización Rápida
+                            <Zap className="w-5 h-5" />
+                            <span className="hidden sm:inline">Cotización Rápida</span>
+                            <span className="sm:hidden">Rápida</span>
                         </Link>
                         <Link
                             href="/sales/new"
-                            className="flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white px-6 py-3 rounded-xl font-medium transition-all hover:shadow-[0_0_20px_rgba(16,185,129,0.4)] active:scale-95"
+                            className="flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2.5 sm:px-6 sm:py-3 rounded-xl text-sm sm:text-base font-medium transition-all hover:shadow-[0_0_20px_rgba(16,185,129,0.4)] active:scale-95"
                         >
-                            <Plus className="w-5 h-5" /> Nueva Cotización
+                            <Plus className="w-5 h-5" />
+                            <span> Nueva Cotización </span>
                         </Link>
                     </div>
                 </header>
