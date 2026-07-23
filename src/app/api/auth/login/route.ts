@@ -56,6 +56,7 @@ export async function POST(req: Request) {
             role: employee.role,
             position: employee.position,
             photoUrl: employee.photo_url,
+            permissions: employee.permissions,
         });
     } catch (err: any) {
         console.error('[api/auth/login] setSession error', err);
