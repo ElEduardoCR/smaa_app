@@ -14,8 +14,8 @@ export default async function NewRequisitionPage() {
 
     const { data: suppliers } = await supabase
         .from('suppliers')
-        .select('id, name')
-        .order('name', { ascending: true });
+        .select('id, business_name, rfc')
+        .order('business_name', { ascending: true });
 
     return (
         <NewRequisitionClient suppliers={(suppliers || []) as any} />

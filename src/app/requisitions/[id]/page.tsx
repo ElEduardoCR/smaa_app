@@ -23,7 +23,7 @@ export default async function RequisitionDetailPage({ params }: { params: Promis
             purchaser:employees!requisitions_purchased_by_fkey(id, full_name, position, photo_url),
             items:requisition_items(*),
             quotations:requisition_quotations(*),
-            suggested_supplier:suppliers(id, name)
+            suggested_supplier:suppliers(id, business_name)
         `)
         .eq('id', id)
         .maybeSingle();

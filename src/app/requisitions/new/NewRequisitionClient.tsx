@@ -15,7 +15,7 @@ function emptyItem(): Item {
     return { description: "", quantity: 1, unit: "pza", notes: "" };
 }
 
-export default function NewRequisitionClient({ suppliers }: { suppliers: { id: string; name: string }[] }) {
+export default function NewRequisitionClient({ suppliers }: { suppliers: { id: string; business_name: string; rfc: string }[] }) {
     const router = useRouter();
 
     const [priority, setPriority] = useState<'low' | 'normal' | 'high' | 'urgent'>('normal');
@@ -156,7 +156,7 @@ export default function NewRequisitionClient({ suppliers }: { suppliers: { id: s
                                 >
                                     <option value="">— Seleccionar del catálogo —</option>
                                     {suppliers.map((s) => (
-                                        <option key={s.id} value={s.id}>{s.name}</option>
+                                        <option key={s.id} value={s.id}>{s.business_name} ({s.rfc})</option>
                                     ))}
                                 </select>
                                 <input

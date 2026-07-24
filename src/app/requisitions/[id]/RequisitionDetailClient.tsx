@@ -34,7 +34,7 @@ type Requisition = {
     purchaser: { id: string; full_name: string; position: string | null; photo_url: string | null } | null;
     items: { id: string; description: string; quantity: number; unit: string; notes: string | null }[];
     quotations: { id: string; file_url: string; file_name: string; uploaded_at: string }[];
-    suggested_supplier: { id: string; name: string } | null;
+    suggested_supplier: { id: string; business_name: string } | null;
 };
 
 const STATUS_STYLES: Record<string, { label: string; chip: string }> = {
@@ -176,7 +176,7 @@ export default function RequisitionDetailClient({
                         <div className="flex items-center gap-2">
                             <Store className="w-4 h-4 text-amber-400" />
                             <p className="text-sm text-white truncate">
-                                {req.suggested_supplier?.name || req.suggested_supplier_text || "—"}
+                                {req.suggested_supplier?.business_name || req.suggested_supplier_text || "—"}
                             </p>
                         </div>
                     </div>
