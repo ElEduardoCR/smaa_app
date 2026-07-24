@@ -21,7 +21,12 @@ export default async function RequisitionsPage({ searchParams }: { searchParams:
     const canViewAll = can(session.role, session.permissions, 'requisitions', 'view') || session.role === 'master';
 
     const sp = await searchParams;
-    let tab = (sp?.tab as 'mine' | 'pending' | 'all') || 'mine';
+    // Default: si el usuario puede ver requisiciones de todos, abrimos
+    // directo en "Pendientes (todas)" — es lo que el comprador necesita
+    // ver al entrar para saber qué hay que comprar. Si solo ve las suyas,
+    // abrimos en "mine".
+    const requested = sp?.tab as 'mine' | 'pending' | 'all' | undefined;
+    let tab: 'mine' | 'pending' | 'all' = requested ?? (canViewAll ? 'pending' : 'mine');
     // Gate: si pide pending/all sin view, degradar a mine (defense-in-depth
     // contra manipulación de query string).
     if ((tab === 'pending' || tab === 'all') && !canViewAll) {
