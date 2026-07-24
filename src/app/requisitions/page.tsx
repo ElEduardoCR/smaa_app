@@ -15,10 +15,18 @@ export default async function RequisitionsPage({ searchParams }: { searchParams:
 
     const canCreate = can(session.role, session.permissions, 'requisitions', 'request_supplies') || session.role === 'master';
     const canPurchase = can(session.role, session.permissions, 'requisitions', 'purchase') || session.role === 'master';
-    const canViewAll = canPurchase || session.role === 'master';
+    // canViewAll: el permiso para ver requisiciones de OTROS usuarios.
+    // Atado a `view` (no a `purchase`) para que un operador con view pueda
+    // ver todas las requisiciones del taller, no solo las suyas.
+    const canViewAll = can(session.role, session.permissions, 'requisitions', 'view') || session.role === 'master';
 
     const sp = await searchParams;
-    const tab = (sp?.tab as 'mine' | 'pending' | 'all') || 'mine';
+    let tab = (sp?.tab as 'mine' | 'pending' | 'all') || 'mine';
+    // Gate: si pide pending/all sin view, degradar a mine (defense-in-depth
+    // contra manipulación de query string).
+    if ((tab === 'pending' || tab === 'all') && !canViewAll) {
+        tab = 'mine';
+    }
 
     let q = supabase.from('requisitions')
         .select('id, code, status, priority, needed_by, suggested_supplier_text, notes, created_at, purchased_at, invoice_url, invoice_photo_url, requested_by, items:requisition_items(id), requester:employees!requisitions_requested_by_fkey(id, full_name, position, photo_url)')
@@ -27,7 +35,7 @@ export default async function RequisitionsPage({ searchParams }: { searchParams:
 
     if (tab === 'mine') {
         q = q.eq('requested_by', session.employeeId);
-    } else if (tab === 'pending' && canViewAll) {
+    } else if (tab === 'pending') {
         q = q.eq('status', 'pending');
     }
     // tab === 'all' no filtra
