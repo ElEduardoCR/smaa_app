@@ -496,7 +496,3 @@ function NewWorkOrderForm({ accessibleSubs }: { accessibleSubs: string[] }) {
         </div>
     );
 }
-
-export default function NewWorkOrderFormPage() {
-    return <NewWorkOrderForm />;
-}
