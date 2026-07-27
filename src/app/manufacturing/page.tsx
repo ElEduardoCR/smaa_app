@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/session';
-import { can, canViewModule, listAccessibleSubCodes } from '@/lib/permissions';
+import { canCreateAnywhereInModule, canViewModule, listAccessibleSubCodes } from '@/lib/permissions';
 import { supabase } from '@/lib/supabase';
 import ManufacturingIndex from './ManufacturingIndex';
 
@@ -30,8 +30,8 @@ export default async function ManufacturingIndexPage() {
     // Si no tiene acceso a ningún sub-módulo, pero sí al módulo completo, mostrar todos
     const finalMods = visibleMods.length > 0 ? visibleMods : (mods || []);
 
-    // Permiso de crear OT
-    const canCreateOT = can(session.role, session.permissions, 'manufacturing', 'create');
+    // Permiso de crear OT (en al menos un sub-módulo)
+    const canCreateOT = canCreateAnywhereInModule(session.role, session.permissions, 'manufacturing');
 
     // Stats por módulo
     const { data: wos } = await supabase

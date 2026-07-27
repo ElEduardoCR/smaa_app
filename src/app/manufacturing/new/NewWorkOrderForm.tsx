@@ -36,7 +36,7 @@ type WpsProcedure = {
     position: string | null;
 };
 
-function NewWorkOrderForm() {
+function NewWorkOrderForm({ accessibleSubs }: { accessibleSubs: string[] }) {
     const router = useRouter();
     const searchParams = useSearchParams();
     const initialModule = searchParams?.get("module") || "";
@@ -44,6 +44,14 @@ function NewWorkOrderForm() {
     const [modules, setModules] = useState<Module[]>([]);
     const [moduleCode, setModuleCode] = useState<string>(initialModule);
     const [moduleId, setModuleId] = useState<string>("");
+
+    // Si accessibleSubs está vacío, no se muestra ningún módulo (defense-in-depth).
+    // Si tiene sub-códigos, filtramos los módulos a los que el usuario tiene
+    // acceso de creación. Empty array = master sin subs asignados (no debería
+    // pasar pero por si acaso mostramos todo).
+    const visibleModules = modules.filter((m) =>
+        accessibleSubs.length === 0 ? true : accessibleSubs.includes(m.code)
+    );
 
     // Quotation vs. ad-hoc
     const [mode, setMode] = useState<"quotation" | "adhoc">("quotation");
@@ -145,6 +153,13 @@ function NewWorkOrderForm() {
         e.preventDefault();
         setErr(null);
         if (!moduleId) { setErr("Selecciona un módulo."); return; }
+        // Defense-in-depth: si el moduleId que viene del state no está en los
+        // subs visibles, el state está corrupto (no debería pasar porque el
+        // selector solo muestra visibles, pero validamos igual por si el state
+        // se quedó con un valor viejo).
+        if (accessibleSubs.length > 0 && !accessibleSubs.includes(moduleCode)) {
+            setErr("No tienes permisos para crear OTs en este módulo."); return;
+        }
         if (mode === "quotation" && !selectedQuotationId) { setErr("Selecciona una cotización."); return; }
         if (mode === "quotation" && selectedQuotation && selectedQuotation.status !== "Approved") {
             setErr("La cotización seleccionada debe estar aprobada/confirma da. Confírmala primero."); return;
@@ -232,7 +247,7 @@ function NewWorkOrderForm() {
                     <div className="bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
                         <h2 className="text-lg font-semibold text-white mb-4">1) Módulo de fabricación</h2>
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                            {modules.map(m => {
+                            {visibleModules.map(m => {
                                 const Icon = ICONS[m.icon] || Factory;
                                 const c = COLORS[m.color] || "text-orange-400";
                                 const isOn = moduleId === m.id;

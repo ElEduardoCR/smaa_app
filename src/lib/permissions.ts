@@ -116,3 +116,44 @@ export function listAccessibleSubCodes(
         .filter((p) => p.module_code === moduleCode && p.sub_code && p.can_view)
         .map((p) => p.sub_code as string);
 }
+
+/**
+ * ¿El usuario puede CREAR registros en este módulo? Para módulos con
+ * sub-módulos (ej. manufacturing → maquinado/soldadura/automatizacion),
+ * basta con que tenga `can_create` en al menos un sub.
+ *
+ * Esta función es para los formularios `/<module>/new` donde el usuario
+ * todavía no eligió el sub-módulo. Si tiene permiso de crear en al menos
+ * uno, lo dejamos entrar; el form después se encarga de que solo pueda
+ * elegir los subs a los que tiene acceso.
+ *
+ * Para módulos sin sub-módulos es equivalente a `can(role, perms, code, 'create')`.
+ */
+export function canCreateAnywhereInModule(
+    role: EmployeeRole,
+    perms: EmployeePermission[],
+    moduleCode: string
+): boolean {
+    if (role === 'master') return true;
+    if (!hasSubModules(moduleCode)) {
+        return can(role, perms, moduleCode, 'create');
+    }
+    return perms.some(
+        (p) => p.module_code === moduleCode && p.sub_code && p.can_create
+    );
+}
+
+/**
+ * ¿El usuario tiene `can_create` en este sub-módulo específico?
+ * Útil para formularios donde se elige el sub después (ej. /manufacturing/new
+ * pide módulo y después muestra opciones filtradas por este helper).
+ */
+export function canCreateInSub(
+    role: EmployeeRole,
+    perms: EmployeePermission[],
+    moduleCode: string,
+    subCode: string
+): boolean {
+    if (role === 'master') return true;
+    return can(role, perms, moduleCode, 'create', subCode);
+}
