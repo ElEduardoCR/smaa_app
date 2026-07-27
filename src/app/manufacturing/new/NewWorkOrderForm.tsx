@@ -36,7 +36,7 @@ type WpsProcedure = {
     position: string | null;
 };
 
-function NewWorkOrderForm({ accessibleSubs }: { accessibleSubs: string[] }) {
+export default function NewWorkOrderForm({ accessibleSubs }: { accessibleSubs: string[] }) {
     const router = useRouter();
     const searchParams = useSearchParams();
     const initialModule = searchParams?.get("module") || "";
