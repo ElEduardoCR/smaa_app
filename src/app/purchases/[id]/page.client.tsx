@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { updatePurchaseOrderAction, deletePurchaseOrderAction } from "@/app/actions/purchases";
 import { ArrowLeft, Save, Trash2, Loader2, AlertCircle, CheckCircle2, ExternalLink, Plus, ShoppingCart, Truck, Calendar, FileText, Receipt, FileCheck } from "lucide-react";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -22,7 +23,7 @@ type PO = {
     supplier_id: string | null;
     supplier_quote_url: string | null;
     invoice_url: string | null;
-    invoice_photo_url: string | null;
+    evidence_photo_url: string | null;
     invoice_date: string | null;
     notes: string | null;
     requisition_id: string | null;
@@ -44,7 +45,9 @@ const STATUS_OPTIONS = [
     { value: "Sent", label: "Sent", color: "bg-orange-500/20 text-orange-300 border-orange-500/30" },
     { value: "Approved", label: "Approved", color: "bg-amber-500/20 text-amber-300 border-amber-500/30" },
     { value: "Received", label: "Received", color: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" },
-];
+] as const;
+
+type StatusValue = (typeof STATUS_OPTIONS)[number]['value'];
 
 export default function PurchaseOrderEditClient({
     po,
@@ -64,7 +67,7 @@ export default function PurchaseOrderEditClient({
     const router = useRouter();
 
     const [supplierId, setSupplierId] = useState<string>(po.supplier_id || "");
-    const [status, setStatus] = useState<string>(po.status);
+    const [status, setStatus] = useState<StatusValue>(po.status as StatusValue);
     const [notes, setNotes] = useState<string>(po.notes || "");
     const [items, setItems] = useState<Item[]>(initialItems.length > 0 ? initialItems : [{ id: "_new", description: "", quantity: 1, unit_price: 0, line_total: 0 }]);
     const [saving, setSaving] = useState(false);
@@ -111,39 +114,19 @@ export default function PurchaseOrderEditClient({
         setSaving(true);
         setMsg(null);
         try {
-            // 1. Update PO header
-            const { error: poErr } = await supabase
-                .from('purchase_orders')
-                .update({
-                    supplier_id: supplierId,
-                    status: status,
-                    subtotal,
-                    vat_total: vatTotal,
-                    total,
-                    notes: notes.trim() || null,
-                })
-                .eq('id', po.id);
-            if (poErr) throw poErr;
-
-            // 2. Replace items: delete + insert (simpler than diff)
-            const { error: delErr } = await supabase
-                .from('purchase_order_items')
-                .delete()
-                .eq('purchase_order_id', po.id);
-            if (delErr) throw delErr;
-
-            const newItems = cleanItems.map((it) => ({
-                purchase_order_id: po.id,
-                description: it.description.trim(),
-                quantity: Number(it.quantity) || 0,
-                unit_price: Number(it.unit_price) || 0,
-                line_total: (Number(it.quantity) || 0) * (Number(it.unit_price) || 0),
-            }));
-            const { error: insErr } = await supabase
-                .from('purchase_order_items')
-                .insert(newItems);
-            if (insErr) throw insErr;
-
+            // Llama al server action con permission gate (edit)
+            await updatePurchaseOrderAction({
+                id: po.id,
+                supplier_id: supplierId,
+                status,
+                notes,
+                items: cleanItems.map((it) => ({
+                    description: it.description.trim(),
+                    quantity: Number(it.quantity) || 0,
+                    unit_price: Number(it.unit_price) || 0,
+                    line_total: (Number(it.quantity) || 0) * (Number(it.unit_price) || 0),
+                })),
+            });
             setMsg({ type: 'success', text: "Orden actualizada." });
             router.refresh();
         } catch (ex: any) {
@@ -159,8 +142,8 @@ export default function PurchaseOrderEditClient({
         setDeleting(true);
         setMsg(null);
         try {
-            const { error } = await supabase.from('purchase_orders').delete().eq('id', po.id);
-            if (error) throw error;
+            // Llama al server action con permission gate (delete)
+            await deletePurchaseOrderAction(po.id);
             router.push('/purchases');
         } catch (ex: any) {
             setMsg({ type: 'error', text: ex.message || "Error al eliminar." });
@@ -265,7 +248,7 @@ export default function PurchaseOrderEditClient({
                             <label className="block text-[11px] font-bold text-neutral-500 uppercase tracking-wider mb-1.5">Status</label>
                             <select
                                 value={status}
-                                onChange={(e) => setStatus(e.target.value)}
+                                onChange={(e) => setStatus(e.target.value as StatusValue)}
                                 disabled={!canEdit}
                                 className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500 disabled:opacity-60"
                             >
@@ -275,7 +258,7 @@ export default function PurchaseOrderEditClient({
                     </div>
 
                     {/* Evidencia adjunta (de la requisición) - read-only */}
-                    {(po.supplier_quote_url || po.invoice_url || po.invoice_photo_url) && (
+                    {(po.supplier_quote_url || po.invoice_url || po.evidence_photo_url) && (
                         <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-2xl p-4">
                             <p className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
                                 <FileCheck className="w-3.5 h-3.5" /> Evidencia adjunta
@@ -291,8 +274,8 @@ export default function PurchaseOrderEditClient({
                                         <Receipt className="w-3.5 h-3.5 text-emerald-400" /> Factura <ExternalLink className="w-3 h-3 text-neutral-500" />
                                     </a>
                                 )}
-                                {po.invoice_photo_url && (
-                                    <a href={po.invoice_photo_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs bg-neutral-900/60 hover:bg-neutral-800 border border-neutral-700 px-3 py-1.5 rounded-lg text-neutral-200">
+                                {po.evidence_photo_url && (
+                                    <a href={po.evidence_photo_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs bg-neutral-900/60 hover:bg-neutral-800 border border-neutral-700 px-3 py-1.5 rounded-lg text-neutral-200">
                                         <Receipt className="w-3.5 h-3.5 text-emerald-400" /> Foto factura <ExternalLink className="w-3 h-3 text-neutral-500" />
                                     </a>
                                 )}

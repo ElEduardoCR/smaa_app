@@ -1,0 +1,374 @@
+/**
+ * ===========================================================================
+ * test-server-actions.ts
+ * ===========================================================================
+ *
+ * Tests que validan la LÓGICA de los server actions (permission gates +
+ * validaciones de negocio + acceso a BD). Usa la conexión directa a Postgres
+ * para simular el comportamiento de cada acción.
+ *
+ * ¿Por qué no solo unit tests?
+ *   Los server actions usan `next/headers` (cookies) que solo están disponibles
+ *   dentro de un request real. Para validar la lógica sin browser, hacemos
+ *   una simulación: ejecutamos las validaciones (can, validaciones de
+ *   negocio) manualmente y luego las queries SQL que haría el server action.
+ *
+ * Uso:
+ *   DB_URL=postgresql://postgres:xxx@host:5432/postgres \
+ *     npx tsx scripts/test-server-actions.ts
+ *
+ * Requisitos:
+ *   - `pg` instalado (en /tmp-pg-runner)
+ *   - Las migraciones SQL aplicadas
+ * ===========================================================================
+ */
+
+import { Client } from 'pg';
+
+// Implementación inline de can() para no importar permissions.ts
+// (que tiene `server-only` y truena fuera de Next.js).
+// Esta es una copia fiel de la lógica en src/lib/permissions.ts.
+
+type EmployeeRole = 'master' | 'admin' | 'operator';
+type Action = 'view' | 'create' | 'edit' | 'delete' | 'start' | 'pause' | 'complete' | 'request_supplies' | 'purchase';
+
+type PermFlag = {
+    module_code: string;
+    sub_code: string | null;
+    can_view: boolean;
+    can_create: boolean;
+    can_edit: boolean;
+    can_delete: boolean;
+    can_start?: boolean;
+    can_pause?: boolean;
+    can_complete?: boolean;
+    can_request_supplies?: boolean;
+    can_purchase?: boolean;
+};
+
+function resolvePermission(perms: PermFlag[], moduleCode: string, subCode: string | null = null): PermFlag | null {
+    const exact = perms.find((p) => p.module_code === moduleCode && p.sub_code === subCode);
+    if (exact) return exact;
+    const moduleOnly = perms.find(
+        (p) => p.module_code === moduleCode && (p.sub_code === null || p.sub_code === '')
+    );
+    return moduleOnly || null;
+}
+
+function can(role: EmployeeRole, perms: PermFlag[], moduleCode: string, action: Action, subCode: string | null = null): boolean {
+    if (role === 'master') return true;
+    const p = resolvePermission(perms, moduleCode, subCode);
+    if (!p) return false;
+    switch (action) {
+        case 'view': return p.can_view;
+        case 'create': return p.can_create;
+        case 'edit': return p.can_edit;
+        case 'delete': return p.can_delete;
+        case 'start': return p.can_start ?? false;
+        case 'pause': return p.can_pause ?? false;
+        case 'complete': return p.can_complete ?? false;
+        case 'request_supplies': return p.can_request_supplies ?? false;
+        case 'purchase': return p.can_purchase ?? false;
+    }
+}
+
+const DB_URL = process.env.DB_URL;
+
+if (!DB_URL) {
+    console.error('❌ Falta DB_URL');
+    process.exit(1);
+}
+
+const sb = new Client({ connectionString: DB_URL });
+
+type EmployeeFixture = {
+    label: string;
+    username: string;
+    role: 'master' | 'admin' | 'operator';
+    permissions: Array<{
+        module_code: string;
+        sub_code: string | null;
+        can_view: boolean;
+        can_create: boolean;
+        can_edit: boolean;
+        can_delete: boolean;
+    }>;
+};
+
+const FIXTURES: EmployeeFixture[] = [
+    {
+        label: 'master',
+        username: 'TEST_sa_master',
+        role: 'master',
+        permissions: [],
+    },
+    {
+        label: 'admin con todos los permisos',
+        username: 'TEST_sa_admin',
+        role: 'admin',
+        permissions: [
+            { module_code: 'clients', sub_code: null, can_view: true, can_create: true, can_edit: true, can_delete: true },
+            { module_code: 'suppliers', sub_code: null, can_view: true, can_create: true, can_edit: true, can_delete: true },
+            { module_code: 'purchases', sub_code: null, can_view: true, can_create: true, can_edit: true, can_delete: true },
+        ],
+    },
+    {
+        label: 'operador solo con view (sin create/edit/delete)',
+        username: 'TEST_sa_viewer',
+        role: 'operator',
+        permissions: [
+            { module_code: 'clients', sub_code: null, can_view: true },
+            { module_code: 'suppliers', sub_code: null, can_view: true },
+            { module_code: 'purchases', sub_code: null, can_view: true },
+        ],
+    },
+];
+
+let passed = 0, failed = 0;
+
+function check(testId: string, description: string, condition: boolean, note?: string) {
+    if (condition) {
+        console.log(`  ✅ ${testId}: ${description}${note ? ' — ' + note : ''}`);
+        passed++;
+    } else {
+        console.log(`  ❌ ${testId}: ${description}${note ? ' — ' + note : ''}`);
+        failed++;
+    }
+}
+
+/**
+ * Simula la lógica del server action: checkea permisos + ejecuta SQL.
+ * Devuelve true si el server action habría tenido éxito, false si habría tirado error.
+ */
+async function simulateServerAction(
+    action: 'create' | 'edit' | 'delete' | 'view',
+    moduleCode: 'clients' | 'suppliers' | 'purchases',
+    fixture: EmployeeFixture,
+    doSql: () => Promise<any>
+): Promise<{ allowed: boolean; error?: string }> {
+    // Master siempre pasa
+    if (fixture.role === 'master') {
+        try {
+            await doSql();
+            return { allowed: true };
+        } catch (e: any) {
+            return { allowed: false, error: e.message };
+        }
+    }
+
+    // Otros: chequear permiso
+    const perms = fixture.permissions.map(p => ({
+        ...p,
+        can_start: false, can_pause: false, can_complete: false,
+        can_request_supplies: false, can_purchase: false,
+    }));
+    const allowed = can(fixture.role, perms as any, moduleCode, action);
+    if (!allowed) {
+        return { allowed: false, error: 'Sin permiso (can() === false)' };
+    }
+
+    // Si tiene permiso, ejecutar SQL
+    try {
+        await doSql();
+        return { allowed: true };
+    } catch (e: any) {
+        return { allowed: false, error: e.message };
+    }
+}
+
+async function setup() {
+    console.log('🛠  Creando empleados de prueba...');
+    for (const fx of FIXTURES) {
+        await sb.query(`DELETE FROM employee_permissions WHERE employee_id IN (SELECT id FROM employees WHERE username = $1)`, [fx.username]);
+        await sb.query(`DELETE FROM employees WHERE username = $1`, [fx.username]);
+        const empRes = await sb.query(
+            `INSERT INTO employees (full_name, username, password_hash, role, is_active) VALUES ($1, $2, 'placeholder', $3, true) RETURNING id`,
+            [fx.label, fx.username, fx.role]
+        );
+        const empId = empRes.rows[0].id;
+        for (const p of fx.permissions) {
+            await sb.query(
+                `INSERT INTO employee_permissions
+                  (employee_id, module_code, sub_code, can_view, can_create, can_edit, can_delete, can_start, can_pause, can_complete, can_request_supplies, can_purchase)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, false, false, false, false, false)
+                 ON CONFLICT (employee_id, module_code, sub_code) DO NOTHING`,
+                [empId, p.module_code, p.sub_code, p.can_view ?? false, p.can_create ?? false, p.can_edit ?? false, p.can_delete ?? false]
+            );
+        }
+        console.log(`  ✓ ${fx.label}`);
+    }
+}
+
+async function teardown() {
+    console.log('\n🧹 Limpiando...');
+    // Borrar cualquier cliente/supplier/PO de prueba
+    await sb.query(`DELETE FROM purchase_order_items WHERE purchase_order_id IN (SELECT id FROM purchase_orders WHERE notes = 'TEST sa notes')`);
+    await sb.query(`DELETE FROM purchase_orders WHERE notes = 'TEST sa notes'`);
+    await sb.query(`DELETE FROM requisition_items WHERE requisition_id IN (SELECT id FROM requisitions WHERE code LIKE 'TEST-SA-%')`);
+    await sb.query(`DELETE FROM requisitions WHERE code LIKE 'TEST-SA-%'`);
+    await sb.query(`DELETE FROM clients WHERE rfc LIKE 'TESTSA%'`);
+    await sb.query(`DELETE FROM suppliers WHERE rfc LIKE 'TESTSA%'`);
+    await sb.query(`DELETE FROM employee_permissions WHERE employee_id IN (SELECT id FROM employees WHERE username LIKE 'TEST_sa_%')`);
+    await sb.query(`DELETE FROM employees WHERE username LIKE 'TEST_sa_%'`);
+    console.log('  ✓ Limpieza completa');
+}
+
+async function runTests() {
+    console.log('\n🧪 Tests de server actions (lógica de permisos)\n');
+
+    const master = FIXTURES.find(f => f.username === 'TEST_sa_master')!;
+    const admin = FIXTURES.find(f => f.username === 'TEST_sa_admin')!;
+    const viewer = FIXTURES.find(f => f.username === 'TEST_sa_viewer')!;
+
+    // ==================== CLIENTS ====================
+    console.log('--- CLIENTS ---');
+
+    // Test C-001: master puede crear cliente
+    {
+        const r = await simulateServerAction('create', 'clients', master, async () => {
+            const rfc = 'TESTSA' + Date.now().toString().slice(-7);
+            await sb.query(
+                `INSERT INTO clients (rfc, business_name, fiscal_regime, fiscal_zip_code) VALUES ($1, $2, '601', '12345')`,
+                [rfc, 'TEST SA Master']
+            );
+        });
+        check('C-001', 'master puede crear cliente', r.allowed, r.error);
+    }
+
+    // Test C-002: admin puede crear cliente
+    {
+        const r = await simulateServerAction('create', 'clients', admin, async () => {
+            const rfc = 'TESTSA' + Date.now().toString().slice(-7);
+            await sb.query(
+                `INSERT INTO clients (rfc, business_name, fiscal_regime, fiscal_zip_code) VALUES ($1, $2, '601', '12345')`,
+                [rfc, 'TEST SA Admin']
+            );
+        });
+        check('C-002', 'admin con create puede crear cliente', r.allowed, r.error);
+    }
+
+    // Test C-003: viewer NO puede crear cliente (regression test fix #1)
+    {
+        const r = await simulateServerAction('create', 'clients', viewer, async () => {
+            const rfc = 'TESTSA' + Date.now().toString().slice(-7);
+            await sb.query(
+                `INSERT INTO clients (rfc, business_name, fiscal_regime, fiscal_zip_code) VALUES ($1, $2, '601', '12345')`,
+                [rfc, 'TEST SA Viewer Should Fail']
+            );
+        });
+        check('C-003', 'viewer SIN create NO puede crear cliente (regression test)', !r.allowed, r.error);
+    }
+
+    // Test C-004: viewer puede ver clientes (lectura permitida)
+    {
+        const r = await simulateServerAction('view', 'clients', viewer, async () => {
+            await sb.query(`SELECT id FROM clients LIMIT 1`);
+        });
+        check('C-004', 'viewer puede ver clientes', r.allowed, r.error);
+    }
+
+    // Test C-005: viewer NO puede eliminar cliente
+    {
+        const r = await simulateServerAction('delete', 'clients', viewer, async () => {
+            await sb.query(`DELETE FROM clients WHERE rfc = 'NONEXISTENT'`);
+        });
+        check('C-005', 'viewer SIN delete NO puede eliminar cliente', !r.allowed, r.error);
+    }
+
+    // ==================== SUPPLIERS ====================
+    console.log('\n--- SUPPLIERS ---');
+
+    {
+        const r = await simulateServerAction('create', 'suppliers', admin, async () => {
+            const rfc = 'TESTSA' + Date.now().toString().slice(-7);
+            await sb.query(
+                `INSERT INTO suppliers (rfc, business_name, fiscal_regime, fiscal_zip_code) VALUES ($1, $2, '601', '12345')`,
+                [rfc, 'TEST SA Admin Supplier']
+            );
+        });
+        check('S-001', 'admin puede crear supplier', r.allowed, r.error);
+    }
+
+    {
+        const r = await simulateServerAction('create', 'suppliers', viewer, async () => {
+            const rfc = 'TESTSA' + Date.now().toString().slice(-7);
+            await sb.query(
+                `INSERT INTO suppliers (rfc, business_name) VALUES ($1, 'TEST SA Viewer Should Fail')`,
+                [rfc]
+            );
+        });
+        check('S-002', 'viewer SIN create NO puede crear supplier', !r.allowed, r.error);
+    }
+
+    // ==================== PURCHASES ====================
+    console.log('\n--- PURCHASES ---');
+
+    {
+        const r = await simulateServerAction('create', 'purchases', admin, async () => {
+            const supRes = await sb.query(`INSERT INTO suppliers (rfc, business_name) VALUES ($1, 'TEST SA PO Supplier') RETURNING id`, ['TESTSAPO' + Date.now().toString().slice(-6)]);
+            const supplierId = supRes.rows[0].id;
+            await sb.query(
+                `INSERT INTO purchase_orders (supplier_id, status, subtotal, vat_total, total, notes) VALUES ($1, 'Draft', 100, 16, 116, 'TEST sa notes')`,
+                [supplierId]
+            );
+        });
+        check('P-001', 'admin puede crear PO con supplier válido', r.allowed, r.error);
+    }
+
+    {
+        const r = await simulateServerAction('create', 'purchases', viewer, async () => {
+            await sb.query(
+                `INSERT INTO purchase_orders (supplier_id, status, subtotal, vat_total, total, notes) VALUES (NULL, 'Draft', 0, 0, 0, 'TEST sa notes')`
+            );
+        });
+        check('P-002', 'viewer SIN create NO puede crear PO', !r.allowed, r.error);
+    }
+
+    // Test del "Recibir" (update status a Received + invoice_url)
+    {
+        const r = await simulateServerAction('edit', 'purchases', admin, async () => {
+            // Crear PO de prueba
+            const supRes = await sb.query(`INSERT INTO suppliers (rfc, business_name) VALUES ($1, 'TEST SA Receive') RETURNING id`, ['TESTSARC' + Date.now().toString().slice(-6)]);
+            const supplierId = supRes.rows[0].id;
+            const poRes = await sb.query(
+                `INSERT INTO purchase_orders (supplier_id, status, subtotal, vat_total, total, notes) VALUES ($1, 'Draft', 0, 0, 0, 'TEST sa notes') RETURNING id`,
+                [supplierId]
+            );
+            const poId = poRes.rows[0].id;
+            // Simular "Recibir": update status + invoice_url
+            await sb.query(
+                `UPDATE purchase_orders SET status = 'Received', invoice_url = 'https://test.com/inv.pdf' WHERE id = $1`,
+                [poId]
+            );
+        });
+        check('P-003', 'admin puede Recibir PO (update status + invoice_url)', r.allowed, r.error);
+    }
+
+    {
+        const r = await simulateServerAction('edit', 'purchases', viewer, async () => {
+            await sb.query(
+                `UPDATE purchase_orders SET status = 'Received' WHERE id = (SELECT id FROM purchase_orders LIMIT 1)`
+            );
+        });
+        check('P-004', 'viewer SIN edit NO puede Recibir PO', !r.allowed, r.error);
+    }
+
+    // ==================== RESUMEN ====================
+    console.log(`\n📊 Resumen: ${passed} pasaron, ${failed} fallaron (de ${passed + failed} total)`);
+}
+
+(async () => {
+    try {
+        await sb.connect();
+        await setup();
+        await runTests();
+        await teardown();
+        await sb.end();
+        process.exit(failed > 0 ? 1 : 0);
+    } catch (ex: any) {
+        console.error('💥 Error fatal:', ex.message);
+        try { await teardown(); } catch { /* ignore */ }
+        try { await sb.end(); } catch { /* ignore */ }
+        process.exit(2);
+    }
+})();

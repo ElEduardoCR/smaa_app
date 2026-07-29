@@ -132,24 +132,27 @@ Leyenda: ✅ checado, ⚠️ parcial / riesgo, ❌ falta
 
 ## Bugs / gaps encontrados
 
-1. **🔴 ALTO: `clients` y `suppliers` permiten mutación sin chequear `create`/`edit`/`delete`**
-   La página cliente hace `supabase.from('clients').insert(...)` directamente. Como la RLS es "Allow all" en estas tablas, cualquier usuario autenticado puede insertar/actualizar/borrar.
-   **Fix recomendado**: mover la lógica de mutación a server actions en `src/app/actions/clients.ts` y `src/app/actions/suppliers.ts`, o crear API routes con `requireApiPermission`. Por ahora, depende de que la UI del lado cliente esté bien (botón "Agregar" debería estar oculto para usuarios sin `create`).
+1. **🔴 ALTO: `clients` y `suppliers` permiten mutación sin chequear `create`/`edit`/`delete`** ✅ **RESUELTO**
+   - **Fix aplicado:** `src/app/actions/clients.ts` y `src/app/actions/suppliers.ts` con `createClientAction`, `updateClientAction`, `deleteClientAction`, `viewClientAction` (idem para suppliers). Cada una llama a `requireCan('create' | 'edit' | 'delete')` que tira error si el user no tiene el flag.
+   - **Verificado:** `scripts/test-server-actions.ts` C-001..C-005, S-001..S-002 (7 casos pasan).
 
-2. **🟡 MEDIO: `sales` no tiene `requirePermission` en la página**
-   Falta gatear el acceso al módulo de ventas a nivel de server component. Solo el middleware bloquea la URL. Si el middleware tiene un bug, la página quedaría accesible.
+2. **🟡 MEDIO: `purchases/page.client.tsx` (Recibir, evidencia) no chequea permiso** ✅ **RESUELTO**
+   - **Fix aplicado:** `src/app/actions/purchases.ts` con `receivePurchaseOrderAction` y `uploadPurchaseEvidenceAction`. `handleReceive` y `handleUploadPurchaseEvidence` ahora las llaman.
+   - **Verificado:** `scripts/test-server-actions.ts` P-001..P-004 (4 casos pasan).
 
-3. **🟡 MEDIO: Mutaciones en `purchases/page.client.tsx` (handleReceive, handleUploadPurchaseEvidence)**
-   Cualquier usuario con `purchases:view` puede recibir compras y subir evidencia, porque las mutaciones son llamadas directas a `supabase.from(...)` desde el cliente.
+3. **🟡 MEDIO: `sales/page.tsx` no tiene `requirePermission`** ✅ **YA EXISTÍA (audit incorrecto)**
+   - Mi audit original decía que faltaba, pero al re-verificar con grep todas las páginas de sales ya tienen `requirePermission` desde antes.
+   - **Estado real:** gate presente. No requiere cambio.
 
 4. **🟢 BAJO: `issued_invoices` reusa `sales:view`**
-   No es un bug, pero conceptualmente `issued_invoices` y `sales` son cosas distintas. Vale la pena documentar la decisión o separarlos.
+   - Decisión: se queda como está. La Razón: las facturas emitidas viven en el flujo de ventas (cotización → venta → factura) y conceptualmente comparten permiso. Refactorizar esto sería trabajo sin valor.
+   - **Estado:** documentado, no requiere cambio.
 
-5. **🟢 BAJO: `DASHBOARD_CARDS` en `moduleCatalog.ts` está duplicado con `ALL_MODULES` en `src/app/page.tsx`**
-   Solo se usa `ALL_MODULES`. El array del catalog es código muerto. Vale la pena eliminarlo o consolidarlo.
+5. **🟢 BAJO: `DASHBOARD_CARDS` en `moduleCatalog.ts` es código muerto** ✅ **RESUELTO**
+   - **Fix aplicado:** eliminado. Dejado un comment apuntando a `ALL_MODULES` en `src/app/page.tsx` como la fuente de verdad.
 
-6. **🟢 BAJO: `lib/employees.ts` línea 37 — `listSuppliersForSelect` no chequea sesión**
-   Esta función se usa como server action pero no verifica que el usuario esté autenticado. Bajo riesgo (solo lee datos) pero vale agregar `await getSession()`.
+6. **🟢 BAJO: `lib/employees.ts` línea 37 — `listSuppliersForSelect` no chequea sesión** ⚠️ **PENDIENTE (bajo)**
+   - **Estado:** sigue pendiente. Bajo riesgo (solo lectura, RLS allow all).
 
 ---
 

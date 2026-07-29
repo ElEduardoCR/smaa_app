@@ -26,8 +26,9 @@ export type CsfData = {
     raw_text: string;
 };
 
-// Catálogo SAT: label (sin prefijo "Régimen") → código.
-// Las claves son la forma normalizada SIN la palabra "Régimen".
+// Catálogo SAT: label normalizado (sin "Régimen" ni "de" o "de las" iniciales) → código.
+// Ejemplo: "Régimen de Sueldos y Salarios..." → "sueldos y salarios..."
+//          "Régimen de las Actividades..." → "actividades..."
 const REGIMEN_MAP: Record<string, string> = {
     'general de ley personas morales': '601',
     'personas morales con fines no lucrativos': '603',
@@ -41,15 +42,16 @@ const REGIMEN_MAP: Record<string, string> = {
     'simplificado de confianza': '626',
     'sueldos y salarios e ingresos asimilados a salarios': '605',
     'arrendamiento': '606',
-    'de enajenacion o adquisicion de bienes': '607',
+    'enajenacion o adquisicion de bienes': '607',
     'demas ingresos': '608',
-    'de dividendos (socios y accionistas)': '611',
+    'dividendos (socios y accionistas)': '611',
     'personas fisicas con actividades empresariales y profesionales': '612',
-    'de intereses': '614',
-    'de los ingresos por obtencion de premios': '615',
+    'intereses': '614',
+    'ingresos por obtencion de premios': '615',
     'sin obligaciones fiscales': '616',
     'incorporacion fiscal (rif)': '621',
-    'de plataformas tecnologicas': '625',
+    'actividades empresariales con ingresos a traves de plataformas tecnologicas': '625',
+    'actividades empresariales con ingresos a traves de plataformastecnologicas': '625',
 };
 
 function normalize(s: string): string {
@@ -66,9 +68,24 @@ function titleCase(s: string): string {
     return s.toLowerCase().replace(/(^|\s)([a-záéíóúñü])/g, (_, sp, ch) => sp + ch.toUpperCase());
 }
 
+/** Limpia saltos de línea y espacios múltiples. */
+function clean(s: string | null): string | null {
+    if (!s) return null;
+    return s.replace(/\s+/g, ' ').trim();
+}
+
 function mapRegimenLabelToCode(label: string): string | null {
-    // Quitar el prefijo "Régimen" (puede tener "de" después o no)
-    const cleaned = normalize(label).replace(/^r[ée]?g[íi]men\s*(de\s+)?:?/, '').trim();
+    // Quitar prefijos: "Régimen", "Régimen de", "Régimen de las/los"
+    // Después de "Régimen" puede venir:
+    //   - "Sueldos y Salarios..." (sin "de")
+    //   - "de Sueldos y Salarios..." (con "de")
+    //   - "de las Actividades..." (con "de las")
+    //   - "Simplificado de Confianza" (sin preposición)
+    // Las claves del REGIMEN_MAP tienen la preposición "de" cuando aplica.
+    const cleaned = normalize(label)
+        .replace(/^r[ée]?g[íi]men\s*(:?\s*)?/, '')  // quita "régimen:" o "régimen"
+        .replace(/^de\s+(las?\s+)?/, '')                // quita "de " o "de las/los "
+        .trim();
     return REGIMEN_MAP[cleaned] ?? null;
 }
 
@@ -185,18 +202,28 @@ export function parseCSF(text: string): CsfData {
         const parts = [pfNombre, pfAp1, pfAp2].filter(Boolean);
         result.business_name = titleCase(parts.join(' '));
     } else {
-        // PM: la razón social aparece ANTES del label "Nombre, denominación o razón social".
+        // PM formato nuevo: "Razón Social: <value>" en una línea
+        let pmRazonSocial: string | null = null;
         for (let i = 0; i < allLines.length; i++) {
-            const l = normalize(allLines[i]);
-            if (/^nombre,?\s*denominaci[oó]n\s*o\s*raz[oó]n\s*social/.test(l) || /^denominaci[oó]n\s*o\s*raz[oó]n\s*social/.test(l)) {
-                // El label puede ser de 1-2 líneas. El valor está en la(s) línea(s) anterior(es).
-                const prev1 = i >= 1 ? allLines[i - 1] : '';
-                const prev2 = i >= 2 ? allLines[i - 2] : '';
-                const candidate = [prev2, prev1].filter(Boolean).join(' ').trim();
-                if (candidate && !/^idCIF/i.test(candidate) && !/^constancia/i.test(candidate) && !/^valida/i.test(candidate) && candidate.length > 3) {
-                    result.business_name = titleCase(candidate);
+            const v = findFieldValue(allLines, i, [/^raz[óo]n\s+social$/]);
+            if (v) { pmRazonSocial = v; break; }
+        }
+        if (pmRazonSocial) {
+            result.business_name = clean(pmRazonSocial);
+        } else {
+            // PM formato viejo: la razón social aparece ANTES del label "Nombre, denominación o razón social".
+            for (let i = 0; i < allLines.length; i++) {
+                const l = normalize(allLines[i]);
+                if (/^nombre,?\s*denominaci[oó]n\s*o\s*raz[oó]n\s*social/.test(l) || /^denominaci[oó]n\s*o\s*raz[oó]n\s*social/.test(l)) {
+                    // El label puede ser de 1-2 líneas. El valor está en la(s) línea(s) anterior(es).
+                    const prev1 = i >= 1 ? allLines[i - 1] : '';
+                    const prev2 = i >= 2 ? allLines[i - 2] : '';
+                    const candidate = [prev2, prev1].filter(Boolean).join(' ').trim();
+                    if (candidate && !/^idCIF/i.test(candidate) && !/^constancia/i.test(candidate) && !/^valida/i.test(candidate) && candidate.length > 3) {
+                        result.business_name = titleCase(candidate);
+                    }
+                    break;
                 }
-                break;
             }
         }
     }
@@ -240,12 +267,33 @@ export function parseCSF(text: string): CsfData {
             // El SAT lista los regímenes en orden cronológico (antiguo → nuevo).
             // Queremos el MÁS RECIENTE, así que seguimos iterando hasta el final
             // de la sección (hasta Obligaciones:) y guardamos el último.
-            const labelOnly = l.replace(/\s+\d{1,2}\/\d{1,2}\/\d{2,4}\s*$/, '').trim();
+            let labelOnly = l.replace(/\s+\d{1,2}\/\d{1,2}\/\d{2,4}\s*$/, '').trim();
+
+            // Formato "Régimen: 601 General de Ley..." → separar código y label
+            const m = labelOnly.match(/^r[ée]?g[íi]men\s*:?\s*(\d{3})?\s*(.*)$/i);
+            if (m) {
+                if (m[1]) {
+                    // Hay código en línea
+                    result.fiscal_regime = m[1];
+                }
+                labelOnly = m[2].trim();
+            }
+
             if (labelOnly.length < 5) continue;
 
             result.fiscal_regime_label = labelOnly;
-            const code = mapRegimenLabelToCode(labelOnly);
-            if (code) result.fiscal_regime = code;
+            // Siempre intentar mapear; si el código ya viene en la línea,
+            // respetamos ese. Si no, buscamos en el catálogo.
+            if (!result.fiscal_regime) {
+                const code = mapRegimenLabelToCode(labelOnly);
+                if (code) result.fiscal_regime = code;
+            } else {
+                // Ya tenemos código de una línea previa; pero el último gana.
+                // Re-mapeamos desde el label por si la nueva línea trae un código
+                // y queremos actualizar.
+                const code = mapRegimenLabelToCode(labelOnly);
+                if (code) result.fiscal_regime = code;
+            }
             // NO break — seguimos al siguiente para tomar el último
         }
     }
@@ -264,17 +312,25 @@ export function parseCSF(text: string): CsfData {
     // ---------------------------------------------------------------------
     // 5) Email — solo en la sección de datos, NO en el disclaimer del SAT
     // ---------------------------------------------------------------------
-    // El disclaimer del SAT comienza con "Sus datos personales son incorporados"
-    // y termina antes de "Sello Digital". Excluimos todo ese bloque.
+    // El disclaimer del SAT contiene emails como "denuncias@sat.gob.mx" que
+    // NO son los del contribuyente. Excluimos:
+    //   - Todo lo que viene después de "Sello Digital" o "Cadena Original"
+    //   - Todo lo que viene después de "Sus datos personales son incorporados"
+    //   - Emails específicos del SAT (denuncias@, www.sat.gob.mx, etc.)
     const selloIdx = text.indexOf('Sello Digital');
+    const cadenaIdx = text.indexOf('Cadena Original');
     const datosPersonalesIdx = text.indexOf('Sus datos personales son incorporados');
-    const endIdx = selloIdx > 0 ? selloIdx : text.length;
-    const startIdx = datosPersonalesIdx > 0 ? datosPersonalesIdx : 0;
+    const endIdxCandidates = [selloIdx, cadenaIdx, datosPersonalesIdx].filter(i => i > 0);
+    const endIdx = endIdxCandidates.length > 0 ? Math.min(...endIdxCandidates) : text.length;
     const dataOnly = text.slice(0, endIdx);
-    // Buscar email solo ANTES del bloque de disclaimer
-    const beforeDisclaimer = datosPersonalesIdx > 0 ? text.slice(0, datosPersonalesIdx) : dataOnly;
-    const emailMatch = beforeDisclaimer.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
-    result.email = emailMatch ? emailMatch[0].toLowerCase() : null;
+
+    const emailMatch = dataOnly.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+    if (emailMatch) {
+        const lower = emailMatch[0].toLowerCase();
+        // Filtrar emails del SAT/disclaimer
+        const isSatEmail = /(denuncias|sat\.gob|sat-prueba|presidencia)/i.test(lower);
+        result.email = isSatEmail ? null : lower;
+    }
 
     // ---------------------------------------------------------------------
     // 6) Teléfono

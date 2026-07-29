@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { generatePurchaseOrderPDF } from "@/lib/generatePoPdf";
+import { receivePurchaseOrderAction, uploadPurchaseEvidenceAction } from "@/app/actions/purchases";
 import { ShoppingCart, Plus, RefreshCw, ArrowLeft, Download, Eye, CheckCircle, Upload, FileText, Camera, Inbox, Search, X, Filter, Edit2 } from "lucide-react";
 import Link from "next/link";
 import clsx from "clsx";
@@ -71,23 +72,15 @@ export default function PurchasesPage() {
 
     const handleUploadPurchaseEvidence = async (poId: string, file: File) => {
         try {
-            const fileExt = file.name.split('.').pop();
-            const fileName = `po_photo_${poId}_${Date.now()}.${fileExt}`;
-            const { error: uploadError } = await supabase.storage
-                .from('purchase_files')
-                .upload(`purchases/evidence_photos/${fileName}`, file, { cacheControl: '3600', upsert: false, contentType: file.type });
-            if (uploadError) throw uploadError;
-
-            const { data: publicUrlData } = supabase.storage
-                .from('purchase_files')
-                .getPublicUrl(`purchases/evidence_photos/${fileName}`);
-
-            const { error: updateError } = await supabase
-                .from('purchase_orders')
-                .update({ evidence_photo_url: publicUrlData.publicUrl })
-                .eq('id', poId);
-            if (updateError) throw updateError;
-
+            // Server action con permission gate (purchases:edit)
+            const reader = new FileReader();
+            const dataUrl: string = await new Promise((res, rej) => {
+                reader.onload = () => res(String(reader.result || ""));
+                reader.onerror = rej;
+                reader.readAsDataURL(file);
+            });
+            const b64 = dataUrl.split(",")[1] || "";
+            await uploadPurchaseEvidenceAction(poId, b64, file.name, file.type || "application/octet-stream");
             fetchOrders();
         } catch (error: any) {
             console.error('Error uploading purchase photo:', error);
@@ -136,24 +129,15 @@ export default function PurchasesPage() {
 
         setIsSubmitting(true);
         try {
-            const fileExt = selectedFile.name.split('.').pop();
-            const fileName = `${Date.now()}_invoice.${fileExt}`;
-            const filePath = `invoices/${poId}/${fileName}`;
-
-            const { error: uploadError } = await supabase.storage
-                .from('purchase_files')
-                .upload(filePath, selectedFile);
-            if (uploadError) throw uploadError;
-
-            const { data: { publicUrl } } = supabase.storage
-                .from('purchase_files')
-                .getPublicUrl(filePath);
-
-            const { error: updateError } = await supabase
-                .from('purchase_orders')
-                .update({ status: 'Received', invoice_url: publicUrl })
-                .eq('id', poId);
-            if (updateError) throw updateError;
+            // Server action con permission gate (purchases:edit)
+            const reader = new FileReader();
+            const dataUrl: string = await new Promise((res, rej) => {
+                reader.onload = () => res(String(reader.result || ""));
+                reader.onerror = rej;
+                reader.readAsDataURL(selectedFile);
+            });
+            const b64 = dataUrl.split(",")[1] || "";
+            await receivePurchaseOrderAction(poId, b64, selectedFile.name, selectedFile.type || "application/octet-stream");
 
             setReceivingPO(null);
             setSelectedFile(null);

@@ -194,49 +194,9 @@ export const MODULE_CATALOG: ModuleDef[] = [
     },
 ];
 
-// Carátulas que se muestran en el dashboard, agrupadas por categoría visual.
-// Esto lo consume app/page.tsx (dashboard) y app/DashboardClient.tsx.
-export const DASHBOARD_CARDS: Array<{
-    moduleCode: string;
-    subCode?: string | null;
-    href: string;
-    title: string;
-    desc: string;
-    Icon: string;
-    color: 'orange' | 'emerald' | 'amber' | 'cyan' | 'rose' | 'violet' | 'sky' | 'slate';
-    category: 'Operación' | 'Comercial' | 'Finanzas' | 'Calidad' | 'Sistema';
-    badge?: string;
-}> = [
-    { moduleCode: 'manufacturing', href: '/manufacturing', title: 'Fabricación', desc: 'Maquinado, Soldadura y Automatización con WPS, planos y visor 3D.',
-      Icon: 'Factory', color: 'orange', category: 'Operación' },
-    { moduleCode: 'quality',       href: '/quality',        title: 'Calidad',     desc: 'Cola de OTs para revisión final y firma de liberación.',
-      Icon: 'ShieldCheck', color: 'sky', category: 'Operación' },
-    { moduleCode: 'deliveries',    href: '/deliveries',     title: 'Entregas',    desc: 'Listo para embalaje y Entregados con foto de factura + GPS.',
-      Icon: 'Truck', color: 'emerald', category: 'Operación' },
-    { moduleCode: 'requisitions',  href: '/requisitions',   title: 'Requisiciones', desc: 'Solicitudes de insumos de operadores y conversión a compras.',
-      Icon: 'ClipboardList', color: 'amber', category: 'Operación', badge: 'NUEVO' },
-
-    { moduleCode: 'clients',       href: '/clients',        title: 'Clientes',    desc: 'CFDI 4.0, RFC, datos fiscales y condiciones de pago.',
-      Icon: 'Users', color: 'cyan', category: 'Comercial' },
-    { moduleCode: 'sales',         href: '/sales',          title: 'Ventas',      desc: 'Cotizaciones con margen, OTs anidadas y comisiones.',
-      Icon: 'Receipt', color: 'emerald', category: 'Comercial' },
-    { moduleCode: 'purchases',     href: '/purchases',      title: 'Compras',     desc: 'Órdenes de compra, 3 cotizaciones y buzón CFDI recibidos.',
-      Icon: 'Factory', color: 'orange', category: 'Comercial' },
-
-    { moduleCode: 'finance',       href: '/finance',        title: 'Nóminas y Contabilidad', desc: 'Empleados, checador, nómina, IVA/ISR con OCR del SAT.',
-      Icon: 'Wallet', color: 'emerald', category: 'Finanzas' },
-
-    { moduleCode: 'documents',     href: '/documents',      title: 'Control de Documentos', desc: '14 procedimientos ISO 9001:2015, foliado y versionado.',
-      Icon: 'BookOpen', color: 'violet', category: 'Sistema' },
-    { moduleCode: 'documents',     href: '/changes',        title: 'Control de Cambios', desc: 'Bitácora ISO 9001:2015 de versiones, status y firmas de documentos.',
-      Icon: 'History', color: 'sky', category: 'Sistema' },
-    { moduleCode: 'dashboard',     href: '/dashboard',      title: 'Dashboard',   desc: 'Estadísticas del negocio: ventas, compras, gastos.',
-      Icon: 'BarChart3', color: 'orange', category: 'Sistema' },
-    { moduleCode: 'settings',      href: '/settings',       title: 'Configuración', desc: 'Datos de la empresa, logo y PDF.',
-      Icon: 'Cog', color: 'slate', category: 'Sistema' },
-    { moduleCode: 'employees',     href: '/settings/employees', title: 'Empleados', desc: 'Alta, edición y permisos por módulo de cada usuario.',
-      Icon: 'UserCog', color: 'rose', category: 'Sistema', badge: 'NUEVO' },
-];
+// NOTA: DASHBOARD_CARDS eliminado (era código muerto).
+// El dashboard consume `ALL_MODULES` desde src/app/page.tsx.
+// Si en el futuro queremos una sola fuente de verdad, consolidar ahí.
 
 // ===========================================================================
 // Helpers
