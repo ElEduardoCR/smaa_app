@@ -130,8 +130,27 @@ export async function deleteClientAction(id: string) {
     const session = await requireCan('delete');
     if (!id) throw new Error('Falta el ID del cliente.');
 
-    const { error } = await supabase.from('clients').delete().eq('id', id);
-    if (error) throw new Error('Error al eliminar: ' + error.message);
+    // Soft-delete: marcar como obsoleto en vez de borrar.
+    // Mantiene el audit trail (ventas, cotizaciones, etc).
+    const { error } = await supabase
+        .from('clients')
+        .update({ is_active: false })
+        .eq('id', id);
+    if (error) throw new Error('Error al obsoletar: ' + error.message);
+
+    revalidatePath('/clients');
+}
+
+/** Restaura un cliente que fue marcado como obsoleto. */
+export async function restoreClientAction(id: string) {
+    const session = await requireCan('edit');
+    if (!id) throw new Error('Falta el ID del cliente.');
+
+    const { error } = await supabase
+        .from('clients')
+        .update({ is_active: true })
+        .eq('id', id);
+    if (error) throw new Error('Error al restaurar: ' + error.message);
 
     revalidatePath('/clients');
 }

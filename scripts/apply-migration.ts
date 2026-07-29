@@ -1,8 +1,15 @@
 /**
- * Aplica la migration 20260729000000_po_supplier_nullable.sql a la DB.
- * Uso: DB_URL=postgresql://... npx tsx scripts/apply-migration.ts
+ * Aplica una migration de Supabase a la DB.
+ *
+ * Uso:
+ *   DB_URL=postgresql://... npx tsx scripts/apply-migration.ts
+ *   DB_URL=postgresql://... npx tsx scripts/apply-migration.ts <filename>
+ *
+ * Si no se pasa filename, toma la migration más reciente del directorio
+ * `supabase/migrations/` (ordenada por nombre).
  */
-import { readFileSync } from 'fs';
+import { readFileSync, readdirSync } from 'fs';
+import { join } from 'path';
 import { Client } from 'pg';
 
 const DB_URL = process.env.DB_URL;
@@ -18,9 +25,24 @@ async function main() {
     await client.connect();
     console.log('✓ Conectado a la DB');
 
-    const migrationPath = 'supabase/migrations/20260729000000_po_supplier_nullable.sql';
-    const sql = readFileSync(migrationPath, 'utf-8');
-    console.log(`✓ Migration leída: ${migrationPath} (${sql.length} bytes)`);
+    const migrationsDir = 'supabase/migrations';
+    let targetFile: string;
+    if (process.argv[2]) {
+        targetFile = process.argv[2];
+    } else {
+        const files = readdirSync(migrationsDir)
+            .filter((f) => f.endsWith('.sql'))
+            .sort();
+        if (files.length === 0) {
+            console.error(`❌ No hay migrations en ${migrationsDir}`);
+            process.exit(1);
+        }
+        targetFile = files[files.length - 1];
+    }
+
+    const fullPath = join(migrationsDir, targetFile);
+    const sql = readFileSync(fullPath, 'utf-8');
+    console.log(`✓ Migration: ${fullPath} (${sql.length} bytes)`);
 
     try {
         await client.query(sql);
@@ -30,16 +52,32 @@ async function main() {
         process.exit(1);
     }
 
-    // Verificar el cambio
-    const res = await client.query(`
-        SELECT column_name, is_nullable, data_type
-        FROM information_schema.columns
-        WHERE table_schema = 'public' AND table_name = 'purchase_orders' AND column_name IN ('supplier_id', 'notes')
-        ORDER BY column_name;
-    `);
-    console.log('\n=== Estado actual de purchase_orders.supplier_id y notes ===');
-    for (const row of res.rows) {
-        console.log(`  ${row.column_name}: ${row.data_type} (nullable: ${row.is_nullable})`);
+    // Mostrar verificación para las últimas migrations conocidas
+    if (targetFile === '20260729000000_po_supplier_nullable.sql') {
+        const res = await client.query(`
+            SELECT column_name, is_nullable, data_type
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'purchase_orders'
+              AND column_name IN ('supplier_id', 'notes')
+            ORDER BY column_name;
+        `);
+        console.log('\n=== Estado actual de purchase_orders.supplier_id y notes ===');
+        for (const row of res.rows) {
+            console.log(`  ${row.column_name}: ${row.data_type} (nullable: ${row.is_nullable})`);
+        }
+    } else if (targetFile === '20260729010000_add_is_active.sql') {
+        const res = await client.query(`
+            SELECT table_name, column_name, is_nullable
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name IN ('clients', 'suppliers', 'employees', 'purchase_orders')
+              AND column_name = 'is_active'
+            ORDER BY table_name;
+        `);
+        console.log('\n=== Estado de is_active ===');
+        for (const row of res.rows) {
+            console.log(`  ${row.table_name}.${row.column_name}: nullable=${row.is_nullable}`);
+        }
     }
 
     await client.end();

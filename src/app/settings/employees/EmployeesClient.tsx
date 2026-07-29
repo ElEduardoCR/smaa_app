@@ -5,12 +5,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
     ArrowLeft, Plus, Pencil, Trash2, X, Loader2, User, ShieldCheck,
-    KeyRound, Camera, Eye, EyeOff
+    KeyRound, Camera, Eye, EyeOff, Archive, ArchiveRestore
 } from "lucide-react";
 import { logoutAction } from "@/app/actions/auth";
 import {
     createEmployeeAction,
     deleteEmployeeAction,
+    obsoleteEmployeeAction,
+    restoreEmployeeAction,
     updateEmployeeAction,
     uploadEmployeePhotoAction,
 } from "@/app/actions/employees";
@@ -102,6 +104,7 @@ export default function EmployeesClient({
     const router = useRouter();
     const [employees, setEmployees] = useState<Employee[]>(initialEmployees);
     const [search, setSearch] = useState("");
+    const [showObsolete, setShowObsolete] = useState(false);
     const [editing, setEditing] = useState<Employee | null>(null);
     const [creating, setCreating] = useState(false);
     const [busy, setBusy] = useState(false);
@@ -109,14 +112,22 @@ export default function EmployeesClient({
     const [info, setInfo] = useState<string | null>(null);
 
     const filtered = useMemo(() => {
+        let list = employees;
+        if (!showObsolete) {
+            list = list.filter((e) => e.is_active);
+        }
         const q = search.toLowerCase().trim();
-        if (!q) return employees;
-        return employees.filter((e) =>
-            e.full_name.toLowerCase().includes(q) ||
-            e.username.toLowerCase().includes(q) ||
-            (e.position || "").toLowerCase().includes(q)
-        );
-    }, [employees, search]);
+        if (q) {
+            list = list.filter((e) =>
+                e.full_name.toLowerCase().includes(q) ||
+                e.username.toLowerCase().includes(q) ||
+                (e.position || "").toLowerCase().includes(q)
+            );
+        }
+        return list;
+    }, [employees, search, showObsolete]);
+
+    const obsoleteCount = useMemo(() => employees.filter((e) => !e.is_active).length, [employees]);
 
     const handleSaved = (msg: string) => {
         setInfo(msg);
@@ -136,7 +147,7 @@ export default function EmployeesClient({
                         <div>
                             <h1 className="text-xl font-bold text-white">Empleados</h1>
                             <p className="text-xs text-neutral-400">
-                                {employees.length} usuario{employees.length === 1 ? "" : "s"} · asigna módulos y acciones con palomitas
+                                {filtered.length} de {employees.length} · asigna módulos y acciones con palomitas
                             </p>
                         </div>
                     </div>
@@ -146,8 +157,12 @@ export default function EmployeesClient({
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
                             placeholder="Buscar por nombre, usuario, puesto…"
-                            className="bg-neutral-900/50 border border-neutral-700 rounded-xl px-3 py-2 text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-orange-500 w-72"
+                            className="bg-neutral-900/50 border border-neutral-700 rounded-xl px-3 py-2 text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-orange-500 w-64"
                         />
+                        <label className="flex items-center gap-1.5 text-xs text-neutral-300 cursor-pointer select-none">
+                            <input type="checkbox" checked={showObsolete} onChange={(e) => setShowObsolete(e.target.checked)} className="w-4 h-4 accent-orange-500" />
+                            <Archive className="w-3.5 h-3.5" /> Mostrar obsoletos
+                        </label>
                         <button
                             onClick={() => { setCreating(true); setErr(null); }}
                             className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white text-xs font-semibold"
@@ -231,8 +246,8 @@ export default function EmployeesClient({
                                                         Activo
                                                     </span>
                                                 ) : (
-                                                    <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-neutral-700/40 text-neutral-400 border border-neutral-600/30">
-                                                        Inactivo
+                                                    <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                                        Obsoleto
                                                     </span>
                                                 )}
                                             </td>
@@ -245,30 +260,53 @@ export default function EmployeesClient({
                                                     >
                                                         <Pencil className="w-3.5 h-3.5" />
                                                     </button>
-                                                    <button
-                                                        onClick={async () => {
-                                                            if (e.id === currentUserId) {
-                                                                setErr("No puedes eliminar tu propio usuario.");
-                                                                return;
-                                                            }
-                                                            if (!confirm(`¿Eliminar a ${e.full_name}?`)) return;
-                                                            setBusy(true);
-                                                            try {
-                                                                await deleteEmployeeAction(e.id);
-                                                                setEmployees((prev) => prev.filter((x) => x.id !== e.id));
-                                                                handleSaved("Empleado eliminado.");
-                                                            } catch (ex: any) {
-                                                                setErr(ex.message);
-                                                            } finally {
-                                                                setBusy(false);
-                                                            }
-                                                        }}
-                                                        disabled={busy || e.id === currentUserId}
-                                                        className="p-1.5 rounded-lg text-neutral-400 hover:text-rose-300 hover:bg-rose-500/10 disabled:opacity-30"
-                                                        title="Eliminar"
-                                                    >
-                                                        <Trash2 className="w-3.5 h-3.5" />
-                                                    </button>
+                                                    {e.is_active ? (
+                                                        <button
+                                                            onClick={async () => {
+                                                                if (e.id === currentUserId) {
+                                                                    setErr("No puedes obsoletar tu propio usuario.");
+                                                                    return;
+                                                                }
+                                                                if (!confirm(`¿Obsoletar a ${e.full_name}?\n\nNo se borrará, solo se ocultará del login y de la lista. Se puede restaurar después.`)) return;
+                                                                setBusy(true);
+                                                                try {
+                                                                    await obsoleteEmployeeAction(e.id);
+                                                                    setEmployees((prev) => prev.map((x) => x.id === e.id ? { ...x, is_active: false } : x));
+                                                                    handleSaved("Empleado obsoletado.");
+                                                                } catch (ex: any) {
+                                                                    setErr(ex.message);
+                                                                } finally {
+                                                                    setBusy(false);
+                                                                }
+                                                            }}
+                                                            disabled={busy || e.id === currentUserId}
+                                                            className="p-1.5 rounded-lg text-neutral-400 hover:text-amber-300 hover:bg-amber-500/10 disabled:opacity-30"
+                                                            title="Obsoletar"
+                                                        >
+                                                            <Archive className="w-3.5 h-3.5" />
+                                                        </button>
+                                                    ) : (
+                                                        <button
+                                                            onClick={async () => {
+                                                                if (!confirm(`¿Restaurar a ${e.full_name}?`)) return;
+                                                                setBusy(true);
+                                                                try {
+                                                                    await restoreEmployeeAction(e.id);
+                                                                    setEmployees((prev) => prev.map((x) => x.id === e.id ? { ...x, is_active: true } : x));
+                                                                    handleSaved("Empleado restaurado.");
+                                                                } catch (ex: any) {
+                                                                    setErr(ex.message);
+                                                                } finally {
+                                                                    setBusy(false);
+                                                                }
+                                                            }}
+                                                            disabled={busy}
+                                                            className="p-1.5 rounded-lg text-neutral-400 hover:text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-30"
+                                                            title="Restaurar"
+                                                        >
+                                                            <ArchiveRestore className="w-3.5 h-3.5" />
+                                                        </button>
+                                                    )}
                                                 </div>
                                             </td>
                                         </tr>

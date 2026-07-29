@@ -31,7 +31,8 @@ export default async function PurchaseOrderEditPage({ params }: { params: Promis
             .order('created_at', { ascending: true }),
         supabase
             .from('suppliers')
-            .select('id, business_name, rfc')
+            .select('id, business_name, rfc, is_active')
+            .order('is_active', { ascending: false })
             .order('business_name', { ascending: true }),
     ]);
 

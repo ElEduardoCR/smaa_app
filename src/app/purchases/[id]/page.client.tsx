@@ -59,7 +59,7 @@ export default function PurchaseOrderEditClient({
 }: {
     po: PO;
     items: Item[];
-    suppliers: { id: string; business_name: string; rfc: string }[];
+    suppliers: { id: string; business_name: string; rfc: string; is_active?: boolean }[];
     canEdit: boolean;
     canDelete: boolean;
     currentUser: { id: string; fullName: string; role: string };
@@ -239,7 +239,9 @@ export default function PurchaseOrderEditClient({
                             >
                                 <option value="">— Seleccionar proveedor —</option>
                                 {suppliers.map(s => (
-                                    <option key={s.id} value={s.id}>{s.business_name} ({s.rfc})</option>
+                                    <option key={s.id} value={s.id} className={s.is_active === false ? "text-neutral-500 line-through" : undefined}>
+                                        {s.business_name} ({s.rfc}){s.is_active === false ? " — Obsoleto" : ""}
+                                    </option>
                                 ))}
                             </select>
                         </div>

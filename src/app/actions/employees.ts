@@ -89,6 +89,38 @@ export async function deleteEmployeeAction(id: string) {
     revalidatePath('/settings/employees');
 }
 
+/** Marca un empleado como obsoleto (is_active = false). Preserva permisos y
+ *  audit trail. No se puede obsoletar a sí mismo. */
+export async function obsoleteEmployeeAction(id: string) {
+    const session = await requireEmployeesWrite();
+    if (id === session.employeeId) {
+        throw new Error('No puedes obsoletar tu propio usuario.');
+    }
+
+    const { supabase } = await import('@/lib/supabase');
+    const { error } = await supabase
+        .from('employees')
+        .update({ is_active: false })
+        .eq('id', id);
+    if (error) throw new Error('Error al obsoletar: ' + error.message);
+
+    revalidatePath('/settings/employees');
+}
+
+/** Restaura un empleado que fue marcado como obsoleto. */
+export async function restoreEmployeeAction(id: string) {
+    const session = await requireEmployeesWrite();
+
+    const { supabase } = await import('@/lib/supabase');
+    const { error } = await supabase
+        .from('employees')
+        .update({ is_active: true })
+        .eq('id', id);
+    if (error) throw new Error('Error al restaurar: ' + error.message);
+
+    revalidatePath('/settings/employees');
+}
+
 export async function viewEmployeesAction() {
     await requireEmployeesView();
 }

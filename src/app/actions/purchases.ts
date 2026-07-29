@@ -139,16 +139,37 @@ export async function updatePurchaseOrderAction(input: UpdatePOInput) {
 }
 
 // =============================================================================
-// Delete PO
+// Delete PO (en realidad obsoleta — soft delete)
 // =============================================================================
 export async function deletePurchaseOrderAction(id: string) {
     const session = await requireCan('delete');
     if (!id) throw new Error('Falta el ID de la PO.');
 
-    const { error } = await supabase.from('purchase_orders').delete().eq('id', id);
-    if (error) throw new Error('Error al eliminar: ' + error.message);
+    // Soft-delete: marcar como obsoleto en vez de borrar.
+    // Las POs son registros contables — no deben borrarse físicamente.
+    const { error } = await supabase
+        .from('purchase_orders')
+        .update({ is_active: false })
+        .eq('id', id);
+    if (error) throw new Error('Error al obsoletar: ' + error.message);
 
     revalidatePath('/purchases');
+    revalidatePath(`/purchases/${id}`);
+}
+
+/** Restaura una PO que fue marcada como obsoleto. */
+export async function restorePurchaseOrderAction(id: string) {
+    const session = await requireCan('edit');
+    if (!id) throw new Error('Falta el ID de la PO.');
+
+    const { error } = await supabase
+        .from('purchase_orders')
+        .update({ is_active: true })
+        .eq('id', id);
+    if (error) throw new Error('Error al restaurar: ' + error.message);
+
+    revalidatePath('/purchases');
+    revalidatePath(`/purchases/${id}`);
 }
 
 // =============================================================================

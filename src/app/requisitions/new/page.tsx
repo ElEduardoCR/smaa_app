@@ -20,7 +20,8 @@ export default async function NewRequisitionPage() {
 
     const { data: suppliers } = await supabase
         .from('suppliers')
-        .select('id, business_name, rfc')
+        .select('id, business_name, rfc, is_active')
+        .order('is_active', { ascending: false })
         .order('business_name', { ascending: true });
 
     return (

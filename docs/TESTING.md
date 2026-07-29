@@ -1,6 +1,6 @@
 # 🧪 Protocolo de Testing — SMAA ERP
 
-> Generado el 2026-07-29 después de los fixes de permisos, auto-PO, CSF parser y server actions gateadas.
+> Generado el 2026-07-29 después de los fixes de permisos, auto-PO, CSF parser, server actions gateadas y soft-delete (obsolete/restore) en clientes/proveedores/empleados/POs.
 
 Este documento te dice **exactamente** cómo probar el flujo end-to-end de los 5 fixes que aplicamos. Hay dos niveles:
 
@@ -35,7 +35,7 @@ $env:NODE_PATH = "C:\tmp-pg-runner\node_modules"
 
 ---
 
-## ✅ Tests automatizados (47/47 pasan)
+## ✅ Tests automatizados (65/65 pasan)
 
 Hay 3 scripts. Cada uno es independiente. Los puedes correr en cualquier orden.
 
@@ -59,7 +59,7 @@ npx tsx scripts/test-csf-parser.ts
 
 **Output esperado:** `📊 Resumen: 19 pasaron, 0 fallaron (de 19 total)`
 
-### Test 2: Schema de DB (17/17)
+### Test 2: Schema de DB (22/22)
 
 ```powershell
 Set-Location "C:\smaa app\smaa_app"
@@ -78,10 +78,15 @@ npx tsx scripts/permission-tests.ts
 - ✅ Esquema `manufacturing_modules` existe
 - ✅ FKs de `employee_permissions` apuntan a `employees` (no `payroll_employees`)
 - ✅ Se pueden asignar permisos por sub-módulo (manufacturing:maquinado, etc.)
+- ✅ **SCHEMA-004** `clients.is_active` (boolean, NOT NULL, default true) — soft-delete
+- ✅ **SCHEMA-005** `suppliers.is_active` (boolean, NOT NULL, default true) — soft-delete
+- ✅ **SCHEMA-006** `purchase_orders.is_active` (boolean, NOT NULL, default true) — soft-delete
+- ✅ **SCHEMA-007** Índices parciales `idx_*_is_active` existen en las 3 tablas
+- ✅ **SCHEMA-008** Round-trip de `is_active` (crear → false → true)
 
-**Output esperado:** `📊 Resumen: 17 pasaron, 0 fallaron (de 17 total)`
+**Output esperado:** `📊 Resumen: 22 pasaron, 0 fallaron (de 22 total)`
 
-### Test 3: Lógica de server actions (11/11)
+### Test 3: Lógica de server actions (24/24)
 
 ```powershell
 Set-Location "C:\smaa app\smaa_app"
@@ -100,13 +105,26 @@ npx tsx scripts/test-server-actions.ts
 - ✅ **P-002** operator sin `can_create` NO puede crear PO
 - ✅ **P-003** admin puede Recibir PO (cambiar status + invoice_url)
 - ✅ **P-004** operator sin `can_edit` NO puede Recibir PO
+- ✅ **O-001** master puede obsoletar cliente (reusa `can_delete`)
+- ✅ **O-002** admin con `can_delete` puede obsoletar cliente
+- ✅ **O-003** viewer SIN `can_delete` NO puede obsoletar cliente
+- ✅ **O-004** master puede restaurar cliente (reusa `can_edit`)
+- ✅ **O-005** admin con `can_edit` puede restaurar cliente
+- ✅ **O-006** viewer SIN `can_edit` NO puede restaurar cliente
+- ✅ **O-007** admin puede obsoletar supplier
+- ✅ **O-008** admin puede restaurar supplier
+- ✅ **O-009** admin puede obsoletar PO (soft-delete via `is_active=false`)
+- ✅ **O-010** viewer SIN `can_delete` NO puede obsoletar PO
+- ✅ **O-011** admin puede restaurar PO
+- ✅ **O-012** viewer SIN `can_edit` NO puede restaurar PO
+- ✅ **O-013** Registro obsoletado sigue en la BD (no se borra físicamente) — preserva audit trail
 
-**Output esperado:** `📊 Resumen: 11 pasaron, 0 fallaron (de 11 total)`
+**Output esperado:** `📊 Resumen: 24 pasaron, 0 fallaron (de 24 total)`
 
 ### Resumen consolidado
 
 ```
-🧪 Tests automatizados: 47 / 47 pasan ✅
+🧪 Tests automatizados: 65 / 65 pasan ✅
 ```
 
 ---
@@ -301,20 +319,27 @@ DELETE FROM employees WHERE username LIKE 'test_%';
 
 | Archivo | Líneas | Qué hace |
 |---|---|---|
-| `src/app/actions/clients.ts` | 120 | Server actions gateadas: createClient, updateClient, deleteClient, viewClients |
-| `src/app/actions/suppliers.ts` | 115 | Idem para suppliers + guard que rechaza delete si hay POs referenciando |
-| `src/app/actions/purchases.ts` | 200 | createPO, updatePO, deletePO, receivePO, uploadEvidence |
-| `src/app/purchases/[id]/page.client.tsx` | 470 | Refactor para usar updatePurchaseOrderAction y deletePurchaseOrderAction |
-| `src/app/purchases/page.client.tsx` | (modificado) | handleReceive y handleUploadEvidence usan server actions |
+| `src/app/actions/clients.ts` | 130 | Server actions gateadas: createClient, updateClient, deleteClient (soft-delete), restoreClient, viewClients |
+| `src/app/actions/suppliers.ts` | 120 | Idem para suppliers + soft-delete + restore (sin guard de FK porque obsoletar no borra) |
+| `src/app/actions/purchases.ts` | 220 | createPO, updatePO, deletePO (soft-delete), restorePurchaseOrder, receivePO, uploadEvidence |
+| `src/app/actions/employees.ts` | 130 | + obsoleteEmployeeAction + restoreEmployeeAction (ambos protegen auto-obsolete) |
+| `src/app/purchases/[id]/page.client.tsx` | 470 | Refactor + supplier dropdown con obsoletos tachados |
+| `src/app/purchases/page.client.tsx` | (modificado) | handleReceive/Upload + handleObsolete/handleRestore, toggle "Mostrar obsoletos" |
+| `src/app/purchases/new/page.client.tsx` | (modificado) | supplier dropdown con obsoletos tachados |
+| `src/app/requisitions/new/NewRequisitionClient.tsx` | (modificado) | supplier dropdown con obsoletos tachados |
+| `src/app/clients/page.client.tsx` | (rewrite) | Toggle obsoletos, search, obsoletar/restore, badges, strike-through |
+| `src/app/suppliers/page.client.tsx` | (modificado) | Toggle obsoletos, obsoletar/restore, badges, strike-through |
+| `src/app/settings/employees/EmployeesClient.tsx` | (modificado) | Toggle obsoletos, obsoletar/restore (auto-obsolete protegido) |
 | `src/lib/csfParser.ts` | 460 | Parser robusto PM+PF, régimen más reciente, email del SAT excluido |
 | `src/lib/moduleCatalog.ts` | (limpieza) | Eliminado DASHBOARD_CARDS (código muerto) |
 | `supabase/migrations/20260729000000_po_supplier_nullable.sql` | 20 | purchase_orders.supplier_id nullable + columna notes |
+| `supabase/migrations/20260729010000_add_is_active.sql` | 30 | is_active en clients/suppliers/purchase_orders + índices parciales |
 | `docs/permission-audit.md` | 270 | Audit completo con matriz módulo × acción + gaps |
-| `docs/TESTING.md` | (este archivo) | Protocolo de testing automatizado + manual |
-| `scripts/permission-tests.ts` | 350 | Tests de schema DB (17 casos) |
+| `docs/TESTING.md` | (este archivo) | Protocolo de testing automatizado + manual + sección soft-delete |
+| `scripts/permission-tests.ts` | 460 | Tests de schema DB (22 casos) |
 | `scripts/test-csf-parser.ts` | 270 | Tests del parser CSF (19 casos) |
-| `scripts/test-server-actions.ts` | 320 | Tests de lógica de server actions (11 casos) |
-| `scripts/apply-migration.ts` | 50 | Helper para aplicar la migration |
+| `scripts/test-server-actions.ts` | 450 | Tests de lógica de server actions (24 casos) |
+| `scripts/apply-migration.ts` | 50 | Helper para aplicar la migration (acepta filename opcional) |
 
 ---
 
@@ -369,4 +394,40 @@ npx tsx scripts/apply-migration.ts
 npx tsx scripts/cleanup-test-data.ts
 ```
 
-Si te truena cualquier test, mándame el output y lo arreglo. **No deployes a producción sin haber pasado los 47 tests automatizados + los 5 escenarios manuales.**
+Si te truena cualquier test, mándame el output y lo arreglo. **No deployes a producción sin haber pasado los 65 tests automatizados + los 5 escenarios manuales.**
+
+---
+
+## 🔄 Soft-delete (obsoletar / restaurar) — flujo completo
+
+> Implementado el 2026-07-29 para clientes, proveedores, empleados y POs. Reemplaza el hard-delete anterior. Preserva audit trail (ventas, cotizaciones, facturas históricas, etc).
+
+### Convención de permisos
+
+- **Obsoletar** usa `can_delete` (no se introduce un permiso nuevo)
+- **Restaurar** usa `can_edit`
+- El toggle "Mostrar obsoletos" en cada lista filtra los registros con `is_active = false`
+
+### Cómo probar el flujo
+
+1. Login como master o admin
+2. Ve a `/clients` (o `/suppliers`, `/settings/employees`, `/purchases`)
+3. Click en el botón ámbar `<Archive/>` (icono de archivo) en una fila → confirmas → el registro se marca como obsoleto (no se borra)
+4. La fila se atenúa (color gris + línea tachada en el nombre) y aparece el badge "Obsoleto" o "prov. obsoleto"
+5. Marca el checkbox "Mostrar obsoletos" en el header/filtros para ver los registros obsoletos
+6. Para restaurar: click en el botón verde `<ArchiveRestore/>` → confirmas → vuelve a la lista activa
+7. **Empleados:** el botón obsoletar aparece deshabilitado para tu propio usuario (no te puedes obsoletar a ti mismo)
+
+### Dropdowns siguen mostrando obsoletos (con tachado)
+
+En `/purchases/new`, `/purchases/[id]`, `/requisitions/new`, los selectores de proveedor muestran los obsoletos con:
+- Texto gris + tachado
+- Sufijo "— Obsoleto" al final
+- Siguen siendo seleccionables (para mantener referencias históricas en POs/requisiciones)
+
+### Auditoría
+
+- `is_active = false` significa obsoleto (no vigente)
+- `is_active = true` (default) significa activo
+- Los registros NUNCA se borran físicamente con este flujo → siempre se puede consultar el histórico
+- Índices parciales `idx_*_is_active` en cada tabla optimizan las queries que filtran por activos

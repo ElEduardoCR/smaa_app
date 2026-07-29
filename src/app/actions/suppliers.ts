@@ -110,17 +110,28 @@ export async function deleteSupplierAction(id: string) {
     const session = await requireCan('delete');
     if (!id) throw new Error('Falta el ID del proveedor.');
 
-    // Verificar que no haya POs referenciando este supplier
-    const { count } = await supabase
-        .from('purchase_orders')
-        .select('id', { count: 'exact', head: true })
-        .eq('supplier_id', id);
-    if (count && count > 0) {
-        throw new Error(`No se puede eliminar: hay ${count} orden(es) de compra que referencian este proveedor.`);
-    }
+    // Soft-delete: marcar como obsoleto en vez de borrar.
+    // Esto preserva el historial de POs que referencian este supplier.
+    // Si el admin necesita borrado físico, puede hacerlo directo en la DB.
+    const { error } = await supabase
+        .from('suppliers')
+        .update({ is_active: false })
+        .eq('id', id);
+    if (error) throw new Error('Error al obsoletar: ' + error.message);
 
-    const { error } = await supabase.from('suppliers').delete().eq('id', id);
-    if (error) throw new Error('Error al eliminar: ' + error.message);
+    revalidatePath('/suppliers');
+}
+
+/** Restaura un proveedor que fue marcado como obsoleto. */
+export async function restoreSupplierAction(id: string) {
+    const session = await requireCan('edit');
+    if (!id) throw new Error('Falta el ID del proveedor.');
+
+    const { error } = await supabase
+        .from('suppliers')
+        .update({ is_active: true })
+        .eq('id', id);
+    if (error) throw new Error('Error al restaurar: ' + error.message);
 
     revalidatePath('/suppliers');
 }

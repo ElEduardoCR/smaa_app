@@ -353,6 +353,175 @@ async function runTests() {
         check('P-004', 'viewer SIN edit NO puede Recibir PO', !r.allowed, r.error);
     }
 
+    // ==================== OBSOLETE / RESTORE (soft-delete) ====================
+    console.log('\n--- OBSOLETE / RESTORE ---');
+
+    // Soft-delete cliente: master puede (can_delete)
+    {
+        const r = await simulateServerAction('delete', 'clients', master, async () => {
+            const rfc = 'TESTSA' + Date.now().toString().slice(-7);
+            const ins = await sb.query(
+                `INSERT INTO clients (rfc, business_name, fiscal_regime, fiscal_zip_code) VALUES ($1, 'TEST SA Obsoletable Master', '601', '12345') RETURNING id`,
+                [rfc]
+            );
+            const id = ins.rows[0].id;
+            await sb.query(`UPDATE clients SET is_active = false WHERE id = $1`, [id]);
+        });
+        check('O-001', 'master puede obsoletar cliente (can_delete)', r.allowed, r.error);
+    }
+
+    // Soft-delete cliente: admin con can_delete puede
+    {
+        const r = await simulateServerAction('delete', 'clients', admin, async () => {
+            const rfc = 'TESTSA' + Date.now().toString().slice(-7);
+            const ins = await sb.query(
+                `INSERT INTO clients (rfc, business_name, fiscal_regime, fiscal_zip_code) VALUES ($1, 'TEST SA Obsoletable Admin', '601', '12345') RETURNING id`,
+                [rfc]
+            );
+            const id = ins.rows[0].id;
+            await sb.query(`UPDATE clients SET is_active = false WHERE id = $1`, [id]);
+        });
+        check('O-002', 'admin con can_delete puede obsoletar cliente', r.allowed, r.error);
+    }
+
+    // Soft-delete cliente: viewer NO puede
+    {
+        const r = await simulateServerAction('delete', 'clients', viewer, async () => {
+            await sb.query(`UPDATE clients SET is_active = false WHERE rfc = 'NONEXISTENT'`);
+        });
+        check('O-003', 'viewer SIN can_delete NO puede obsoletar cliente', !r.allowed, r.error);
+    }
+
+    // Restaurar cliente: master puede (can_edit)
+    {
+        const r = await simulateServerAction('edit', 'clients', master, async () => {
+            const rfc = 'TESTSA' + Date.now().toString().slice(-7);
+            const ins = await sb.query(
+                `INSERT INTO clients (rfc, business_name, fiscal_regime, fiscal_zip_code, is_active) VALUES ($1, 'TEST SA To Restore Master', '601', '12345', false) RETURNING id`,
+                [rfc]
+            );
+            const id = ins.rows[0].id;
+            await sb.query(`UPDATE clients SET is_active = true WHERE id = $1`, [id]);
+        });
+        check('O-004', 'master puede restaurar cliente (can_edit)', r.allowed, r.error);
+    }
+
+    // Restaurar cliente: admin con can_edit puede
+    {
+        const r = await simulateServerAction('edit', 'clients', admin, async () => {
+            const rfc = 'TESTSA' + Date.now().toString().slice(-7);
+            const ins = await sb.query(
+                `INSERT INTO clients (rfc, business_name, fiscal_regime, fiscal_zip_code, is_active) VALUES ($1, 'TEST SA To Restore Admin', '601', '12345', false) RETURNING id`,
+                [rfc]
+            );
+            const id = ins.rows[0].id;
+            await sb.query(`UPDATE clients SET is_active = true WHERE id = $1`, [id]);
+        });
+        check('O-005', 'admin con can_edit puede restaurar cliente', r.allowed, r.error);
+    }
+
+    // Restaurar cliente: viewer NO puede
+    {
+        const r = await simulateServerAction('edit', 'clients', viewer, async () => {
+            await sb.query(`UPDATE clients SET is_active = true WHERE rfc = 'NONEXISTENT'`);
+        });
+        check('O-006', 'viewer SIN can_edit NO puede restaurar cliente', !r.allowed, r.error);
+    }
+
+    // Soft-delete supplier: admin puede
+    {
+        const r = await simulateServerAction('delete', 'suppliers', admin, async () => {
+            const rfc = 'TESTSA' + Date.now().toString().slice(-7);
+            const ins = await sb.query(
+                `INSERT INTO suppliers (rfc, business_name) VALUES ($1, 'TEST SA Supplier Obsoletable') RETURNING id`,
+                [rfc]
+            );
+            const id = ins.rows[0].id;
+            await sb.query(`UPDATE suppliers SET is_active = false WHERE id = $1`, [id]);
+        });
+        check('O-007', 'admin puede obsoletar supplier', r.allowed, r.error);
+    }
+
+    // Restaurar supplier: admin puede
+    {
+        const r = await simulateServerAction('edit', 'suppliers', admin, async () => {
+            const rfc = 'TESTSA' + Date.now().toString().slice(-7);
+            const ins = await sb.query(
+                `INSERT INTO suppliers (rfc, business_name, is_active) VALUES ($1, 'TEST SA Supplier Restore', false) RETURNING id`,
+                [rfc]
+            );
+            const id = ins.rows[0].id;
+            await sb.query(`UPDATE suppliers SET is_active = true WHERE id = $1`, [id]);
+        });
+        check('O-008', 'admin puede restaurar supplier', r.allowed, r.error);
+    }
+
+    // Soft-delete PO: admin puede (no se borra, solo is_active=false)
+    {
+        const r = await simulateServerAction('delete', 'purchases', admin, async () => {
+            const supRes = await sb.query(
+                `INSERT INTO suppliers (rfc, business_name) VALUES ($1, 'TEST SA PO Obs Supplier') RETURNING id`,
+                ['TESTSAPO' + Date.now().toString().slice(-6)]
+            );
+            const supplierId = supRes.rows[0].id;
+            const ins = await sb.query(
+                `INSERT INTO purchase_orders (supplier_id, status, subtotal, vat_total, total, notes) VALUES ($1, 'Draft', 0, 0, 0, 'TEST sa notes') RETURNING id`,
+                [supplierId]
+            );
+            const poId = ins.rows[0].id;
+            // Soft-delete (set is_active=false, NO DELETE)
+            await sb.query(`UPDATE purchase_orders SET is_active = false WHERE id = $1`, [poId]);
+        });
+        check('O-009', 'admin puede obsoletar PO (soft-delete via is_active=false)', r.allowed, r.error);
+    }
+
+    // Soft-delete PO: viewer NO puede
+    {
+        const r = await simulateServerAction('delete', 'purchases', viewer, async () => {
+            await sb.query(`UPDATE purchase_orders SET is_active = false WHERE id = (SELECT id FROM purchase_orders LIMIT 1)`);
+        });
+        check('O-010', 'viewer SIN can_delete NO puede obsoletar PO', !r.allowed, r.error);
+    }
+
+    // Restaurar PO: admin puede
+    {
+        const r = await simulateServerAction('edit', 'purchases', admin, async () => {
+            const supRes = await sb.query(
+                `INSERT INTO suppliers (rfc, business_name) VALUES ($1, 'TEST SA PO Rest Supplier') RETURNING id`,
+                ['TESTSAPO' + Date.now().toString().slice(-6)]
+            );
+            const supplierId = supRes.rows[0].id;
+            const ins = await sb.query(
+                `INSERT INTO purchase_orders (supplier_id, status, subtotal, vat_total, total, notes, is_active) VALUES ($1, 'Draft', 0, 0, 0, 'TEST sa notes', false) RETURNING id`,
+                [supplierId]
+            );
+            const poId = ins.rows[0].id;
+            await sb.query(`UPDATE purchase_orders SET is_active = true WHERE id = $1`, [poId]);
+        });
+        check('O-011', 'admin puede restaurar PO', r.allowed, r.error);
+    }
+
+    // Restaurar PO: viewer NO puede
+    {
+        const r = await simulateServerAction('edit', 'purchases', viewer, async () => {
+            await sb.query(`UPDATE purchase_orders SET is_active = true WHERE id = (SELECT id FROM purchase_orders LIMIT 1)`);
+        });
+        check('O-012', 'viewer SIN can_edit NO puede restaurar PO', !r.allowed, r.error);
+    }
+
+    // Verificar que obsoletar NO hace DELETE (datos preservados)
+    {
+        const rfc = 'TESTSA' + Date.now().toString().slice(-7);
+        const ins = await sb.query(
+            `INSERT INTO clients (rfc, business_name, fiscal_regime, fiscal_zip_code) VALUES ($1, 'TEST SA Preserved', '601', '12345') RETURNING id`,
+            [rfc]
+        );
+        const id = ins.rows[0].id;
+        await sb.query(`UPDATE clients SET is_active = false WHERE id = $1`, [id]);
+        const stillThere = await sb.query(`SELECT id FROM clients WHERE id = $1`, [id]);
+        check('O-013', 'Registro obsoletado sigue en la BD (no se borra)', stillThere.rows.length === 1, `id=${id.slice(0, 8)}...`);
+    }
+
     // ==================== RESUMEN ====================
     console.log(`\n📊 Resumen: ${passed} pasaron, ${failed} fallaron (de ${passed + failed} total)`);
 }

@@ -13,7 +13,8 @@ type POData = {
         rfc: string;
         email?: string;
         address?: string;
-    };
+        is_active?: boolean;
+    } | null;
     items: {
         description: string;
         quantity: number;
@@ -101,11 +102,12 @@ export const generatePurchaseOrderPDF = async (data: POData) => {
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(10);
-    doc.text(`Razón Social: ${data.supplier.business_name}`, 14, clientStartY + 7);
-    doc.text(`RFC: ${data.supplier.rfc}`, 14, clientStartY + 12);
+    const supplierInfo = data.supplier ?? { business_name: "—", rfc: "—" };
+    doc.text(`Razón Social: ${supplierInfo.business_name}`, 14, clientStartY + 7);
+    doc.text(`RFC: ${supplierInfo.rfc}`, 14, clientStartY + 12);
     let nextY = clientStartY + 17;
-    if (data.supplier.email) { doc.text(`Email: ${data.supplier.email}`, 14, nextY); nextY += 5; }
-    if (data.supplier.address) { doc.text(`Dirección: ${data.supplier.address}`, 14, nextY); }
+    if (supplierInfo.email) { doc.text(`Email: ${supplierInfo.email}`, 14, nextY); nextY += 5; }
+    if (supplierInfo.address) { doc.text(`Dirección: ${supplierInfo.address}`, 14, nextY); }
 
     const tableData = data.items.map(item => [item.description, item.quantity.toString(), formatCurrency(item.unit_price), formatCurrency(item.line_total)]);
 

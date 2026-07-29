@@ -32,6 +32,7 @@ type Supplier = {
     id: string;
     business_name: string;
     rfc: string;
+    is_active?: boolean;
 };
 
 function NewPOForm() {
@@ -57,7 +58,7 @@ function NewPOForm() {
     useEffect(() => {
         async function fetch() {
             try {
-                const { data, error } = await supabase.from('suppliers').select('id, business_name, rfc').order('business_name');
+                const { data, error } = await supabase.from('suppliers').select('id, business_name, rfc, is_active').order('is_active', { ascending: false }).order('business_name', { ascending: true });
                 if (error) throw error;
                 setSuppliers(data || []);
             } catch (err) {
@@ -152,7 +153,11 @@ function NewPOForm() {
                                         errors.supplier_id ? "border-red-500 focus:ring-red-500/20" : "border-neutral-700 focus:border-orange-500 focus:ring-orange-500/20"
                                     )} disabled={isLoadingSuppliers}>
                                     <option value="" disabled>Elige un proveedor...</option>
-                                    {suppliers.map(s => (<option key={s.id} value={s.id}>{s.business_name} ({s.rfc})</option>))}
+                                    {suppliers.map(s => (
+                                        <option key={s.id} value={s.id} className={cn(s.is_active === false && "text-neutral-500 line-through")}>
+                                            {s.business_name} ({s.rfc}){s.is_active === false ? " — Obsoleto" : ""}
+                                        </option>
+                                    ))}
                                 </select>
                                 {errors.supplier_id && <p className="text-red-400 text-xs ml-1">{errors.supplier_id.message}</p>}
                             </div>

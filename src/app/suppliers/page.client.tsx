@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { supabase } from "@/lib/supabase";
 import { extractAndParseCSF, type CsfData } from "@/lib/csfParser";
-import { Truck, FileText, Hash, Mail, MapPin, Phone, RefreshCw, Plus, ArrowLeft, Users, Download, FileCheck, Edit2, Trash2, Sparkles, CheckCircle2, AlertCircle, Loader2, X } from "lucide-react";
+import { createSupplierAction, updateSupplierAction, deleteSupplierAction as obsoleteSupplierAction, restoreSupplierAction } from "@/app/actions/suppliers";
+import { Truck, FileText, Hash, Mail, MapPin, Phone, RefreshCw, Plus, ArrowLeft, Users, Download, FileCheck, Edit2, Sparkles, CheckCircle2, AlertCircle, Loader2, X, Archive, ArchiveRestore } from "lucide-react";
 import Link from "next/link";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -26,7 +27,13 @@ const supplierSchema = z.object({
 });
 
 type SupplierFormValues = z.infer<typeof supplierSchema>;
-type Supplier = SupplierFormValues & { id: string; constancia_pdf_url?: string; constancia_updated_at?: string; created_at: string; };
+type Supplier = SupplierFormValues & {
+    id: string;
+    constancia_pdf_url?: string;
+    constancia_updated_at?: string;
+    created_at: string;
+    is_active?: boolean;
+};
 
 export default function SuppliersPage() {
     const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -38,6 +45,8 @@ export default function SuppliersPage() {
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [csfParsing, setCsfParsing] = useState(false);
     const [csfExtracted, setCsfExtracted] = useState<CsfData | null>(null);
+    const [showObsolete, setShowObsolete] = useState(false);
+    const [search, setSearch] = useState("");
 
     const { register, handleSubmit, reset, formState: { errors } } = useForm<SupplierFormValues>({
         resolver: zodResolver(supplierSchema),
@@ -47,7 +56,11 @@ export default function SuppliersPage() {
     const fetchSuppliers = async () => {
         setIsLoading(true);
         try {
-            const { data, error } = await supabase.from('suppliers').select('*').order('created_at', { ascending: false });
+            const { data, error } = await supabase
+                .from('suppliers')
+                .select('*')
+                .order('is_active', { ascending: false })
+                .order('created_at', { ascending: false });
             if (error) throw error;
             setSuppliers(data || []);
         } catch (error: any) {
@@ -59,6 +72,50 @@ export default function SuppliersPage() {
 
     useEffect(() => { fetchSuppliers(); }, []);
 
+    const visibleSuppliers = useMemo(() => {
+        let list = suppliers;
+        if (!showObsolete) {
+            list = list.filter((s) => s.is_active !== false);
+        }
+        if (search.trim()) {
+            const q = search.trim().toLowerCase();
+            list = list.filter((s) =>
+                (s.rfc || "").toLowerCase().includes(q) ||
+                (s.business_name || "").toLowerCase().includes(q) ||
+                (s.email || "").toLowerCase().includes(q)
+            );
+        }
+        return list;
+    }, [suppliers, showObsolete, search]);
+
+    const obsoleteCount = useMemo(() => suppliers.filter((s) => s.is_active === false).length, [suppliers]);
+
+    const handleObsolete = async (s: Supplier) => {
+        if (!confirm(`¿Obsoletar al proveedor "${s.business_name}"?\n\nNo se borrará, solo se ocultará de las listas. Las POs existentes siguen vinculadas.`)) return;
+        setMessage(null);
+        try {
+            await obsoleteSupplierAction(s.id);
+            setMessage({ type: 'success', text: `Proveedor "${s.business_name}" obsoletado.` });
+            fetchSuppliers();
+            setTimeout(() => setMessage(null), 3000);
+        } catch (e: any) {
+            setMessage({ type: 'error', text: e.message || "Error al obsoletar." });
+        }
+    };
+
+    const handleRestore = async (s: Supplier) => {
+        if (!confirm(`¿Restaurar al proveedor "${s.business_name}"?`)) return;
+        setMessage(null);
+        try {
+            await restoreSupplierAction(s.id);
+            setMessage({ type: 'success', text: `Proveedor "${s.business_name}" restaurado.` });
+            fetchSuppliers();
+            setTimeout(() => setMessage(null), 3000);
+        } catch (e: any) {
+            setMessage({ type: 'error', text: e.message || "Error al restaurar." });
+        }
+    };
+
     const handleEditClick = (s: Supplier) => {
         setEditingId(s.id);
         reset({ rfc: s.rfc, business_name: s.business_name, fiscal_regime: s.fiscal_regime || "", fiscal_zip_code: s.fiscal_zip_code || "", email: s.email || "", phone: s.phone || "", address: s.address || "" });
@@ -66,19 +123,6 @@ export default function SuppliersPage() {
         setCsfExtracted(null);
         setIsFormOpen(true);
         window.scrollTo({ top: 0, behavior: "smooth" });
-    };
-
-    const handleDelete = async (id: string) => {
-        if (!confirm("¿Estás seguro de que deseas eliminar este proveedor?")) return;
-        try {
-            const { error } = await supabase.from('suppliers').delete().eq('id', id);
-            if (error) throw error;
-            setMessage({ type: 'success', text: "Proveedor eliminado." });
-            fetchSuppliers();
-            setTimeout(() => setMessage(null), 3000);
-        } catch (error: any) {
-            setMessage({ type: 'error', text: error.message || "Error al eliminar." });
-        }
     };
 
     const handleCloseForm = () => {
@@ -142,8 +186,7 @@ export default function SuppliersPage() {
         setIsSubmitting(true);
         setMessage(null);
         try {
-            let pdfUrl = null;
-            let pdfUpdatedAt = null;
+            let pdfUrl: string | null = null;
 
             if (selectedFile) {
                 const fileExt = selectedFile.name.split('.').pop();
@@ -152,19 +195,32 @@ export default function SuppliersPage() {
                 if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`);
                 const { data: publicUrlData } = supabase.storage.from('purchase_files').getPublicUrl(`constancias/${fileName}`);
                 pdfUrl = publicUrlData.publicUrl;
-                pdfUpdatedAt = new Date().toISOString();
             }
 
-            const recordData: any = { ...data };
-            if (pdfUrl) { recordData.constancia_pdf_url = pdfUrl; recordData.constancia_updated_at = pdfUpdatedAt; }
-
             if (editingId) {
-                const { error } = await supabase.from('suppliers').update(recordData).eq('id', editingId);
-                if (error) throw error;
+                await updateSupplierAction({
+                    id: editingId,
+                    rfc: data.rfc,
+                    business_name: data.business_name,
+                    fiscal_regime: data.fiscal_regime || null,
+                    fiscal_zip_code: data.fiscal_zip_code || null,
+                    email: data.email || null,
+                    phone: data.phone || null,
+                    address: data.address || null,
+                    constancia_pdf_url: pdfUrl,
+                });
                 setMessage({ type: 'success', text: "Proveedor actualizado." });
             } else {
-                const { error } = await supabase.from('suppliers').insert([recordData]);
-                if (error) throw error;
+                await createSupplierAction({
+                    rfc: data.rfc,
+                    business_name: data.business_name,
+                    fiscal_regime: data.fiscal_regime || null,
+                    fiscal_zip_code: data.fiscal_zip_code || null,
+                    email: data.email || null,
+                    phone: data.phone || null,
+                    address: data.address || null,
+                    constancia_pdf_url: pdfUrl,
+                });
                 setMessage({ type: 'success', text: "Proveedor agregado." });
             }
 
@@ -325,11 +381,32 @@ export default function SuppliersPage() {
                 )}
 
                 <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-3xl overflow-hidden backdrop-blur-sm">
-                    <div className="p-6 border-b border-neutral-700/50 flex justify-between items-center bg-neutral-800/20">
-                        <h2 className="text-xl font-semibold text-white">Proveedores Registrados</h2>
-                        <button onClick={fetchSuppliers} className="p-2 text-neutral-400 hover:text-white hover:bg-neutral-700 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium" disabled={isLoading}>
-                            <RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin text-rose-400")} /> Refresh
-                        </button>
+                    <div className="p-6 border-b border-neutral-700/50 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-neutral-800/20">
+                        <div className="flex items-center gap-3 flex-wrap">
+                            <h2 className="text-xl font-semibold text-white">Proveedores Registrados</h2>
+                            <span className="text-xs text-neutral-500">({visibleSuppliers.length} de {suppliers.length})</span>
+                            {obsoleteCount > 0 && (
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                                    {obsoleteCount} obsoleto{obsoleteCount !== 1 ? "s" : ""}
+                                </span>
+                            )}
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <input
+                                type="text"
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                                placeholder="Buscar RFC o razón social..."
+                                className="bg-neutral-900/60 border border-neutral-700/50 rounded-lg px-3 py-1.5 text-sm text-neutral-200 placeholder:text-neutral-500 focus:outline-none focus:border-rose-500/50 w-56"
+                            />
+                            <label className="flex items-center gap-1.5 text-xs text-neutral-300 cursor-pointer select-none">
+                                <input type="checkbox" checked={showObsolete} onChange={(e) => setShowObsolete(e.target.checked)} className="w-4 h-4 accent-rose-500" />
+                                <Archive className="w-3.5 h-3.5" /> Mostrar obsoletos
+                            </label>
+                            <button onClick={fetchSuppliers} className="p-2 text-neutral-400 hover:text-white hover:bg-neutral-700 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium" disabled={isLoading}>
+                                <RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin text-rose-400")} /> Refresh
+                            </button>
+                        </div>
                     </div>
                     <div className="overflow-x-auto">
                         <table className="w-full text-left text-sm whitespace-nowrap">
@@ -340,38 +417,75 @@ export default function SuppliersPage() {
                                     <th className="px-6 py-4">Email</th>
                                     <th className="px-6 py-4">Teléfono</th>
                                     <th className="px-6 py-4">Constancia</th>
+                                    <th className="px-6 py-4">Estado</th>
                                     <th className="px-6 py-4 rounded-tr-xl text-right">Acciones</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-neutral-700/50">
                                 {isLoading ? (
-                                    <tr><td colSpan={6} className="px-6 py-12 text-center text-neutral-400"><RefreshCw className="w-6 h-6 animate-spin mx-auto mb-3 text-rose-500" />Loading...</td></tr>
-                                ) : suppliers.length === 0 ? (
-                                    <tr><td colSpan={6} className="px-6 py-12 text-center text-neutral-400">
+                                    <tr><td colSpan={7} className="px-6 py-12 text-center text-neutral-400"><RefreshCw className="w-6 h-6 animate-spin mx-auto mb-3 text-rose-500" />Cargando...</td></tr>
+                                ) : visibleSuppliers.length === 0 ? (
+                                    <tr><td colSpan={7} className="px-6 py-12 text-center text-neutral-400">
                                         <div className="bg-neutral-800/50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 border border-neutral-700"><Truck className="w-8 h-8 text-neutral-500" /></div>
-                                        <p className="text-lg text-neutral-300 font-medium">No hay proveedores</p>
-                                        <p className="text-sm mt-1">Agrega tu primer proveedor.</p>
+                                        <p className="text-lg text-neutral-300 font-medium">
+                                            {search.trim() ? "Sin resultados para esa búsqueda" : showObsolete ? "No hay proveedores obsoletos" : "No hay proveedores"}
+                                        </p>
+                                        {!search.trim() && !showObsolete && <p className="text-sm mt-1">Agrega tu primer proveedor.</p>}
                                     </td></tr>
                                 ) : (
-                                    suppliers.map((s) => (
-                                        <tr key={s.id} className="hover:bg-neutral-800/80 transition-colors">
-                                            <td className="px-6 py-4"><span className="font-mono font-medium text-rose-300 bg-rose-500/10 px-2 py-1 rounded-md border border-rose-500/20">{s.rfc}</span></td>
-                                            <td className="px-6 py-4 font-medium text-neutral-200">{s.business_name}</td>
-                                            <td className="px-6 py-4 text-neutral-400">{s.email || '—'}</td>
-                                            <td className="px-6 py-4 text-neutral-400">{s.phone || '—'}</td>
-                                            <td className="px-6 py-4">
-                                                {s.constancia_pdf_url ? (
-                                                    <a href={s.constancia_pdf_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-2.5 py-1.5 rounded-lg border border-emerald-500/20"><FileCheck className="w-3.5 h-3.5" /> Ver PDF</a>
-                                                ) : <span className="text-neutral-600 text-xs italic">No subida</span>}
-                                            </td>
-                                            <td className="px-6 py-4 text-right">
-                                                <div className="flex items-center justify-end gap-2">
-                                                    <button onClick={() => handleEditClick(s)} className="p-2 text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-500 transition-colors rounded-lg border border-rose-500/20" title="Editar"><Edit2 className="w-4 h-4" /></button>
-                                                    <button onClick={() => handleDelete(s.id)} className="p-2 text-neutral-500 hover:text-red-400 hover:bg-red-500/10 transition-colors rounded-lg border border-neutral-700" title="Eliminar"><Trash2 className="w-4 h-4" /></button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ))
+                                    visibleSuppliers.map((s) => {
+                                        const isObsolete = s.is_active === false;
+                                        return (
+                                            <tr key={s.id} className={cn(
+                                                "transition-colors group",
+                                                isObsolete
+                                                    ? "bg-neutral-900/30 text-neutral-500 hover:bg-neutral-800/40"
+                                                    : "hover:bg-neutral-800/80"
+                                            )}>
+                                                <td className="px-6 py-4">
+                                                    <span className={cn(
+                                                        "font-mono font-medium px-2 py-1 rounded-md border",
+                                                        isObsolete
+                                                            ? "text-neutral-500 line-through bg-neutral-700/20 border-neutral-700/30"
+                                                            : "text-rose-300 bg-rose-500/10 border-rose-500/20"
+                                                    )}>
+                                                        {s.rfc}
+                                                    </span>
+                                                </td>
+                                                <td className={cn("px-6 py-4 font-medium", isObsolete ? "text-neutral-500 line-through" : "text-neutral-200")}>
+                                                    {s.business_name}
+                                                </td>
+                                                <td className="px-6 py-4 text-neutral-400">{s.email || '—'}</td>
+                                                <td className="px-6 py-4 text-neutral-400">{s.phone || '—'}</td>
+                                                <td className="px-6 py-4">
+                                                    {s.constancia_pdf_url ? (
+                                                        <a href={s.constancia_pdf_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-2.5 py-1.5 rounded-lg border border-emerald-500/20"><FileCheck className="w-3.5 h-3.5" /> Ver PDF</a>
+                                                    ) : <span className="text-neutral-600 text-xs italic">No</span>}
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    {isObsolete ? (
+                                                        <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                                                            <Archive className="w-3 h-3" /> Obsoleto
+                                                        </span>
+                                                    ) : (
+                                                        <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                                                            Activo
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                <td className="px-6 py-4 text-right">
+                                                    <div className="flex items-center justify-end gap-1">
+                                                        <button onClick={() => handleEditClick(s)} className="p-2 text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-500 transition-colors rounded-lg border border-rose-500/20" title="Editar"><Edit2 className="w-4 h-4" /></button>
+                                                        {isObsolete ? (
+                                                            <button onClick={() => handleRestore(s)} className="p-2 text-emerald-400 hover:text-white bg-emerald-500/10 hover:bg-emerald-500 transition-colors rounded-lg border border-emerald-500/20" title="Restaurar"><ArchiveRestore className="w-4 h-4" /></button>
+                                                        ) : (
+                                                            <button onClick={() => handleObsolete(s)} className="p-2 text-amber-400 hover:text-white bg-amber-500/10 hover:bg-amber-500 transition-colors rounded-lg border border-amber-500/20" title="Obsoletar"><Archive className="w-4 h-4" /></button>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })
                                 )}
                             </tbody>
                         </table>

@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { generatePurchaseOrderPDF } from "@/lib/generatePoPdf";
-import { receivePurchaseOrderAction, uploadPurchaseEvidenceAction } from "@/app/actions/purchases";
-import { ShoppingCart, Plus, RefreshCw, ArrowLeft, Download, Eye, CheckCircle, Upload, FileText, Camera, Inbox, Search, X, Filter, Edit2 } from "lucide-react";
+import { receivePurchaseOrderAction, uploadPurchaseEvidenceAction, deletePurchaseOrderAction as obsoletePOAction, restorePurchaseOrderAction } from "@/app/actions/purchases";
+import { ShoppingCart, Plus, RefreshCw, ArrowLeft, Download, Eye, CheckCircle, Upload, FileText, Camera, Inbox, Search, X, Filter, Edit2, Archive, ArchiveRestore } from "lucide-react";
 import Link from "next/link";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -25,7 +25,8 @@ type PO = {
     evidence_photo_url: string | null;
     created_at: string;
     invoice_date: string | null;
-    supplier: { business_name: string; rfc: string; email?: string; address?: string; };
+    is_active?: boolean;
+    supplier: { business_name: string; rfc: string; email?: string; address?: string; is_active?: boolean; } | null;
 };
 
 export default function PurchasesPage() {
@@ -35,6 +36,7 @@ export default function PurchasesPage() {
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [receivingPO, setReceivingPO] = useState<string | null>(null);
     const [pendingInboxCount, setPendingInboxCount] = useState(0);
+    const [showObsolete, setShowObsolete] = useState(false);
 
     // Filtros
     const [search, setSearch] = useState("");
@@ -47,7 +49,7 @@ export default function PurchasesPage() {
         try {
             const { data, error } = await supabase
                 .from('purchase_orders')
-                .select('*, supplier:suppliers(business_name, rfc, email, address)')
+                .select('*, supplier:suppliers(business_name, rfc, email, address, is_active)')
                 .order('invoice_date', { ascending: false, nullsFirst: false })
                 .order('created_at', { ascending: false });
             if (error) throw error;
@@ -69,6 +71,26 @@ export default function PurchasesPage() {
     };
 
     useEffect(() => { fetchOrders(); fetchPendingInbox(); }, []);
+
+    const handleObsolete = async (po: PO) => {
+        if (!confirm(`¿Obsoletar la orden ${po.po_number}?\n\nNo se borrará, solo se ocultará. Se puede restaurar después.`)) return;
+        try {
+            await obsoletePOAction(po.id);
+            fetchOrders();
+        } catch (e: any) {
+            alert(`Error al obsoletar: ${e.message}`);
+        }
+    };
+
+    const handleRestore = async (po: PO) => {
+        if (!confirm(`¿Restaurar la orden ${po.po_number}?`)) return;
+        try {
+            await restorePurchaseOrderAction(po.id);
+            fetchOrders();
+        } catch (e: any) {
+            alert(`Error al restaurar: ${e.message}`);
+        }
+    };
 
     const handleUploadPurchaseEvidence = async (poId: string, file: File) => {
         try {
@@ -156,6 +178,8 @@ export default function PurchasesPage() {
     const max = maxValue.trim() === "" ? null : Number(maxValue);
 
     const filteredOrders = orders.filter((po) => {
+        // Filtro de obsoletos: solo mostrar si el toggle está activo
+        if (!showObsolete && po.is_active === false) return false;
         // Filtro por texto: nombre del proveedor, # de PO o RFC
         if (search.trim()) {
             const q = search.trim().toLowerCase();
@@ -272,6 +296,10 @@ export default function PurchasesPage() {
                                     <X className="w-3.5 h-3.5" /> Limpiar
                                 </button>
                             )}
+                            <label className="flex items-center gap-1.5 text-xs text-neutral-300 cursor-pointer select-none whitespace-nowrap">
+                                <input type="checkbox" checked={showObsolete} onChange={(e) => setShowObsolete(e.target.checked)} className="w-4 h-4 accent-orange-500" />
+                                <Archive className="w-3.5 h-3.5" /> Mostrar obsoletos
+                            </label>
                         </div>
                     </div>
                 </div>
@@ -321,53 +349,88 @@ export default function PurchasesPage() {
                                         )}
                                     </td></tr>
                                 ) : (
-                                    filteredOrders.map((po) => (
-                                        <tr key={po.id} className="hover:bg-neutral-800/80 transition-colors">
-                                            <td className="px-6 py-4"><span className="font-mono font-medium text-orange-300 bg-orange-500/10 px-2.5 py-1 rounded-md border border-orange-500/20">{po.po_number}</span></td>
-                                            <td className="px-6 py-4 font-medium text-neutral-200">{po.supplier?.business_name}</td>
-                                            <td className="px-6 py-4 text-neutral-400">{new Date(po.invoice_date || po.created_at).toLocaleDateString()}</td>
-                                            <td className="px-6 py-4 font-medium text-emerald-400">{formatCurrency(po.total)}</td>
-                                            <td className="px-6 py-4"><span className={cn("px-2.5 py-1 rounded-full text-xs font-semibold border", getStatusStyle(po.status))}>{po.status}</span></td>
-                                            <td className="px-6 py-4">
-                                                {po.supplier_quote_url ? (
-                                                    <a href={po.supplier_quote_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-2.5 py-1.5 rounded-lg border border-emerald-500/20"><Eye className="w-3.5 h-3.5" /> Ver</a>
-                                                ) : <span className="text-neutral-600 text-xs">—</span>}
-                                            </td>
+                                    filteredOrders.map((po) => {
+                                        const isObsolete = po.is_active === false;
+                                        const supplierObsolete = po.supplier?.is_active === false;
+                                        return (
+                                            <tr key={po.id} className={cn(
+                                                "transition-colors",
+                                                isObsolete
+                                                    ? "bg-neutral-900/30 text-neutral-500 hover:bg-neutral-800/40"
+                                                    : "hover:bg-neutral-800/80"
+                                            )}>
+                                                <td className="px-6 py-4"><span className={cn(
+                                                    "font-mono font-medium px-2.5 py-1 rounded-md border",
+                                                    isObsolete
+                                                        ? "text-neutral-500 line-through bg-neutral-700/20 border-neutral-700/30"
+                                                        : "text-orange-300 bg-orange-500/10 border-orange-500/20"
+                                                )}>{po.po_number}</span></td>
+                                                <td className={cn(
+                                                    "px-6 py-4 font-medium",
+                                                    isObsolete ? "text-neutral-500" : "text-neutral-200"
+                                                )}>
+                                                    {po.supplier?.business_name}
+                                                    {supplierObsolete && po.supplier && (
+                                                        <span className="ml-1.5 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 align-middle">
+                                                            prov. obsoleto
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                <td className="px-6 py-4 text-neutral-400">{new Date(po.invoice_date || po.created_at).toLocaleDateString()}</td>
+                                                <td className={cn("px-6 py-4 font-medium", isObsolete ? "text-neutral-500" : "text-emerald-400")}>{formatCurrency(po.total)}</td>
+                                                <td className="px-6 py-4"><span className={cn("px-2.5 py-1 rounded-full text-xs font-semibold border", getStatusStyle(po.status))}>{po.status}</span></td>
+                                                <td className="px-6 py-4">
+                                                    {po.supplier_quote_url ? (
+                                                        <a href={po.supplier_quote_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-2.5 py-1.5 rounded-lg border border-emerald-500/20"><Eye className="w-3.5 h-3.5" /> Ver</a>
+                                                    ) : <span className="text-neutral-600 text-xs">—</span>}
+                                                </td>
 
-                                            <td className="px-6 py-4 text-center">
-                                                {po.evidence_photo_url ? (
-                                                    <a href={po.evidence_photo_url} target="_blank" rel="noopener noreferrer"
-                                                        className="inline-flex items-center gap-1.5 text-xs font-medium text-orange-400 hover:text-orange-300 bg-orange-500/10 hover:bg-orange-500/20 px-2.5 py-1.5 rounded-lg border border-orange-500/20 transition-colors">
-                                                        <Eye className="w-3.5 h-3.5" /> Ver Foto
-                                                    </a>
-                                                ) : (
-                                                    <label className="inline-flex items-center gap-1.5 text-xs font-medium text-orange-400 hover:text-orange-300 bg-orange-500/10 hover:bg-orange-500/20 px-2.5 py-1.5 rounded-lg border border-orange-500/20 cursor-pointer transition-colors">
-                                                        <Camera className="w-3.5 h-3.5" /> Subir Foto
-                                                        <input type="file" accept="image/*" className="hidden"
-                                                            onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadPurchaseEvidence(po.id, f); e.target.value = ''; }} />
-                                                    </label>
-                                                )}
-                                            </td>
+                                                <td className="px-6 py-4 text-center">
+                                                    {po.evidence_photo_url ? (
+                                                        <a href={po.evidence_photo_url} target="_blank" rel="noopener noreferrer"
+                                                            className="inline-flex items-center gap-1.5 text-xs font-medium text-orange-400 hover:text-orange-300 bg-orange-500/10 hover:bg-orange-500/20 px-2.5 py-1.5 rounded-lg border border-orange-500/20 transition-colors">
+                                                            <Eye className="w-3.5 h-3.5" /> Ver Foto
+                                                        </a>
+                                                    ) : (
+                                                        <label className={cn("inline-flex items-center gap-1.5 text-xs font-medium text-orange-400 hover:text-orange-300 bg-orange-500/10 hover:bg-orange-500/20 px-2.5 py-1.5 rounded-lg border border-orange-500/20 cursor-pointer transition-colors", isObsolete && "opacity-50 pointer-events-none")}>
+                                                            <Camera className="w-3.5 h-3.5" /> Subir Foto
+                                                            <input type="file" accept="image/*" className="hidden"
+                                                                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadPurchaseEvidence(po.id, f); e.target.value = ''; }} />
+                                                        </label>
+                                                    )}
+                                                </td>
 
-                                            <td className="px-6 py-4 text-right space-x-2">
-                                                {po.status !== 'Received' ? (
-                                                    <button onClick={() => setReceivingPO(po.id)} className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-3 py-1.5 rounded-lg border border-emerald-500/20 transition-colors">
-                                                        <CheckCircle className="w-3.5 h-3.5" /> Recibir
-                                                    </button>
-                                                ) : po.invoice_url ? (
-                                                    <a href={po.invoice_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs font-medium text-orange-400 hover:text-orange-300 bg-orange-500/10 hover:bg-orange-500/20 px-3 py-1.5 rounded-lg border border-orange-500/20 transition-colors">
-                                                        <FileText className="w-3.5 h-3.5" /> Factura
-                                                    </a>
-                                                ) : null}
-                                                <Link href={`/purchases/${po.id}`} className="inline-flex items-center gap-1.5 text-xs font-medium text-cyan-400 hover:text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/20 px-3 py-1.5 rounded-lg border border-cyan-500/20 transition-colors">
-                                                    <Edit2 className="w-3.5 h-3.5" /> Editar
-                                                </Link>
-                                                <button onClick={() => handleDownloadPDF(po)} className="inline-flex items-center gap-1.5 text-xs font-medium text-orange-400 hover:text-orange-300 bg-orange-500/10 hover:bg-orange-500/20 px-3 py-1.5 rounded-lg border border-orange-500/20 transition-colors">
-                                                    <Download className="w-3.5 h-3.5" /> PDF
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))
+                                                <td className="px-6 py-4 text-right space-x-2 whitespace-nowrap">
+                                                    {isObsolete ? (
+                                                        <button onClick={() => handleRestore(po)} className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-white bg-emerald-500/10 hover:bg-emerald-500 px-3 py-1.5 rounded-lg border border-emerald-500/20 transition-colors" title="Restaurar">
+                                                            <ArchiveRestore className="w-3.5 h-3.5" /> Restaurar
+                                                        </button>
+                                                    ) : (
+                                                        <>
+                                                            {po.status !== 'Received' ? (
+                                                                <button onClick={() => setReceivingPO(po.id)} className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-3 py-1.5 rounded-lg border border-emerald-500/20 transition-colors">
+                                                                    <CheckCircle className="w-3.5 h-3.5" /> Recibir
+                                                                </button>
+                                                            ) : po.invoice_url ? (
+                                                                <a href={po.invoice_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs font-medium text-orange-400 hover:text-orange-300 bg-orange-500/10 hover:bg-orange-500/20 px-3 py-1.5 rounded-lg border border-orange-500/20 transition-colors">
+                                                                    <FileText className="w-3.5 h-3.5" /> Factura
+                                                                </a>
+                                                            ) : null}
+                                                            <Link href={`/purchases/${po.id}`} className="inline-flex items-center gap-1.5 text-xs font-medium text-cyan-400 hover:text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/20 px-3 py-1.5 rounded-lg border border-cyan-500/20 transition-colors">
+                                                                <Edit2 className="w-3.5 h-3.5" /> Editar
+                                                            </Link>
+                                                            <button onClick={() => handleDownloadPDF(po)} className="inline-flex items-center gap-1.5 text-xs font-medium text-orange-400 hover:text-orange-300 bg-orange-500/10 hover:bg-orange-500/20 px-3 py-1.5 rounded-lg border border-orange-500/20 transition-colors">
+                                                                <Download className="w-3.5 h-3.5" /> PDF
+                                                            </button>
+                                                            <button onClick={() => handleObsolete(po)} className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-400 hover:text-white bg-amber-500/10 hover:bg-amber-500 px-3 py-1.5 rounded-lg border border-amber-500/20 transition-colors" title="Obsoletar">
+                                                                <Archive className="w-3.5 h-3.5" /> Obsoletar
+                                                            </button>
+                                                        </>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })
                                 )}
                             </tbody>
                         </table>

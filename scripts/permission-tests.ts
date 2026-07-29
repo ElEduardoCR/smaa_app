@@ -446,6 +446,104 @@ const TEST_CASES: TestCase[] = [
             return { ok: res.rows.length >= 4, note: `${res.rows.length} columns: ${res.rows.map(r => r.column_name).join(', ')}` };
         },
     },
+    // ===========================================================
+    // FIX #6: is_active para soft-delete (obsolete/restore)
+    // ===========================================================
+    {
+        id: 'SCHEMA-004',
+        description: 'clients tiene columna is_active con default true (soft-delete)',
+        fixture: 'TEST_admin',
+        expect: 'allow',
+        run: async (c) => {
+            const res = await c.query(`
+                SELECT column_name, data_type, is_nullable, column_default
+                FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'clients' AND column_name = 'is_active'
+            `);
+            const col = res.rows[0];
+            return {
+                ok: !!col && col.data_type === 'boolean' && col.is_nullable === 'NO' && col.column_default?.includes('true'),
+                note: col ? `type=${col.data_type}, nullable=${col.is_nullable}, default=${col.column_default}` : 'column not found'
+            };
+        },
+    },
+    {
+        id: 'SCHEMA-005',
+        description: 'suppliers tiene columna is_active con default true (soft-delete)',
+        fixture: 'TEST_admin',
+        expect: 'allow',
+        run: async (c) => {
+            const res = await c.query(`
+                SELECT column_name, data_type, is_nullable, column_default
+                FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'suppliers' AND column_name = 'is_active'
+            `);
+            const col = res.rows[0];
+            return {
+                ok: !!col && col.data_type === 'boolean' && col.is_nullable === 'NO' && col.column_default?.includes('true'),
+                note: col ? `type=${col.data_type}, nullable=${col.is_nullable}, default=${col.column_default}` : 'column not found'
+            };
+        },
+    },
+    {
+        id: 'SCHEMA-006',
+        description: 'purchase_orders tiene columna is_active con default true (soft-delete)',
+        fixture: 'TEST_admin',
+        expect: 'allow',
+        run: async (c) => {
+            const res = await c.query(`
+                SELECT column_name, data_type, is_nullable, column_default
+                FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'purchase_orders' AND column_name = 'is_active'
+            `);
+            const col = res.rows[0];
+            return {
+                ok: !!col && col.data_type === 'boolean' && col.is_nullable === 'NO' && col.column_default?.includes('true'),
+                note: col ? `type=${col.data_type}, nullable=${col.is_nullable}, default=${col.column_default}` : 'column not found'
+            };
+        },
+    },
+    {
+        id: 'SCHEMA-007',
+        description: 'Índices parciales idx_clients_is_active / idx_suppliers_is_active / idx_purchase_orders_is_active existen',
+        fixture: 'TEST_admin',
+        expect: 'allow',
+        run: async (c) => {
+            const res = await c.query(`
+                SELECT indexname FROM pg_indexes
+                WHERE schemaname = 'public'
+                  AND indexname IN ('idx_clients_is_active', 'idx_suppliers_is_active', 'idx_purchase_orders_is_active')
+            `);
+            const names = res.rows.map(r => r.indexname);
+            return {
+                ok: names.length === 3,
+                note: names.length === 3 ? `Todos los índices: ${names.join(', ')}` : `Faltan: esperadas 3, encontradas ${names.length} (${names.join(', ')})`
+            };
+        },
+    },
+    {
+        id: 'SCHEMA-008',
+        description: 'Valores de is_active se pueden setear y consultar (round-trip)',
+        fixture: 'TEST_admin',
+        expect: 'allow',
+        run: async (c) => {
+            const rfc = 'TESTSA' + Date.now().toString().slice(-7);
+            const ins = await c.query(
+                `INSERT INTO clients (rfc, business_name, fiscal_regime, fiscal_zip_code) VALUES ($1, 'TEST SA Schema Roundtrip', '601', '12345') RETURNING id, is_active`,
+                [rfc]
+            );
+            const id = ins.rows[0].id;
+            const created = ins.rows[0].is_active;
+            // Set to false
+            await c.query(`UPDATE clients SET is_active = false WHERE id = $1`, [id]);
+            const after = await c.query(`SELECT is_active FROM clients WHERE id = $1`, [id]);
+            // Set back to true
+            await c.query(`UPDATE clients SET is_active = true WHERE id = $1`, [id]);
+            const restored = await c.query(`SELECT is_active FROM clients WHERE id = $1`, [id]);
+            const ok = created === true && after.rows[0].is_active === false && restored.rows[0].is_active === true;
+            return { ok, note: `created=${created} → false → ${restored.rows[0].is_active}` };
+        },
+    },
 ];
 
 // =============================================================================
