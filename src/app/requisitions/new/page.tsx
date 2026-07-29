@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/session';
-import { can, canAnyAction } from '@/lib/permissions';
+import { can } from '@/lib/permissions';
 import { supabase } from '@/lib/supabase';
 import NewRequisitionClient from './NewRequisitionClient';
 
