@@ -13,7 +13,9 @@ export default async function RequisitionsPage({ searchParams }: { searchParams:
         redirect('/?denied=1');
     }
 
-    const canCreate = can(session.role, session.permissions, 'requisitions', 'request_supplies') || session.role === 'master';
+    const canCreate = session.role === 'master' ||
+        can(session.role, session.permissions, 'requisitions', 'create') ||
+        can(session.role, session.permissions, 'requisitions', 'request_supplies');
     const canPurchase = can(session.role, session.permissions, 'requisitions', 'purchase') || session.role === 'master';
     // canViewAll: el permiso para ver requisiciones de OTROS usuarios.
     // Atado a `view` (no a `purchase`) para que un operador con view pueda

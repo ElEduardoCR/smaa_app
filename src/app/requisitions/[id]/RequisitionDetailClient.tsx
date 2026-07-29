@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
     ArrowLeft, Loader2, Save, Upload, X, FileText, Package, Store, Calendar,
-    User as UserIcon, CheckCircle2, XCircle, Receipt, Image as ImageIcon, ExternalLink
+    User as UserIcon, CheckCircle2, XCircle, Receipt, Image as ImageIcon, ExternalLink, AlertCircle
 } from "lucide-react";
 import { cancelRequisitionAction, completePurchaseAction, uploadRequisitionFileAction } from "@/app/actions/requisitions";
 import clsx from "clsx";
@@ -293,12 +293,14 @@ export default function RequisitionDetailClient({
 }
 
 function PurchaseModal({ reqId, onClose, onDone }: { reqId: string; onClose: () => void; onDone: () => void }) {
+    const router = useRouter();
     const [invoiceUrl, setInvoiceUrl] = useState('');
     const [photoUrl, setPhotoUrl] = useState('');
     const [finalNotes, setFinalNotes] = useState('');
     const [saving, setSaving] = useState(false);
     const [uploading, setUploading] = useState<'invoice' | 'photo' | null>(null);
     const [err, setErr] = useState<string | null>(null);
+    const [result, setResult] = useState<{ poNumber: string; poId: string; needsSupplier: boolean } | null>(null);
 
     const upload = async (file: File, kind: 'invoice' | 'photo') => {
         setUploading(kind);
@@ -330,8 +332,10 @@ function PurchaseModal({ reqId, onClose, onDone }: { reqId: string; onClose: () 
         }
         setSaving(true);
         try {
-            await completePurchaseAction(reqId, invoiceUrl, photoUrl || null, finalNotes);
-            onDone();
+            const res = await completePurchaseAction(reqId, invoiceUrl, photoUrl || null, finalNotes);
+            setResult({ poNumber: res.poNumber, poId: res.poId, needsSupplier: res.needsSupplier });
+            // Refresca la lista de requisiciones
+            router.refresh();
         } catch (ex: any) {
             setErr(ex.message);
         } finally {
@@ -393,19 +397,50 @@ function PurchaseModal({ reqId, onClose, onDone }: { reqId: string; onClose: () 
                         </div>
                     </div>
 
-                    <div className="p-4 border-t border-neutral-800 flex items-center justify-end gap-2">
-                        <button type="button" onClick={onClose} className="px-4 py-2 rounded-xl text-sm text-neutral-300 hover:bg-neutral-800">
-                            Cancelar
-                        </button>
-                        <button
-                            type="submit"
-                            disabled={saving || uploading !== null || !invoiceUrl}
-                            className="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white text-sm font-semibold disabled:opacity-50 flex items-center gap-1.5"
-                        >
-                            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-                            Confirmar compra
-                        </button>
-                    </div>
+                    {result ? (
+                        <div className="p-5 border-t border-neutral-800 bg-emerald-500/5 space-y-3">
+                            <div className="flex items-center gap-2">
+                                <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                                <p className="text-sm font-bold text-emerald-300">Compra cerrada</p>
+                            </div>
+                            <p className="text-sm text-neutral-200">
+                                Se creó la orden de compra <span className="font-mono font-bold text-white">{result.poNumber}</span> en estado <strong className="text-amber-300">Draft</strong> con los artículos de esta requisición.
+                            </p>
+                            {result.needsSupplier && (
+                                <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs rounded-xl p-2.5">
+                                    <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                                    <span>
+                                        No se pudo asignar proveedor automáticamente. Un comprador con permiso de editar debe asignarlo en el módulo de Compras antes de poder procesarla.
+                                    </span>
+                                </div>
+                            )}
+                            <div className="flex items-center justify-end gap-2 pt-1">
+                                <button type="button" onClick={onClose} className="px-4 py-2 rounded-xl text-sm text-neutral-300 hover:bg-neutral-800">
+                                    Cerrar
+                                </button>
+                                <Link
+                                    href="/purchases"
+                                    className="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white text-sm font-semibold flex items-center gap-1.5"
+                                >
+                                    <ExternalLink className="w-3.5 h-3.5" /> Ir a Compras
+                                </Link>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="p-4 border-t border-neutral-800 flex items-center justify-end gap-2">
+                            <button type="button" onClick={onClose} className="px-4 py-2 rounded-xl text-sm text-neutral-300 hover:bg-neutral-800">
+                                Cancelar
+                            </button>
+                            <button
+                                type="submit"
+                                disabled={saving || uploading !== null || !invoiceUrl}
+                                className="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white text-sm font-semibold disabled:opacity-50 flex items-center gap-1.5"
+                            >
+                                {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                                Confirmar compra
+                            </button>
+                        </div>
+                    )}
                 </form>
             </div>
         </div>

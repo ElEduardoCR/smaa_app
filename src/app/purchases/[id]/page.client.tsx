@@ -1,0 +1,389 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
+import { ArrowLeft, Save, Trash2, Loader2, AlertCircle, CheckCircle2, ExternalLink, Plus, ShoppingCart, Truck, Calendar, FileText, Receipt, FileCheck } from "lucide-react";
+import clsx from "clsx";
+import { twMerge } from "tailwind-merge";
+
+function cn(...inputs: (string | undefined | null | false)[]) {
+    return twMerge(clsx(inputs));
+}
+
+type PO = {
+    id: string;
+    po_number: string;
+    status: string;
+    subtotal: number;
+    vat_total: number;
+    total: number;
+    supplier_id: string | null;
+    supplier_quote_url: string | null;
+    invoice_url: string | null;
+    invoice_photo_url: string | null;
+    invoice_date: string | null;
+    notes: string | null;
+    requisition_id: string | null;
+    created_at: string;
+    updated_at: string;
+    supplier: { id: string; business_name: string; rfc: string } | null;
+};
+
+type Item = {
+    id: string;
+    description: string;
+    quantity: number;
+    unit_price: number;
+    line_total: number;
+};
+
+const STATUS_OPTIONS = [
+    { value: "Draft", label: "Draft", color: "bg-neutral-500/20 text-neutral-300 border-neutral-500/30" },
+    { value: "Sent", label: "Sent", color: "bg-orange-500/20 text-orange-300 border-orange-500/30" },
+    { value: "Approved", label: "Approved", color: "bg-amber-500/20 text-amber-300 border-amber-500/30" },
+    { value: "Received", label: "Received", color: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" },
+];
+
+export default function PurchaseOrderEditClient({
+    po,
+    items: initialItems,
+    suppliers,
+    canEdit,
+    canDelete,
+    currentUser,
+}: {
+    po: PO;
+    items: Item[];
+    suppliers: { id: string; business_name: string; rfc: string }[];
+    canEdit: boolean;
+    canDelete: boolean;
+    currentUser: { id: string; fullName: string; role: string };
+}) {
+    const router = useRouter();
+
+    const [supplierId, setSupplierId] = useState<string>(po.supplier_id || "");
+    const [status, setStatus] = useState<string>(po.status);
+    const [notes, setNotes] = useState<string>(po.notes || "");
+    const [items, setItems] = useState<Item[]>(initialItems.length > 0 ? initialItems : [{ id: "_new", description: "", quantity: 1, unit_price: 0, line_total: 0 }]);
+    const [saving, setSaving] = useState(false);
+    const [deleting, setDeleting] = useState(false);
+    const [msg, setMsg] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+
+    // Recalcular totales cuando cambian items
+    const subtotal = items.reduce((s, it) => s + (Number(it.quantity) || 0) * (Number(it.unit_price) || 0), 0);
+    const vatTotal = subtotal * 0.16;
+    const total = subtotal + vatTotal;
+
+    const updateItem = (idx: number, patch: Partial<Item>) => {
+        setItems((prev) => prev.map((it, i) => {
+            if (i !== idx) return it;
+            const merged = { ...it, ...patch };
+            merged.line_total = (Number(merged.quantity) || 0) * (Number(merged.unit_price) || 0);
+            return merged;
+        }));
+    };
+
+    const removeItem = (idx: number) => {
+        setItems((prev) => prev.filter((_, i) => i !== idx));
+    };
+
+    const addItem = () => {
+        setItems((prev) => [...prev, { id: "_new_" + Date.now(), description: "", quantity: 1, unit_price: 0, line_total: 0 }]);
+    };
+
+    const handleSave = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!canEdit) {
+            setMsg({ type: 'error', text: "No tienes permisos para editar esta orden." });
+            return;
+        }
+        if (!supplierId) {
+            setMsg({ type: 'error', text: "Selecciona un proveedor." });
+            return;
+        }
+        const cleanItems = items.filter((it) => it.description.trim());
+        if (cleanItems.length === 0) {
+            setMsg({ type: 'error', text: "Agrega al menos un artículo con descripción." });
+            return;
+        }
+        setSaving(true);
+        setMsg(null);
+        try {
+            // 1. Update PO header
+            const { error: poErr } = await supabase
+                .from('purchase_orders')
+                .update({
+                    supplier_id: supplierId,
+                    status: status,
+                    subtotal,
+                    vat_total: vatTotal,
+                    total,
+                    notes: notes.trim() || null,
+                })
+                .eq('id', po.id);
+            if (poErr) throw poErr;
+
+            // 2. Replace items: delete + insert (simpler than diff)
+            const { error: delErr } = await supabase
+                .from('purchase_order_items')
+                .delete()
+                .eq('purchase_order_id', po.id);
+            if (delErr) throw delErr;
+
+            const newItems = cleanItems.map((it) => ({
+                purchase_order_id: po.id,
+                description: it.description.trim(),
+                quantity: Number(it.quantity) || 0,
+                unit_price: Number(it.unit_price) || 0,
+                line_total: (Number(it.quantity) || 0) * (Number(it.unit_price) || 0),
+            }));
+            const { error: insErr } = await supabase
+                .from('purchase_order_items')
+                .insert(newItems);
+            if (insErr) throw insErr;
+
+            setMsg({ type: 'success', text: "Orden actualizada." });
+            router.refresh();
+        } catch (ex: any) {
+            setMsg({ type: 'error', text: ex.message || "Error al guardar." });
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleDelete = async () => {
+        if (!canDelete) return;
+        if (!confirm(`¿Eliminar la orden ${po.po_number}? Esta acción no se puede deshacer.`)) return;
+        setDeleting(true);
+        setMsg(null);
+        try {
+            const { error } = await supabase.from('purchase_orders').delete().eq('id', po.id);
+            if (error) throw error;
+            router.push('/purchases');
+        } catch (ex: any) {
+            setMsg({ type: 'error', text: ex.message || "Error al eliminar." });
+            setDeleting(false);
+        }
+    };
+
+    const statusStyle = STATUS_OPTIONS.find(s => s.value === status)?.color || STATUS_OPTIONS[0].color;
+
+    return (
+        <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 p-3 sm:p-6 md:p-8 lg:p-10 font-[family-name:var(--font-sans)]">
+            <div className="max-w-5xl mx-auto space-y-6">
+                <header className="flex items-center justify-between gap-4 bg-neutral-800/40 p-5 rounded-2xl border border-neutral-700/50 flex-wrap">
+                    <div className="flex items-center gap-3">
+                        <Link href="/purchases" className="p-2.5 bg-neutral-800 hover:bg-neutral-700 rounded-xl border border-neutral-700">
+                            <ArrowLeft className="w-4 h-4" />
+                        </Link>
+                        <div>
+                            <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+                                <ShoppingCart className="w-6 h-6 text-orange-400" />
+                                <span className="font-mono">{po.po_number}</span>
+                                <span className={cn("text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border", statusStyle)}>
+                                    {status}
+                                </span>
+                            </h1>
+                            <p className="text-xs text-neutral-400 mt-0.5">
+                                Creada {new Date(po.created_at).toLocaleDateString('es-MX', { dateStyle: 'medium' })}
+                                {po.requisition_id && (
+                                    <span className="ml-2">
+                                        · Origen: <Link href={`/requisitions/${po.requisition_id}`} className="text-orange-300 hover:text-orange-200">requisición</Link>
+                                    </span>
+                                )}
+                            </p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        {canEdit && (
+                            <button
+                                type="submit"
+                                form="po-form"
+                                disabled={saving}
+                                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white text-sm font-semibold disabled:opacity-50"
+                            >
+                                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                                Guardar
+                            </button>
+                        )}
+                        {canDelete && (
+                            <button
+                                type="button"
+                                onClick={handleDelete}
+                                disabled={deleting}
+                                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-sm font-medium disabled:opacity-50"
+                                title="Eliminar"
+                            >
+                                {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                            </button>
+                        )}
+                    </div>
+                </header>
+
+                {msg && (
+                    <div className={cn(
+                        "p-4 rounded-xl border flex items-center gap-3",
+                        msg.type === 'success' ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300" : "bg-rose-500/10 border-rose-500/30 text-rose-300"
+                    )}>
+                        {msg.type === 'success' ? <CheckCircle2 className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
+                        {msg.text}
+                    </div>
+                )}
+
+                {!canEdit && (
+                    <div className="p-3 rounded-xl border bg-amber-500/10 border-amber-500/30 text-amber-200 text-sm flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4" />
+                        Estás viendo esta orden en modo solo lectura. Pide al admin que te asigne el permiso <code className="font-mono">purchases:edit</code> para modificarla.
+                    </div>
+                )}
+
+                <form id="po-form" onSubmit={handleSave} className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-2xl p-4">
+                            <label className="block text-[11px] font-bold text-neutral-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                                <Truck className="w-3 h-3" /> Proveedor *
+                            </label>
+                            {po.supplier_id === null && !supplierId && (
+                                <p className="text-[11px] text-amber-300 mb-2">⚠️ Esta orden fue creada sin proveedor. Asígnale uno antes de procesarla.</p>
+                            )}
+                            <select
+                                value={supplierId}
+                                onChange={(e) => setSupplierId(e.target.value)}
+                                disabled={!canEdit}
+                                className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500 disabled:opacity-60"
+                            >
+                                <option value="">— Seleccionar proveedor —</option>
+                                {suppliers.map(s => (
+                                    <option key={s.id} value={s.id}>{s.business_name} ({s.rfc})</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-2xl p-4">
+                            <label className="block text-[11px] font-bold text-neutral-500 uppercase tracking-wider mb-1.5">Status</label>
+                            <select
+                                value={status}
+                                onChange={(e) => setStatus(e.target.value)}
+                                disabled={!canEdit}
+                                className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500 disabled:opacity-60"
+                            >
+                                {STATUS_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                            </select>
+                        </div>
+                    </div>
+
+                    {/* Evidencia adjunta (de la requisición) - read-only */}
+                    {(po.supplier_quote_url || po.invoice_url || po.invoice_photo_url) && (
+                        <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-2xl p-4">
+                            <p className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                                <FileCheck className="w-3.5 h-3.5" /> Evidencia adjunta
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                                {po.supplier_quote_url && (
+                                    <a href={po.supplier_quote_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs bg-neutral-900/60 hover:bg-neutral-800 border border-neutral-700 px-3 py-1.5 rounded-lg text-neutral-200">
+                                        <FileText className="w-3.5 h-3.5 text-amber-400" /> Cotización del proveedor <ExternalLink className="w-3 h-3 text-neutral-500" />
+                                    </a>
+                                )}
+                                {po.invoice_url && (
+                                    <a href={po.invoice_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs bg-neutral-900/60 hover:bg-neutral-800 border border-neutral-700 px-3 py-1.5 rounded-lg text-neutral-200">
+                                        <Receipt className="w-3.5 h-3.5 text-emerald-400" /> Factura <ExternalLink className="w-3 h-3 text-neutral-500" />
+                                    </a>
+                                )}
+                                {po.invoice_photo_url && (
+                                    <a href={po.invoice_photo_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs bg-neutral-900/60 hover:bg-neutral-800 border border-neutral-700 px-3 py-1.5 rounded-lg text-neutral-200">
+                                        <Receipt className="w-3.5 h-3.5 text-emerald-400" /> Foto factura <ExternalLink className="w-3 h-3 text-neutral-500" />
+                                    </a>
+                                )}
+                            </div>
+                            {po.invoice_date && (
+                                <p className="text-[10px] text-neutral-500 mt-2 flex items-center gap-1.5">
+                                    <Calendar className="w-3 h-3" /> Fecha factura: {new Date(po.invoice_date).toLocaleDateString('es-MX', { dateStyle: 'medium' })}
+                                </p>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Items */}
+                    <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-2xl p-4">
+                        <div className="flex items-center justify-between mb-3">
+                            <h2 className="text-sm font-bold text-white">Artículos</h2>
+                            {canEdit && (
+                                <button type="button" onClick={addItem} className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-orange-500/15 text-orange-300 hover:bg-orange-500/25 border border-orange-500/30">
+                                    <Plus className="w-3.5 h-3.5" /> Agregar línea
+                                </button>
+                            )}
+                        </div>
+                        <div className="space-y-2">
+                            <div className="hidden md:grid grid-cols-12 gap-3 text-[10px] font-bold text-neutral-500 uppercase tracking-wider px-2">
+                                <div className="col-span-6">Descripción</div>
+                                <div className="col-span-2 text-right">Cantidad</div>
+                                <div className="col-span-2 text-right">P. Unit.</div>
+                                <div className="col-span-1 text-right">Importe</div>
+                                <div className="col-span-1"></div>
+                            </div>
+                            {items.map((it, idx) => (
+                                <div key={it.id} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-start bg-neutral-900/30 p-3 rounded-xl border border-neutral-700/30">
+                                    <input
+                                        type="text"
+                                        value={it.description}
+                                        onChange={(e) => updateItem(idx, { description: e.target.value })}
+                                        disabled={!canEdit}
+                                        placeholder="Descripción"
+                                        className="md:col-span-6 bg-neutral-900/80 border border-neutral-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-orange-500 disabled:opacity-60"
+                                    />
+                                    <input
+                                        type="number" step="0.01" min="0"
+                                        value={it.quantity}
+                                        onChange={(e) => updateItem(idx, { quantity: parseFloat(e.target.value) || 0 })}
+                                        disabled={!canEdit}
+                                        className="md:col-span-2 bg-neutral-900/80 border border-neutral-700 rounded-lg px-3 py-1.5 text-sm text-white text-right focus:outline-none focus:border-orange-500 disabled:opacity-60"
+                                    />
+                                    <input
+                                        type="number" step="0.01" min="0"
+                                        value={it.unit_price}
+                                        onChange={(e) => updateItem(idx, { unit_price: parseFloat(e.target.value) || 0 })}
+                                        disabled={!canEdit}
+                                        className="md:col-span-2 bg-neutral-900/80 border border-neutral-700 rounded-lg px-3 py-1.5 text-sm text-white text-right focus:outline-none focus:border-orange-500 disabled:opacity-60"
+                                    />
+                                    <div className="md:col-span-1 flex items-center justify-end text-sm font-medium text-emerald-400 tabular-nums">
+                                        ${(Number(it.quantity) * Number(it.unit_price)).toFixed(2)}
+                                    </div>
+                                    <div className="md:col-span-1 flex items-center justify-end">
+                                        {canEdit && (
+                                            <button type="button" onClick={() => removeItem(idx)} className="p-1.5 text-neutral-500 hover:text-rose-300 rounded-lg">
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Totales */}
+                    <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-2xl p-4">
+                        <div className="max-w-xs ml-auto space-y-2 text-sm">
+                            <div className="flex justify-between"><span className="text-neutral-400">Subtotal</span><span className="text-white font-medium tabular-nums">${subtotal.toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span className="text-neutral-400">IVA (16%)</span><span className="text-white font-medium tabular-nums">${vatTotal.toFixed(2)}</span></div>
+                            <div className="border-t border-neutral-700 pt-2 flex justify-between text-base"><span className="text-white font-bold">Total</span><span className="text-emerald-400 font-bold tabular-nums">${total.toFixed(2)}</span></div>
+                        </div>
+                    </div>
+
+                    {/* Notas */}
+                    <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-2xl p-4">
+                        <label className="block text-[11px] font-bold text-neutral-500 uppercase tracking-wider mb-1.5">Notas</label>
+                        <textarea
+                            value={notes}
+                            onChange={(e) => setNotes(e.target.value)}
+                            disabled={!canEdit}
+                            rows={3}
+                            className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500 disabled:opacity-60"
+                        />
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+}

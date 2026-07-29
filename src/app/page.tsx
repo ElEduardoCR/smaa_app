@@ -30,6 +30,8 @@ const ALL_MODULES: Array<ModuleCard & { moduleCode: string; subCode?: string | n
       Icon: "Receipt", color: "emerald", category: "Comercial" },
     { moduleCode: "purchases",     href: "/purchases",      title: "Compras",     desc: "Órdenes de compra, 3 cotizaciones y buzón CFDI recibidos.",
       Icon: "Factory", color: "orange", category: "Comercial" },
+    { moduleCode: "suppliers",     href: "/suppliers",      title: "Proveedores", desc: "Catálogo de proveedores con CSF del SAT y datos fiscales.",
+      Icon: "Truck", color: "rose", category: "Comercial" },
 
     { moduleCode: "finance",       href: "/finance",        title: "Nóminas y Contabilidad", desc: "Empleados, checador, nómina, IVA/ISR con OCR del SAT.",
       Icon: "Wallet", color: "emerald", category: "Finanzas" },

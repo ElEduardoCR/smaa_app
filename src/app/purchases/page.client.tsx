@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { generatePurchaseOrderPDF } from "@/lib/generatePoPdf";
-import { ShoppingCart, Plus, RefreshCw, ArrowLeft, Download, Eye, CheckCircle, Upload, FileText, Camera, Inbox, Search, X, Filter } from "lucide-react";
+import { ShoppingCart, Plus, RefreshCw, ArrowLeft, Download, Eye, CheckCircle, Upload, FileText, Camera, Inbox, Search, X, Filter, Edit2 } from "lucide-react";
 import Link from "next/link";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -375,6 +375,9 @@ export default function PurchasesPage() {
                                                         <FileText className="w-3.5 h-3.5" /> Factura
                                                     </a>
                                                 ) : null}
+                                                <Link href={`/purchases/${po.id}`} className="inline-flex items-center gap-1.5 text-xs font-medium text-cyan-400 hover:text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/20 px-3 py-1.5 rounded-lg border border-cyan-500/20 transition-colors">
+                                                    <Edit2 className="w-3.5 h-3.5" /> Editar
+                                                </Link>
                                                 <button onClick={() => handleDownloadPDF(po)} className="inline-flex items-center gap-1.5 text-xs font-medium text-orange-400 hover:text-orange-300 bg-orange-500/10 hover:bg-orange-500/20 px-3 py-1.5 rounded-lg border border-orange-500/20 transition-colors">
                                                     <Download className="w-3.5 h-3.5" /> PDF
                                                 </button>

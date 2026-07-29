@@ -31,10 +31,12 @@ export type CreateRequisitionInput = {
 export async function createRequisitionAction(input: CreateRequisitionInput) {
     const session = await requireSession();
 
-    if (
-        !can(session.role, session.permissions, 'requisitions', 'request_supplies') &&
-        session.role !== 'master'
-    ) {
+    // Aceptamos `can_create` o `can_request_supplies` (sinónimos en este módulo).
+    const canCreate = session.role === 'master' ||
+        can(session.role, session.permissions, 'requisitions', 'create') ||
+        can(session.role, session.permissions, 'requisitions', 'request_supplies');
+
+    if (!canCreate) {
         throw new Error('No tienes permisos para crear requisiciones.');
     }
 
@@ -127,6 +129,81 @@ export async function completePurchaseAction(
     if (!req) throw new Error('Requisición no encontrada.');
     if (req.status !== 'pending') throw new Error('La requisición ya fue procesada.');
 
+    // Traer los items de la requisición para copiarlos al PO
+    const { data: reqItems } = await supabase
+        .from('requisition_items')
+        .select('description, quantity, unit, notes')
+        .eq('requisition_id', id);
+
+    // Traer la primera cotización adjunta (si hay) para usarla como
+    // supplier_quote_url del PO
+    const { data: firstQuotation } = await supabase
+        .from('requisition_quotations')
+        .select('file_url')
+        .eq('requisition_id', id)
+        .order('uploaded_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+    // Resolver el supplier_id: si la requisición lo tiene, usarlo. Si solo
+    // tiene texto libre, intentar matchear por business_name. Si no, null
+    // (el comprador lo asigna después con purchases:edit).
+    let supplierId: string | null = (req as any).suggested_supplier_id || null;
+    if (!supplierId && (req as any).suggested_supplier_text) {
+        const { data: matched } = await supabase
+            .from('suppliers')
+            .select('id')
+            .ilike('business_name', (req as any).suggested_supplier_text.trim())
+            .limit(1)
+            .maybeSingle();
+        if (matched) supplierId = matched.id;
+    }
+
+    // Construir notas combinadas
+    const combinedNotes = [
+        req.notes,
+        finalNotes?.trim() ? `[Compra] ${finalNotes.trim()}` : null,
+    ].filter(Boolean).join('\n\n') || null;
+
+    // 1. Auto-crear la PO en Draft (linkeada a la requisición). El comprador
+    // con `purchases:edit` completará después precios, supplier (si quedó null),
+    // y cambiará a Sent/Approved/Received.
+    const { data: insertedPO, error: poErr } = await supabase
+        .from('purchase_orders')
+        .insert({
+            supplier_id: supplierId,
+            status: 'Draft',
+            subtotal: 0,
+            vat_total: 0,
+            total: 0,
+            supplier_quote_url: firstQuotation?.file_url || null,
+            invoice_url: invoiceUrl,
+            invoice_photo_url: invoicePhotoUrl,
+            invoice_date: new Date().toISOString(),
+            requisition_id: id,
+            notes: combinedNotes,
+        })
+        .select('id, po_number')
+        .single();
+    if (poErr) throw poErr;
+
+    // 2. Copiar los items de la requisición al PO (con precios 0; el
+    // comprador los llena después).
+    if (reqItems && reqItems.length > 0) {
+        const poItems = reqItems.map((it: any) => ({
+            purchase_order_id: insertedPO.id,
+            description: it.description,
+            quantity: it.quantity,
+            unit_price: 0,
+            line_total: 0,
+        }));
+        const { error: itemsErr } = await supabase
+            .from('purchase_order_items')
+            .insert(poItems);
+        if (itemsErr) throw itemsErr;
+    }
+
+    // 3. Marcar la requisición como comprada
     const { error: upErr } = await supabase
         .from('requisitions')
         .update({
@@ -135,13 +212,20 @@ export async function completePurchaseAction(
             purchased_by: session.employeeId,
             invoice_url: invoiceUrl,
             invoice_photo_url: invoicePhotoUrl,
-            notes: finalNotes?.trim() ? `${req.notes ? req.notes + '\n\n' : ''}[Compra] ${finalNotes.trim()}` : req.notes,
+            notes: combinedNotes,
         })
         .eq('id', id);
     if (upErr) throw upErr;
 
     revalidatePath('/requisitions');
     revalidatePath(`/requisitions/${id}`);
+    revalidatePath('/purchases');
+
+    return {
+        poId: insertedPO.id,
+        poNumber: insertedPO.po_number,
+        needsSupplier: !supplierId,
+    };
 }
 
 export async function uploadRequisitionFileAction(
@@ -151,12 +235,19 @@ export async function uploadRequisitionFileAction(
 ): Promise<string> {
     const session = await getSession();
     if (!session) throw new Error('No autenticado.');
-    if (
-        !can(session.role, session.permissions, 'requisitions', 'request_supplies') &&
-        !can(session.role, session.permissions, 'requisitions', 'purchase') &&
-        session.role !== 'master'
-    ) {
-        throw new Error('No tienes permisos para adjuntar archivos.');
+
+    // Para subir archivos a requisiciones: aceptamos `can_create` (crear),
+    // `can_request_supplies` (legacy, sinónimo de create), `can_edit` (editar
+    // requisiciones existentes y agregar archivos) o `can_purchase` (adjuntar
+    // facturas al cerrar la compra).
+    const canUpload = session.role === 'master' ||
+        can(session.role, session.permissions, 'requisitions', 'create') ||
+        can(session.role, session.permissions, 'requisitions', 'request_supplies') ||
+        can(session.role, session.permissions, 'requisitions', 'edit') ||
+        can(session.role, session.permissions, 'requisitions', 'purchase');
+
+    if (!canUpload) {
+        throw new Error('No tienes permisos para adjuntar archivos a requisiciones.');
     }
     const buf = Buffer.from(base64, 'base64');
     const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');

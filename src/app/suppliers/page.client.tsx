@@ -5,7 +5,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { supabase } from "@/lib/supabase";
-import { Truck, FileText, Hash, Mail, MapPin, Phone, RefreshCw, Plus, ArrowLeft, Users, Download, FileCheck, Edit2, Trash2 } from "lucide-react";
+import { extractAndParseCSF, type CsfData } from "@/lib/csfParser";
+import { Truck, FileText, Hash, Mail, MapPin, Phone, RefreshCw, Plus, ArrowLeft, Users, Download, FileCheck, Edit2, Trash2, Sparkles, CheckCircle2, AlertCircle, Loader2, X } from "lucide-react";
 import Link from "next/link";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -35,6 +36,8 @@ export default function SuppliersPage() {
     const [editingId, setEditingId] = useState<string | null>(null);
     const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
+    const [csfParsing, setCsfParsing] = useState(false);
+    const [csfExtracted, setCsfExtracted] = useState<CsfData | null>(null);
 
     const { register, handleSubmit, reset, formState: { errors } } = useForm<SupplierFormValues>({
         resolver: zodResolver(supplierSchema),
@@ -60,6 +63,7 @@ export default function SuppliersPage() {
         setEditingId(s.id);
         reset({ rfc: s.rfc, business_name: s.business_name, fiscal_regime: s.fiscal_regime || "", fiscal_zip_code: s.fiscal_zip_code || "", email: s.email || "", phone: s.phone || "", address: s.address || "" });
         setSelectedFile(null);
+        setCsfExtracted(null);
         setIsFormOpen(true);
         window.scrollTo({ top: 0, behavior: "smooth" });
     };
@@ -81,7 +85,57 @@ export default function SuppliersPage() {
         setIsFormOpen(false);
         setEditingId(null);
         setSelectedFile(null);
+        setCsfExtracted(null);
         reset({ rfc: "", business_name: "", fiscal_regime: "", fiscal_zip_code: "", email: "", phone: "", address: "" });
+    };
+
+    /**
+     * Maneja la subida de una CSF: extrae texto del PDF, parsea con csfParser,
+     * y rellena los campos del formulario. El archivo queda en `selectedFile`
+     * para que se suba al guardar.
+     */
+    const handleCsfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        e.target.value = "";  // permitir re-subir el mismo archivo
+        if (!file) return;
+        setSelectedFile(file);
+        setCsfParsing(true);
+        setCsfExtracted(null);
+        setMessage(null);
+        try {
+            const data = await extractAndParseCSF(file);
+            setCsfExtracted(data);
+            const patch: Partial<SupplierFormValues> = {};
+            if (data.rfc) patch.rfc = data.rfc;
+            if (data.business_name) patch.business_name = data.business_name;
+            if (data.fiscal_regime) patch.fiscal_regime = data.fiscal_regime;
+            if (data.fiscal_zip_code) patch.fiscal_zip_code = data.fiscal_zip_code;
+            if (data.email) patch.email = data.email;
+            if (data.phone) patch.phone = data.phone;
+            if (data.address) patch.address = data.address;
+            // Solo aplicar si hay al menos un campo extraído
+            if (Object.keys(patch).length > 0) {
+                reset({ ...patch } as SupplierFormValues);
+                setMessage({
+                    type: 'success',
+                    text: `✓ Datos extraídos de la CSF: ${Object.keys(patch).join(', ')}. Verifica y edita lo que necesites.`
+                });
+                setTimeout(() => setMessage(null), 5000);
+            } else {
+                setMessage({
+                    type: 'error',
+                    text: "No se pudieron extraer datos de la CSF. Verifica que sea un PDF válido del SAT, o llena el formulario manualmente."
+                });
+            }
+        } catch (ex: any) {
+            console.error("Error parsing CSF:", ex);
+            setMessage({
+                type: 'error',
+                text: `No pude leer la CSF (${ex.message || 'PDF inválido o protegido'}). El archivo se guardará igual; llena los datos manualmente.`
+            });
+        } finally {
+            setCsfParsing(false);
+        }
     };
 
     const onSubmit = async (data: SupplierFormValues) => {
@@ -152,6 +206,69 @@ export default function SuppliersPage() {
                         <h2 className="text-xl font-semibold text-white mb-6 flex items-center gap-2 border-b border-neutral-700 pb-4">
                             <FileText className="w-5 h-5 text-rose-400" />{editingId ? "Editar Proveedor" : "Nuevo Proveedor"}
                         </h2>
+
+                        {/* Banner de CSF: dos opciones — subir CSF (auto-rellenar) o capturar manual */}
+                        {!editingId && (
+                            <div className="mb-6 bg-gradient-to-br from-rose-500/10 to-amber-500/10 border border-rose-500/30 rounded-2xl p-5">
+                                <div className="flex items-start gap-3">
+                                    <div className="w-10 h-10 rounded-xl bg-rose-500/20 flex items-center justify-center flex-shrink-0">
+                                        <Sparkles className="w-5 h-5 text-rose-300" />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <h3 className="text-sm font-bold text-white mb-1">¿Tienes la Constancia de Situación Fiscal?</h3>
+                                        <p className="text-xs text-neutral-300 mb-3">
+                                            Sube el PDF del SAT y autollenamos los datos fiscales por ti. Si no la tienes, llena los campos manualmente abajo.
+                                        </p>
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <label className={cn("inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium cursor-pointer transition-all",
+                                                csfParsing
+                                                    ? "bg-rose-500/30 text-rose-200 cursor-wait"
+                                                    : "bg-rose-500 hover:bg-rose-600 text-white hover:shadow-[0_0_15px_rgba(244,63,94,0.4)]"
+                                            )}>
+                                                {csfParsing ? (
+                                                    <><Loader2 className="w-4 h-4 animate-spin" /> Extrayendo datos…</>
+                                                ) : (
+                                                    <><Sparkles className="w-4 h-4" /> Subir CSF (auto-rellenar)</>
+                                                )}
+                                                <input
+                                                    type="file"
+                                                    accept=".pdf,image/*"
+                                                    className="hidden"
+                                                    disabled={csfParsing}
+                                                    onChange={handleCsfUpload}
+                                                />
+                                            </label>
+                                            <span className="text-[11px] text-neutral-400">o llena el formulario manualmente ↓</span>
+                                        </div>
+                                        {selectedFile && (
+                                            <div className="mt-3 flex items-center gap-2 text-xs text-neutral-300">
+                                                <FileCheck className="w-3.5 h-3.5 text-emerald-400" />
+                                                <span className="truncate flex-1">{selectedFile.name}</span>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => { setSelectedFile(null); setCsfExtracted(null); }}
+                                                    className="p-1 text-neutral-500 hover:text-rose-300"
+                                                >
+                                                    <X className="w-3.5 h-3.5" />
+                                                </button>
+                                            </div>
+                                        )}
+                                        {csfExtracted && (
+                                            <div className="mt-3 grid grid-cols-2 md:grid-cols-3 gap-2 text-[11px]">
+                                                {csfExtracted.rfc && <Chip label="RFC" value={csfExtracted.rfc} ok />}
+                                                {csfExtracted.business_name && <Chip label="Razón Social" value={csfExtracted.business_name} ok />}
+                                                {csfExtracted.fiscal_regime && <Chip label="Régimen" value={`${csfExtracted.fiscal_regime}${csfExtracted.fiscal_regime_label ? ' — ' + csfExtracted.fiscal_regime_label : ''}`} ok />}
+                                                {csfExtracted.fiscal_zip_code && <Chip label="CP Fiscal" value={csfExtracted.fiscal_zip_code} ok />}
+                                                {csfExtracted.email && <Chip label="Email" value={csfExtracted.email} ok />}
+                                                {csfExtracted.phone && <Chip label="Teléfono" value={csfExtracted.phone} ok />}
+                                                {csfExtracted.address && <Chip label="Dirección" value={csfExtracted.address} ok />}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
                         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                                 <div className="space-y-2">
@@ -191,10 +308,6 @@ export default function SuppliersPage() {
                                         <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none"><Phone className="h-4 w-4 text-neutral-500" /></div>
                                         <input {...register("phone")} className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl pl-11 pr-4 py-3 text-white placeholder-neutral-500 focus:outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20 transition-all" placeholder="55 1234 5678" />
                                     </div>
-                                </div>
-                                <div className="space-y-2 md:col-span-2 lg:col-span-3">
-                                    <label className="text-sm font-medium text-neutral-300 ml-1">Constancia de Situación Fiscal (PDF)</label>
-                                    <input type="file" accept=".pdf" onChange={(e) => setSelectedFile(e.target.files?.[0] || null)} className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-4 py-3 text-white file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-rose-500/20 file:text-rose-400 hover:file:bg-rose-500/30 transition-all focus:outline-none cursor-pointer" />
                                 </div>
                                 <div className="space-y-2 md:col-span-2 lg:col-span-3">
                                     <label className="text-sm font-medium text-neutral-300 ml-1">Dirección</label>
@@ -265,6 +378,16 @@ export default function SuppliersPage() {
                     </div>
                 </div>
             </div>
+        </div>
+    );
+}
+
+function Chip({ label, value, ok }: { label: string; value: string; ok: boolean }) {
+    return (
+        <div className="flex items-center gap-1.5 bg-neutral-900/60 border border-neutral-700/50 rounded-lg px-2 py-1">
+            {ok && <CheckCircle2 className="w-3 h-3 text-emerald-400 flex-shrink-0" />}
+            <span className="text-neutral-500">{label}:</span>
+            <span className="text-neutral-200 truncate font-mono">{value}</span>
         </div>
     );
 }
