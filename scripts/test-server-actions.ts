@@ -110,6 +110,7 @@ const FIXTURES: EmployeeFixture[] = [
             { module_code: 'clients', sub_code: null, can_view: true, can_create: true, can_edit: true, can_delete: true },
             { module_code: 'suppliers', sub_code: null, can_view: true, can_create: true, can_edit: true, can_delete: true },
             { module_code: 'purchases', sub_code: null, can_view: true, can_create: true, can_edit: true, can_delete: true },
+            { module_code: 'finance', sub_code: 'receivable', can_view: true, can_create: true, can_edit: true, can_delete: true },
         ],
     },
     {
@@ -120,6 +121,7 @@ const FIXTURES: EmployeeFixture[] = [
             { module_code: 'clients', sub_code: null, can_view: true },
             { module_code: 'suppliers', sub_code: null, can_view: true },
             { module_code: 'purchases', sub_code: null, can_view: true },
+            { module_code: 'finance', sub_code: 'receivable', can_view: true },
         ],
     },
 ];
@@ -206,6 +208,16 @@ async function teardown() {
     await sb.query(`DELETE FROM purchase_orders WHERE notes = 'TEST sa notes'`);
     await sb.query(`DELETE FROM requisition_items WHERE requisition_id IN (SELECT id FROM requisitions WHERE code LIKE 'TEST-SA-%')`);
     await sb.query(`DELETE FROM requisitions WHERE code LIKE 'TEST-SA-%'`);
+    // AR cleanup (orden importa por FKs)
+    await sb.query(`DELETE FROM ar_payment_promise_items WHERE promise_id IN (SELECT id FROM ar_payment_promises WHERE client_notes = 'TEST promesa')`);
+    await sb.query(`DELETE FROM ar_payment_promises WHERE client_notes = 'TEST promesa'`);
+    // Cualquier AR con empleado TEST o cliente TEST
+    await sb.query(`DELETE FROM ar_payment_allocations WHERE invoice_id IN (SELECT id FROM ar_invoices WHERE concept LIKE 'TEST SA AR%' OR concept LIKE 'TEST AR%' OR client_id IN (SELECT id FROM clients WHERE business_name = 'TEST SA AR Client'))`);
+    await sb.query(`DELETE FROM ar_payments WHERE client_id IN (SELECT id FROM clients WHERE business_name = 'TEST SA AR Client') OR registered_by IN (SELECT id FROM employees WHERE username LIKE 'TEST_sa_%')`);
+    await sb.query(`DELETE FROM ar_share_links WHERE client_id IN (SELECT id FROM clients WHERE business_name = 'TEST SA AR Client')`);
+    await sb.query(`DELETE FROM ar_invoices WHERE concept LIKE 'TEST SA AR%' OR concept LIKE 'TEST AR%' OR client_id IN (SELECT id FROM clients WHERE business_name = 'TEST SA AR Client')`);
+    await sb.query(`DELETE FROM clients WHERE business_name = 'TEST SA AR Client'`);
+    // Resto
     await sb.query(`DELETE FROM clients WHERE rfc LIKE 'TESTSA%'`);
     await sb.query(`DELETE FROM suppliers WHERE rfc LIKE 'TESTSA%'`);
     await sb.query(`DELETE FROM employee_permissions WHERE employee_id IN (SELECT id FROM employees WHERE username LIKE 'TEST_sa_%')`);
@@ -520,6 +532,208 @@ async function runTests() {
         await sb.query(`UPDATE clients SET is_active = false WHERE id = $1`, [id]);
         const stillThere = await sb.query(`SELECT id FROM clients WHERE id = $1`, [id]);
         check('O-013', 'Registro obsoletado sigue en la BD (no se borra)', stillThere.rows.length === 1, `id=${id.slice(0, 8)}...`);
+    }
+
+    // ==================== AR / CUENTAS POR COBRAR ====================
+    console.log('\n--- AR / CUENTAS POR COBRAR ---');
+
+    // Helper para simular server actions AR (necesita subCode)
+    const simulateAR = async (
+        action: 'view' | 'create' | 'edit' | 'delete',
+        fixture: EmployeeFixture,
+        doSql: () => Promise<any>
+    ): Promise<{ allowed: boolean; error?: string }> => {
+        if (fixture.role === 'master') {
+            try { await doSql(); return { allowed: true }; }
+            catch (e: any) { return { allowed: false, error: e.message }; }
+        }
+        const perms = fixture.permissions.map(p => ({
+            ...p,
+            can_start: false, can_pause: false, can_complete: false,
+            can_request_supplies: false, can_purchase: false,
+        }));
+        const allowed = can(fixture.role, perms as any, 'finance', action, 'receivable');
+        if (!allowed) return { allowed: false, error: 'Sin permiso (can() === false)' };
+        try { await doSql(); return { allowed: true }; }
+        catch (e: any) { return { allowed: false, error: e.message }; }
+    };
+
+    // Setup: cliente de prueba
+    const arClient = (await sb.query(
+        `INSERT INTO clients (rfc, business_name, fiscal_regime, fiscal_zip_code) VALUES ($1, 'TEST SA AR Client', '601', '12345') RETURNING id`,
+        ['TESTSACX' + Date.now().toString().slice(-5)]
+    )).rows[0];
+
+    // Test AR-001: master puede crear partida
+    {
+        const r = await simulateAR('create', master, async () => {
+            await sb.query(
+                `INSERT INTO ar_invoices (client_id, concept, gross_amount, vat_amount, net_amount, created_by)
+                 SELECT $1, 'TEST SA AR Master', 1000, 160, 1160, id FROM employees WHERE username = $2`,
+                [arClient.id, 'TEST_sa_master']
+            );
+        });
+        check('AR-001', 'master puede crear partida AR (can_create)', r.allowed, r.error);
+    }
+
+    // Test AR-002: admin con can_create puede crear partida
+    {
+        const r = await simulateAR('create', admin, async () => {
+            await sb.query(
+                `INSERT INTO ar_invoices (client_id, concept, gross_amount, vat_amount, net_amount, created_by)
+                 SELECT $1, 'TEST SA AR Admin', 1000, 160, 1160, id FROM employees WHERE username = $2`,
+                [arClient.id, 'TEST_sa_admin']
+            );
+        });
+        check('AR-002', 'admin con can_create puede crear partida AR', r.allowed, r.error);
+    }
+
+    // Test AR-003: viewer (solo view) NO puede crear partida
+    {
+        const r = await simulateAR('create', viewer, async () => {
+            await sb.query(
+                `INSERT INTO ar_invoices (client_id, concept, gross_amount, vat_amount, net_amount, created_by)
+                 SELECT $1, 'TEST SA AR Viewer Should Fail', 0, 0, 0, id FROM employees WHERE username = $2`,
+                [arClient.id, 'TEST_sa_viewer']
+            );
+        });
+        check('AR-003', 'viewer SIN can_create NO puede crear partida AR', !r.allowed, r.error);
+    }
+
+    // Test AR-004: master puede obsoletar partida
+    {
+        const r = await simulateAR('delete', master, async () => {
+            const ins = await sb.query(
+                `INSERT INTO ar_invoices (client_id, concept, gross_amount, vat_amount, net_amount)
+                 VALUES ($1, 'TEST SA AR Obsoletable Master', 0, 0, 0) RETURNING id`,
+                [arClient.id]
+            );
+            await sb.query(`UPDATE ar_invoices SET is_active = false WHERE id = $1`, [ins.rows[0].id]);
+        });
+        check('AR-004', 'master puede obsoletar partida AR (can_delete)', r.allowed, r.error);
+    }
+
+    // Test AR-005: admin con can_delete puede obsoletar
+    {
+        const r = await simulateAR('delete', admin, async () => {
+            const ins = await sb.query(
+                `INSERT INTO ar_invoices (client_id, concept, gross_amount, vat_amount, net_amount)
+                 VALUES ($1, 'TEST SA AR Obsoletable Admin', 0, 0, 0) RETURNING id`,
+                [arClient.id]
+            );
+            await sb.query(`UPDATE ar_invoices SET is_active = false WHERE id = $1`, [ins.rows[0].id]);
+        });
+        check('AR-005', 'admin con can_delete puede obsoletar partida AR', r.allowed, r.error);
+    }
+
+    // Test AR-006: viewer NO puede obsoletar
+    {
+        const r = await simulateAR('delete', viewer, async () => {
+            await sb.query(`UPDATE ar_invoices SET is_active = false WHERE id = (SELECT id FROM ar_invoices LIMIT 1)`);
+        });
+        check('AR-006', 'viewer SIN can_delete NO puede obsoletar partida AR', !r.allowed, r.error);
+    }
+
+    // Test AR-007: master puede restaurar partida
+    {
+        const r = await simulateAR('edit', master, async () => {
+            const ins = await sb.query(
+                `INSERT INTO ar_invoices (client_id, concept, gross_amount, vat_amount, net_amount, is_active)
+                 VALUES ($1, 'TEST SA AR Restore Master', 0, 0, 0, false) RETURNING id`,
+                [arClient.id]
+            );
+            await sb.query(`UPDATE ar_invoices SET is_active = true WHERE id = $1`, [ins.rows[0].id]);
+        });
+        check('AR-007', 'master puede restaurar partida AR (can_edit)', r.allowed, r.error);
+    }
+
+    // Test AR-008: master puede crear link público
+    {
+        const r = await simulateAR('create', master, async () => {
+            // Simular el hash SHA-256 de un token fake
+            const fakeHash = 'b'.repeat(64);
+            await sb.query(
+                `INSERT INTO ar_share_links (client_id, token_hash, expires_at, created_by)
+                 SELECT $1, $2, NOW() + INTERVAL '30 days', id FROM employees WHERE username = $3`,
+                [arClient.id, fakeHash, 'TEST_sa_master']
+            );
+        });
+        check('AR-008', 'master puede crear link público AR (can_create)', r.allowed, r.error);
+    }
+
+    // Test AR-009: viewer NO puede crear link
+    {
+        const r = await simulateAR('create', viewer, async () => {
+            const fakeHash = 'c'.repeat(64);
+            await sb.query(
+                `INSERT INTO ar_share_links (client_id, token_hash, expires_at, created_by)
+                 SELECT $1, $2, NOW() + INTERVAL '30 days', id FROM employees WHERE username = $3`,
+                [arClient.id, fakeHash, 'TEST_sa_viewer']
+            );
+        });
+        check('AR-009', 'viewer SIN can_create NO puede crear link público', !r.allowed, r.error);
+    }
+
+    // Test AR-010: master puede revocar link
+    {
+        const r = await simulateAR('delete', master, async () => {
+            const link = (await sb.query(`SELECT id FROM ar_share_links WHERE client_id = $1 LIMIT 1`, [arClient.id])).rows[0];
+            if (link) await sb.query(`UPDATE ar_share_links SET status = 'revoked' WHERE id = $1`, [link.id]);
+        });
+        check('AR-010', 'master puede revocar link público (can_delete)', r.allowed, r.error);
+    }
+
+    // Test AR-011: master puede registrar pago
+    {
+        const r = await simulateAR('create', master, async () => {
+            const inv = (await sb.query(
+                `INSERT INTO ar_invoices (client_id, concept, gross_amount, vat_amount, net_amount, created_by)
+                 SELECT $1, 'TEST SA AR Payment', 1000, 160, 1160, id FROM employees WHERE username = $2 RETURNING id`,
+                [arClient.id, 'TEST_sa_master']
+            )).rows[0];
+            const pay = (await sb.query(
+                `INSERT INTO ar_payments (client_id, payment_date, amount, payment_method, registered_by)
+                 SELECT $1, CURRENT_DATE, 1160, 'transfer', id FROM employees WHERE username = $2 RETURNING id`,
+                [arClient.id, 'TEST_sa_master']
+            )).rows[0];
+            await sb.query(
+                `INSERT INTO ar_payment_allocations (payment_id, invoice_id, amount_applied) VALUES ($1, $2, 1160)`,
+                [pay.id, inv.id]
+            );
+        });
+        check('AR-011', 'master puede registrar pago + allocations (can_create)', r.allowed, r.error);
+    }
+
+    // Test AR-012: el trigger recalcula paid_amount al insertar allocation
+    {
+        const inv = (await sb.query(
+            `INSERT INTO ar_invoices (client_id, concept, gross_amount, vat_amount, net_amount)
+             VALUES ($1, 'TEST SA AR TriggerCheck', 100, 16, 116) RETURNING id`,
+            [arClient.id]
+        )).rows[0];
+        const pay = (await sb.query(
+            `INSERT INTO ar_payments (client_id, payment_date, amount, payment_method, registered_by)
+             VALUES ($1, CURRENT_DATE, 50, 'cash', (SELECT id FROM employees WHERE username = 'TEST_sa_master')) RETURNING id`,
+            [arClient.id]
+        )).rows[0];
+        await sb.query(
+            `INSERT INTO ar_payment_allocations (payment_id, invoice_id, amount_applied) VALUES ($1, $2, 50)`,
+            [pay.id, inv.id]
+        );
+        const after = await sb.query(`SELECT status, paid_amount, balance FROM ar_invoices WHERE id = $1`, [inv.id]);
+        const ok = after.rows[0].status === 'partial' && Number(after.rows[0].paid_amount) === 50 && Number(after.rows[0].balance) === 66;
+        check('AR-012', 'Trigger recalcula paid_amount + status al insertar allocation', ok, `status=${after.rows[0].status}, paid=${after.rows[0].paid_amount}, balance=${after.rows[0].balance}`);
+    }
+
+    // Test AR-013: el balance es GENERATED (no se puede asignar a mano)
+    {
+        const inv = (await sb.query(
+            `INSERT INTO ar_invoices (client_id, concept, gross_amount, vat_amount, net_amount)
+             VALUES ($1, 'TEST SA AR BalanceGenerated', 200, 32, 232) RETURNING balance`,
+            [arClient.id]
+        )).rows[0];
+        const ok = Number(inv.balance) === 232;
+        check('AR-013', 'balance es GENERATED (gross + vat = 232)', ok, `balance=${inv.balance}`);
     }
 
     // ==================== RESUMEN ====================

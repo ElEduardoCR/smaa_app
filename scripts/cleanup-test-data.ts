@@ -24,6 +24,14 @@ if (!DB_URL) {
     await c.query(`DELETE FROM requisitions WHERE code LIKE 'TEST-%'`);
     // Cualquier huérfano
     await c.query(`DELETE FROM purchase_order_items WHERE purchase_order_id NOT IN (SELECT id FROM purchase_orders)`);
+    // AR: promesas + allocations + pagos + links + partidas
+    await c.query(`DELETE FROM ar_payment_promise_items WHERE promise_id IN (SELECT id FROM ar_payment_promises WHERE client_notes = 'TEST promesa')`);
+    await c.query(`DELETE FROM ar_payment_promises WHERE client_notes = 'TEST promesa'`);
+    await c.query(`DELETE FROM ar_payment_allocations WHERE invoice_id IN (SELECT id FROM ar_invoices WHERE concept LIKE 'TEST SA AR%' OR concept LIKE 'TEST AR%')`);
+    await c.query(`DELETE FROM ar_payments WHERE client_id IN (SELECT id FROM clients WHERE rfc LIKE 'TESTSACX%' OR business_name = 'TEST AR Client')`);
+    await c.query(`DELETE FROM ar_share_links WHERE client_id IN (SELECT id FROM clients WHERE rfc LIKE 'TESTSACX%' OR business_name = 'TEST AR Client')`);
+    await c.query(`DELETE FROM ar_invoices WHERE concept LIKE 'TEST SA AR%' OR concept LIKE 'TEST AR%'`);
+    await c.query(`DELETE FROM clients WHERE business_name IN ('TEST AR Client', 'TEST SA AR Client')`);
     // Suppliers
     await c.query(`DELETE FROM suppliers WHERE rfc LIKE 'TEST%'`);
     // Empleados

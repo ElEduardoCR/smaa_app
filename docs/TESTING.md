@@ -1,6 +1,6 @@
 # 🧪 Protocolo de Testing — SMAA ERP
 
-> Generado el 2026-07-29 después de los fixes de permisos, auto-PO, CSF parser, server actions gateadas y soft-delete (obsolete/restore) en clientes/proveedores/empleados/POs.
+> Generado el 2026-07-29 después de los fixes de permisos, auto-PO, CSF parser, server actions gateadas, soft-delete (obsolete/restore) en clientes/proveedores/empleados/POs, y módulo Cuentas por Cobrar.
 
 Este documento te dice **exactamente** cómo probar el flujo end-to-end de los 5 fixes que aplicamos. Hay dos niveles:
 
@@ -35,7 +35,7 @@ $env:NODE_PATH = "C:\tmp-pg-runner\node_modules"
 
 ---
 
-## ✅ Tests automatizados (65/65 pasan)
+## ✅ Tests automatizados (86/86 pasan)
 
 Hay 3 scripts. Cada uno es independiente. Los puedes correr en cualquier orden.
 
@@ -59,7 +59,7 @@ npx tsx scripts/test-csf-parser.ts
 
 **Output esperado:** `📊 Resumen: 19 pasaron, 0 fallaron (de 19 total)`
 
-### Test 2: Schema de DB (22/22)
+### Test 2: Schema de DB (30/30)
 
 ```powershell
 Set-Location "C:\smaa app\smaa_app"
@@ -83,10 +83,18 @@ npx tsx scripts/permission-tests.ts
 - ✅ **SCHEMA-006** `purchase_orders.is_active` (boolean, NOT NULL, default true) — soft-delete
 - ✅ **SCHEMA-007** Índices parciales `idx_*_is_active` existen en las 3 tablas
 - ✅ **SCHEMA-008** Round-trip de `is_active` (crear → false → true)
+- ✅ **AR-001** Las 6 tablas AR existen
+- ✅ **AR-002** `ar_invoices.balance` es GENERATED ALWAYS (net - paid)
+- ✅ **AR-003** Cálculo de IVA 16% server-side (round-trip)
+- ✅ **AR-004** Trigger `ar_recalc_invoice` actualiza paid_amount + status al insertar allocation
+- ✅ **AR-005** `ar_share_links.token_hash` se guarda como SHA-256 hex de 64 chars
+- ✅ **AR-006** Promesas + items registran分配的分配的分配的facturas y total
+- ✅ **AR-007** 11 índices AR parciales
+- ✅ **AR-008** RLS habilitado en las 6 tablas
 
-**Output esperado:** `📊 Resumen: 22 pasaron, 0 fallaron (de 22 total)`
+**Output esperado:** `📊 Resumen: 30 pasaron, 0 fallaron (de 30 total)`
 
-### Test 3: Lógica de server actions (24/24)
+### Test 3: Lógica de server actions (37/37)
 
 ```powershell
 Set-Location "C:\smaa app\smaa_app"
@@ -118,13 +126,21 @@ npx tsx scripts/test-server-actions.ts
 - ✅ **O-011** admin puede restaurar PO
 - ✅ **O-012** viewer SIN `can_edit` NO puede restaurar PO
 - ✅ **O-013** Registro obsoletado sigue en la BD (no se borra físicamente) — preserva audit trail
+- ✅ **AR-001..AR-003** Master/admin pueden crear partidas AR; viewer (solo view) NO
+- ✅ **AR-004..AR-006** Master/admin pueden obsoletar; viewer NO
+- ✅ **AR-007** Master puede restaurar partida
+- ✅ **AR-008..AR-009** Master puede generar link público; viewer NO
+- ✅ **AR-010** Master puede revocar link
+- ✅ **AR-011** Master puede registrar pago + allocations
+- ✅ **AR-012** Trigger recalcula paid_amount + status al insertar allocation
+- ✅ **AR-013** `balance` es GENERATED correctamente
 
-**Output esperado:** `📊 Resumen: 24 pasaron, 0 fallaron (de 24 total)`
+**Output esperado:** `📊 Resumen: 37 pasaron, 0 fallaron (de 37 total)`
 
 ### Resumen consolidado
 
 ```
-🧪 Tests automatizados: 65 / 65 pasan ✅
+🧪 Tests automatizados: 86 / 86 pasan ✅
 ```
 
 ---
@@ -394,7 +410,62 @@ npx tsx scripts/apply-migration.ts
 npx tsx scripts/cleanup-test-data.ts
 ```
 
-Si te truena cualquier test, mándame el output y lo arreglo. **No deployes a producción sin haber pasado los 65 tests automatizados + los 5 escenarios manuales.**
+Si te truena cualquier test, mándame el output y lo arreglo. **No deployes a producción sin haber pasado los 86 tests automatizados + los 5 escenarios manuales.**
+
+---
+
+## 💰 Módulo Cuentas por Cobrar (`/finance/receivable`)
+
+> Nuevo módulo completo. Permite asignar facturas a clientes (manual o vinculadas a CFDIs ya emitidos), registrar pagos parciales, generar estados de cuenta en PDF, y mandar links públicos para que el cliente vea su cuenta y mande promesas de pago.
+
+### Arquitectura
+
+- **Esquema BD (6 tablas nuevas)**:
+  - `ar_invoices` — partidas/facturas con gross, vat (16% automático), net, paid, balance (GENERATED)
+  - `ar_payments` — pagos recibidos
+  - `ar_payment_allocations` — many-to-many pago↔factura (un pago cubre varias)
+  - `ar_share_links` — links públicos con token hasheado (SHA-256, nunca el token crudo)
+  - `ar_payment_promises` — promesas de pago del cliente
+  - `ar_payment_promise_items` —分配的facturas de la promesa
+- **Trigger `ar_recalc_invoice`**: al insertar/actualizar/borrar una allocation, recalcula paid_amount + status (pending/partial/paid) automáticamente.
+- **Permisos**: sub-módulo `finance:receivable` con `view`/`create`/`edit`/`delete`. Master siempre entra.
+- **Ruta pública `/ar/[token]`**: SIN login, sin middleware. El cliente ve sus facturas, selecciona, manda promesa, descarga PDF. Se valida con SHA-256 del token.
+- **IVA siempre 16%** (computado server-side, no se confía en el cliente).
+
+### Flujos
+
+1. **Dashboard `/finance/receivable`** — Top 10 deudores + Top 10 facturas más vencidas + KPIs (total por cobrar, # clientes con deuda, # vencidas, total facturado).
+2. **Detalle `/finance/receivable/[clientId]`** — Tabla de partidas con totales (bruto / IVA 16% / total / pagado / saldo) en sticky header. Acciones: nueva partida (manual o vinculada a CFDI existente), registrar pago (con分配的por factura), generar link, generar PDF, obsoletar.
+3. **Pagos** — Al registrar un pago,分配的monto a una o varias facturas. El trigger actualiza balances y status automáticamente.
+4. **Link público** — Botón con duración configurable (default 30 días). Se genera token random 32 bytes, se guarda SHA-256 en BD, se copia la URL completa al portapapeles. La URL tipo `https://smaa-app.vercel.app/ar/<43-chars>`.
+5. **Vista del cliente** — Ve sus facturas pendientes con checkbox, totales en vivo (subtotal / IVA 16% / total) en sticky header, descarga PDF desde el link, llena fecha tentativa + notas, hace clic en "Enviar promesa" y ve confirmación.
+6. **Cumplir promesa** — Cuando llega el pago, el equipo marca la promesa como `fulfilled` desde el detalle del cliente.
+
+### Cómo probar el flujo
+
+1. Login como master/admin
+2. Ve a `/finance/receivable`
+3. Click en "Cuentas por Cobrar" (o entra directo a `/finance/receivable`)
+4. Click en un cliente → entra al detalle
+5. Click "Nueva partida" → llena concepto + bruto → el sistema calcula IVA y total → guarda
+6. Click "Vincular CFDI emitido" si quieres traer uno de los CFDIs ya cargados en `issued_invoices`
+7. Click "Registrar pago" → llena monto + método +分配的por factura → guarda
+8. El total, pagado y saldo del header se actualizan en vivo
+9. Click "Generar link cliente" → 30 días default → se copia la URL al portapapeles
+10. Comparte el link por WhatsApp/email (o pégalo en un browser en incognito)
+11. En la vista del cliente, selecciona algunas facturas, ve los totales en vivo, llena fecha tentativa + notas, click "Enviar promesa"
+12. Vuelve a la vista de SMAA → el detalle del cliente muestra la promesa pendiente
+13. Cuando recibas el pago, registra el pago (paso 7) y luego marca la promesa como "Cumplida"
+
+### Seguridad del link
+
+- El token raw (32 bytes random, base64url) NUNCA se guarda en BD
+- Solo se guarda su SHA-256 hex (64 chars)
+- Si alguien dumpea la BD, no puede generar links
+- Cada link tiene expiración configurable
+- Se puede revocar manualmente
+- El link solo expone: nombre/RFC/dirección del cliente, sus facturas pendientes, sus pagos históricos. NO expone notas internas, costos, ni otros clientes.
+- El middleware ignora `/ar/*` (no requiere sesión) pero la server action `resolveShareLinkAction` valida token + status + expiración
 
 ---
 

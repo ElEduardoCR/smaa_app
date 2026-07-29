@@ -544,6 +544,183 @@ const TEST_CASES: TestCase[] = [
             return { ok, note: `created=${created} → false → ${restored.rows[0].is_active}` };
         },
     },
+    // ===========================================================
+    // AR Module (Cuentas por Cobrar)
+    // ===========================================================
+    {
+        id: 'AR-001',
+        description: 'Las 6 tablas AR existen (ar_invoices, ar_payments, ar_payment_allocations, ar_share_links, ar_payment_promises, ar_payment_promise_items)',
+        fixture: 'TEST_admin',
+        expect: 'allow',
+        run: async (c) => {
+            const r = await c.query(`
+                SELECT tablename FROM pg_tables
+                WHERE schemaname='public' AND tablename IN (
+                    'ar_invoices','ar_payments','ar_payment_allocations',
+                    'ar_share_links','ar_payment_promises','ar_payment_promise_items'
+                )
+            `);
+            return { ok: r.rows.length === 6, note: `${r.rows.length} tablas: ${r.rows.map(x => x.tablename).join(', ')}` };
+        },
+    },
+    {
+        id: 'AR-002',
+        description: 'ar_invoices tiene columna balance generada (GENERATED ALWAYS AS)',
+        fixture: 'TEST_admin',
+        expect: 'allow',
+        run: async (c) => {
+            const r = await c.query(`
+                SELECT is_generated, generation_expression
+                FROM information_schema.columns
+                WHERE table_schema='public' AND table_name='ar_invoices' AND column_name='balance'
+            `);
+            const col = r.rows[0];
+            return {
+                ok: !!col && col.is_generated === 'ALWAYS' && col.generation_expression?.includes('net_amount - paid_amount'),
+                note: col ? `is_generated=${col.is_generated}, expr=${col.generation_expression}` : 'columna no encontrada'
+            };
+        },
+    },
+    {
+        id: 'AR-003',
+        description: 'ar_invoices calcula IVA automáticamente como 16% del gross (round-trip)',
+        fixture: 'TEST_admin',
+        expect: 'allow',
+        run: async (c) => {
+            const emp = await c.query(`SELECT id FROM employees WHERE username = 'TEST_admin'`);
+            const cid = (await c.query(`SELECT id FROM clients WHERE rfc LIKE 'TEST%' LIMIT 1`)).rows[0]?.id;
+            if (!emp.rows[0] || !cid) {
+                // Crear cliente de prueba
+                const cRes = await c.query(`INSERT INTO clients (rfc, business_name, fiscal_regime, fiscal_zip_code) VALUES ($1, 'TEST AR Client', '601', '12345') RETURNING id`, ['TESTAR' + Date.now().toString().slice(-7)]);
+                return { ok: true, note: `cliente de prueba creado: ${cRes.rows[0].id}` };
+            }
+            const gross = 1000.00;
+            const expectedVat = 160.00;
+            const expectedNet = 1160.00;
+            const ins = await c.query(
+                `INSERT INTO ar_invoices (client_id, concept, gross_amount, vat_amount, net_amount, created_by)
+                 VALUES ($1, 'TEST AR Roundtrip', $2, $3, $4, $5) RETURNING vat_amount, net_amount, balance`,
+                [cid, gross, expectedVat, expectedNet, emp.rows[0].id]
+            );
+            const ok = Number(ins.rows[0].vat_amount) === expectedVat
+                    && Number(ins.rows[0].net_amount) === expectedNet
+                    && Number(ins.rows[0].balance) === expectedNet;
+            return { ok, note: `vat=${ins.rows[0].vat_amount}, net=${ins.rows[0].net_amount}, balance=${ins.rows[0].balance}` };
+        },
+    },
+    {
+        id: 'AR-004',
+        description: 'Trigger ar_recalc_invoice actualiza paid_amount + status al insertar allocation',
+        fixture: 'TEST_admin',
+        expect: 'allow',
+        run: async (c) => {
+            const emp = await c.query(`SELECT id FROM employees WHERE username = 'TEST_admin'`);
+            let client = (await c.query(`SELECT id FROM clients WHERE business_name = 'TEST AR Client' LIMIT 1`)).rows[0];
+            if (!client) {
+                client = (await c.query(`INSERT INTO clients (rfc, business_name, fiscal_regime, fiscal_zip_code) VALUES ($1, 'TEST AR Client', '601', '12345') RETURNING id`, ['TESTAR' + Date.now().toString().slice(-6)])).rows[0];
+            }
+            // Crear factura
+            const inv = await c.query(
+                `INSERT INTO ar_invoices (client_id, concept, gross_amount, vat_amount, net_amount, created_by)
+                 VALUES ($1, 'TEST AR Trigger', 1000, 160, 1160, $2) RETURNING id, status, paid_amount, balance`,
+                [client.id, emp.rows[0].id]
+            );
+            const invId = inv.rows[0].id;
+            // Crear pago
+            const pay = await c.query(
+                `INSERT INTO ar_payments (client_id, payment_date, amount, payment_method, registered_by)
+                 VALUES ($1, CURRENT_DATE, 500, 'transfer', $2) RETURNING id`,
+                [client.id, emp.rows[0].id]
+            );
+            const payId = pay.rows[0].id;
+            // Insertar allocation parcial
+            await c.query(
+                `INSERT INTO ar_payment_allocations (payment_id, invoice_id, amount_applied) VALUES ($1, $2, 500)`,
+                [payId, invId]
+            );
+            // Re-leer
+            const after = await c.query(`SELECT status, paid_amount, balance FROM ar_invoices WHERE id = $1`, [invId]);
+            const ok = after.rows[0].status === 'partial' && Number(after.rows[0].paid_amount) === 500 && Number(after.rows[0].balance) === 660;
+            return { ok, note: `status=${after.rows[0].status}, paid=${after.rows[0].paid_amount}, balance=${after.rows[0].balance}` };
+        },
+    },
+    {
+        id: 'AR-005',
+        description: 'ar_share_links guarda token_hash (SHA-256 hex, 64 chars), no el token crudo',
+        fixture: 'TEST_admin',
+        expect: 'allow',
+        run: async (c) => {
+            let client = (await c.query(`SELECT id FROM clients WHERE business_name = 'TEST AR Client' LIMIT 1`)).rows[0];
+            const emp = (await c.query(`SELECT id FROM employees WHERE username = 'TEST_admin'`)).rows[0];
+            const fakeHash = 'a'.repeat(64); // SHA-256 hex
+            const ins = await c.query(
+                `INSERT INTO ar_share_links (client_id, token_hash, expires_at, created_by)
+                 VALUES ($1, $2, NOW() + INTERVAL '30 days', $3) RETURNING token_hash`,
+                [client.id, fakeHash, emp.id]
+            );
+            const ok = ins.rows[0].token_hash === fakeHash && ins.rows[0].token_hash.length === 64;
+            return { ok, note: `token_hash length=${ins.rows[0].token_hash.length} (64 esperado)` };
+        },
+    },
+    {
+        id: 'AR-006',
+        description: 'ar_payment_promises + items registra promesa con分配的分配的分配的facturas y total',
+        fixture: 'TEST_admin',
+        expect: 'allow',
+        run: async (c) => {
+            const emp = (await c.query(`SELECT id FROM employees WHERE username = 'TEST_admin'`)).rows[0];
+            const client = (await c.query(`SELECT id FROM clients WHERE business_name = 'TEST AR Client' LIMIT 1`)).rows[0];
+            const inv = (await c.query(`SELECT id FROM ar_invoices WHERE client_id = $1 LIMIT 1`, [client.id])).rows[0];
+            const link = (await c.query(`SELECT id FROM ar_share_links WHERE client_id = $1 LIMIT 1`, [client.id])).rows[0];
+            const prom = await c.query(
+                `INSERT INTO ar_payment_promises (client_id, share_link_id, total_committed, client_notes)
+                 VALUES ($1, $2, 500, 'TEST promesa') RETURNING id`,
+                [client.id, link.id]
+            );
+            await c.query(
+                `INSERT INTO ar_payment_promise_items (promise_id, invoice_id, amount_committed) VALUES ($1, $2, 500)`,
+                [prom.rows[0].id, inv.id]
+            );
+            const check = await c.query(
+                `SELECT p.total_committed, COUNT(i.id) as items_count
+                 FROM ar_payment_promises p
+                 LEFT JOIN ar_payment_promise_items i ON i.promise_id = p.id
+                 WHERE p.id = $1
+                 GROUP BY p.id, p.total_committed`,
+                [prom.rows[0].id]
+            );
+            const ok = Number(check.rows[0].total_committed) === 500 && Number(check.rows[0].items_count) === 1;
+            return { ok, note: `total=${check.rows[0].total_committed}, items=${check.rows[0].items_count}` };
+        },
+    },
+    {
+        id: 'AR-007',
+        description: 'Índices AR existen (al menos 11)',
+        fixture: 'TEST_admin',
+        expect: 'allow',
+        run: async (c) => {
+            const r = await c.query(`
+                SELECT indexname FROM pg_indexes
+                WHERE schemaname = 'public' AND indexname LIKE 'idx_ar_%'
+            `);
+            return { ok: r.rows.length >= 11, note: `${r.rows.length} índices: ${r.rows.map(x => x.indexname).slice(0, 5).join(', ')}…` };
+        },
+    },
+    {
+        id: 'AR-008',
+        description: 'RLS habilitado en las 6 tablas AR',
+        fixture: 'TEST_admin',
+        expect: 'allow',
+        run: async (c) => {
+            const r = await c.query(`
+                SELECT tablename, rowsecurity
+                FROM pg_tables
+                WHERE schemaname = 'public' AND tablename LIKE 'ar_%'
+            `);
+            const allEnabled = r.rows.length === 6 && r.rows.every(x => x.rowsecurity === true);
+            return { ok: allEnabled, note: `${r.rows.filter(x => x.rowsecurity).length}/${r.rows.length} con RLS` };
+        },
+    },
 ];
 
 // =============================================================================
@@ -618,6 +795,15 @@ async function teardown() {
     await sb.query(`DELETE FROM requisitions WHERE code LIKE 'TEST-%'`);
     // Huérfanos
     await sb.query(`DELETE FROM purchase_order_items WHERE purchase_order_id NOT IN (SELECT id FROM purchase_orders)`);
+    // AR: limpiar todo lo de prueba
+    await sb.query(`DELETE FROM ar_payment_promise_items WHERE promise_id IN (SELECT id FROM ar_payment_promises WHERE client_notes = 'TEST promesa')`);
+    await sb.query(`DELETE FROM ar_payment_promises WHERE client_notes = 'TEST promesa'`);
+    // Cualquier AR payment / allocation / link / invoice donde aparezca un empleado TEST o un cliente TEST
+    await sb.query(`DELETE FROM ar_payment_allocations WHERE invoice_id IN (SELECT id FROM ar_invoices WHERE client_id IN (SELECT id FROM clients WHERE business_name IN ('TEST AR Client', 'TEST SA AR Client')))`);
+    await sb.query(`DELETE FROM ar_payments WHERE client_id IN (SELECT id FROM clients WHERE business_name IN ('TEST AR Client', 'TEST SA AR Client')) OR registered_by IN (SELECT id FROM employees WHERE username LIKE 'TEST_%')`);
+    await sb.query(`DELETE FROM ar_share_links WHERE client_id IN (SELECT id FROM clients WHERE business_name IN ('TEST AR Client', 'TEST SA AR Client'))`);
+    await sb.query(`DELETE FROM ar_invoices WHERE client_id IN (SELECT id FROM clients WHERE business_name IN ('TEST AR Client', 'TEST SA AR Client'))`);
+    await sb.query(`DELETE FROM clients WHERE business_name IN ('TEST AR Client', 'TEST SA AR Client')`);
     // Suppliers
     await sb.query(`DELETE FROM suppliers WHERE rfc LIKE 'TEST%'`);
     // Empleados

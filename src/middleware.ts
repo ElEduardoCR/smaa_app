@@ -26,6 +26,7 @@ export async function middleware(request: NextRequest) {
         pathname === '/login' ||
         pathname.startsWith('/_next/') ||
         pathname.startsWith('/api/') ||
+        pathname.startsWith('/ar/') ||         // ruta pública de Cuentas por Cobrar (cliente sin login)
         pathname.includes('.')
     ) {
         return NextResponse.next();

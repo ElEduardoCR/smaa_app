@@ -156,6 +156,12 @@ export const MODULE_CATALOG: ModuleDef[] = [
         code: 'finance',
         label: 'Nóminas y Contabilidad',
         routePrefix: 'finance',
+        subs: [
+            // Sólo 'receivable' está catalogado en el middleware (gateado a nivel URL).
+            // Los otros sub-paths (employees, payroll, etc.) se auto-protegen en su
+            // page.tsx con requirePermission({ moduleCode: 'finance', action: 'view' }).
+            { code: 'receivable', label: 'Cuentas por Cobrar' },
+        ],
         actions: [
             { key: 'can_view', label: 'Ver' },
             { key: 'can_create', label: 'Crear' },

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import {
     ArrowLeft, Users, Banknote, FileBarChart, Clock, Wallet, Receipt, ChevronRight,
-    RefreshCw, Calculator, Calendar, AlertCircle, CheckCircle2, Hourglass
+    RefreshCw, Calculator, Calendar, AlertCircle, CheckCircle2, Hourglass, BadgeDollarSign
 } from "lucide-react";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -29,6 +29,8 @@ export default function FinanceIndex() {
         activeEmployees: 0,
         openPeriods: 0,
         recentDeclarations: 0,
+        arBalance: 0,
+        arClients: 0,
         lastMonthIva: null as null | { period: string; iva_to_pay: number },
     });
     const [recentDeclarations, setRecentDeclarations] = useState<any[]>([]);
@@ -52,6 +54,16 @@ export default function FinanceIndex() {
             }));
             setRecentDeclarations(declarations || []);
             setPendingMovements(moveCount || 0);
+
+            // AR stats: saldo total pendiente + # clientes con deuda
+            const { data: arInvs } = await supabase
+                .from("ar_invoices")
+                .select("client_id, balance")
+                .eq("is_active", true)
+                .in("status", ["pending", "partial"]);
+            const arBalance = (arInvs || []).reduce((s, i) => s + Number(i.balance || 0), 0);
+            const arClients = new Set((arInvs || []).map((i) => i.client_id)).size;
+            setStats(s => ({ ...s, arBalance, arClients }));
 
             // Buscar última declaración IVA
             const { data: lastIva } = await supabase
@@ -101,7 +113,7 @@ export default function FinanceIndex() {
                 </header>
 
                 {/* Quick stats */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     <StatCard
                         title="Empleados activos"
                         value={String(stats.activeEmployees)}
@@ -123,6 +135,13 @@ export default function FinanceIndex() {
                         color="cyan"
                         sub={stats.lastMonthIva ? monthLabel(stats.lastMonthIva.period) : "Sin declaración aún"}
                     />
+                    <StatCard
+                        title="Por cobrar"
+                        value={fmtMoney(stats.arBalance)}
+                        Icon={BadgeDollarSign}
+                        color="rose"
+                        sub={`${stats.arClients} cliente(s) con saldo`}
+                    />
                 </div>
 
                 {/* Modules */}
@@ -130,9 +149,17 @@ export default function FinanceIndex() {
                     <h2 className="text-sm font-bold text-white mb-3 uppercase tracking-[0.15em] flex items-center gap-1.5">
                         <span className="w-1 h-3 rounded-full bg-emerald-400/70" />
                         Sub-módulos
-                        <span className="text-neutral-600 ml-1">· 6</span>
+                        <span className="text-neutral-600 ml-1">· 7</span>
                     </h2>
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2.5">
+                        <ModuleCard
+                            href="/finance/receivable"
+                            title="Cuentas por Cobrar"
+                            desc="Saldo de clientes, antigüedad de facturas y envío de estados de cuenta."
+                            Icon={BadgeDollarSign}
+                            color="rose"
+                            badge={stats.arBalance > 0 ? fmtMoney(stats.arBalance) : "Sin deuda"}
+                        />
                         <ModuleCard
                             href="/finance/employees"
                             title="Empleados"
