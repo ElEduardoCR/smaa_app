@@ -7,7 +7,8 @@ import { supabase } from "@/lib/supabase";
 import {
     ArrowLeft, RefreshCw, Wallet, Plus, Archive, ArchiveRestore, Receipt,
     CheckCircle, Clock, XCircle, CreditCard, Link2, Copy, Trash2, FileText,
-    Download, ChevronDown, ChevronUp, X, FileBarChart, AlertCircle, Send, ExternalLink
+    Download, ChevronDown, ChevronUp, X, FileBarChart, AlertCircle, Send, ExternalLink,
+    Pencil
 } from "lucide-react";
 import {
     createARInvoiceAction, updateARInvoiceAction, obsoleteARInvoiceAction, restoreARInvoiceAction,
@@ -40,6 +41,7 @@ const STATUS_LABELS: Record<string, { label: string; chip: string; Icon: any }> 
 
 type Invoice = {
     id: string;
+    client_id: number;
     invoice_number: string | null;
     concept: string;
     work_date: string | null;
@@ -383,6 +385,14 @@ export default function ClientDetailPage({ clientId }: { clientId: string }) {
                                             </td>
                                             <td className="p-3 text-right">
                                                 <div className="inline-flex items-center gap-1">
+                                                    <button
+                                                        onClick={() => setEditingInvoice(inv)}
+                                                        disabled={busy}
+                                                        className="p-1.5 rounded-lg text-cyan-400 hover:bg-cyan-500/10 disabled:opacity-30 disabled:cursor-not-allowed"
+                                                        title="Editar partida"
+                                                    >
+                                                        <Pencil className="w-3.5 h-3.5" />
+                                                    </button>
                                                     {inv.is_active ? (
                                                         <button onClick={() => onObsolete(inv)} disabled={busy || inv.status === 'partial' || inv.status === 'paid'} className="p-1.5 rounded-lg text-amber-400 hover:bg-amber-500/10 disabled:opacity-30 disabled:cursor-not-allowed" title="Obsoletar">
                                                             <Archive className="w-3.5 h-3.5" />
@@ -581,6 +591,14 @@ export default function ClientDetailPage({ clientId }: { clientId: string }) {
                         setErr={(t) => flash('error', t)}
                     />
                 )}
+                {editingInvoice && (
+                    <EditInvoiceModal
+                        invoice={editingInvoice}
+                        onClose={() => setEditingInvoice(null)}
+                        onSaved={async () => { setEditingInvoice(null); flash('success', 'Partida actualizada.'); await load(); }}
+                        setErr={(t) => flash('error', t)}
+                    />
+                )}
                 {payOpen && (
                     <PaymentModal
                         clientId={Number(clientId)}
@@ -751,6 +769,148 @@ function NewInvoiceModal({ clientId, onClose, onSaved, setErr }: { clientId: num
                 <button onClick={onClose} className="px-4 py-2 text-sm text-neutral-300 hover:text-white bg-neutral-800 hover:bg-neutral-700 rounded-xl">Cancelar</button>
                 <button onClick={submit} disabled={busy} className="px-5 py-2 text-sm font-semibold text-white bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700 rounded-xl disabled:opacity-50">
                     {busy ? "Guardando..." : "Crear partida"}
+                </button>
+            </div>
+        </ModalShell>
+    );
+}
+
+function EditInvoiceModal({ invoice, onClose, onSaved, setErr }: { invoice: Invoice; onClose: () => void; onSaved: () => void | Promise<void>; setErr: (t: string) => void }) {
+    const [concept, setConcept] = useState(invoice.concept);
+    const [gross, setGross] = useState(String(invoice.gross_amount));
+    const [invoiceNumber, setInvoiceNumber] = useState(invoice.invoice_number || "");
+    const [invoiceDate, setInvoiceDate] = useState(invoice.invoice_date || new Date().toISOString().slice(0, 10));
+    const [dueDate, setDueDate] = useState(invoice.due_date || "");
+    const [notes, setNotes] = useState(invoice.notes || "");
+    const [busy, setBusy] = useState(false);
+
+    const hasPayments = invoice.paid_amount > 0;
+    const isLocked = hasPayments || invoice.status === 'cancelled';
+
+    const submit = async () => {
+        if (!concept.trim()) { setErr("Falta el concepto."); return; }
+        const g = Number(gross);
+        if (!isFinite(g) || g < 0) { setErr("Monto inválido."); return; }
+
+        // Validación: si ya tiene pagos, el nuevo gross no puede ser menor al ya pagado
+        if (hasPayments && g < Number(invoice.paid_amount)) {
+            setErr(`El nuevo monto bruto ($${g.toFixed(2)}) no puede ser menor a lo ya pagado ($${Number(invoice.paid_amount).toFixed(2)}).`);
+            return;
+        }
+
+        setBusy(true);
+        try {
+            await updateARInvoiceAction(invoice.id, {
+                client_id: invoice.client_id,
+                concept: concept.trim(),
+                gross_amount: g,
+                invoice_number: invoiceNumber.trim() || null,
+                invoice_date: invoiceDate,
+                due_date: dueDate || null,
+                notes: notes.trim() || null,
+            });
+            onSaved();
+        } catch (e: any) { setErr(e.message); }
+        finally { setBusy(false); }
+    };
+
+    const grossNum = Number(gross);
+    const vat = isFinite(grossNum) && grossNum >= 0 ? Math.round(grossNum * 0.16 * 100) / 100 : 0;
+    const net = isFinite(grossNum) && grossNum >= 0 ? Math.round((grossNum + vat) * 100) / 100 : 0;
+
+    return (
+        <ModalShell title={`Editar partida${hasPayments ? ' (con pagos aplicados)' : ''}`} onClose={onClose}>
+            {hasPayments && (
+                <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 mb-4 text-xs text-amber-200">
+                    <strong>Esta partida ya tiene ${Number(invoice.paid_amount).toFixed(2)} aplicados.</strong> El nuevo monto bruto no puede ser menor a lo ya pagado.
+                </div>
+            )}
+            <div className="space-y-4">
+                <div>
+                    <label className="text-xs font-medium text-neutral-300">Concepto *</label>
+                    <input
+                        value={concept}
+                        onChange={(e) => setConcept(e.target.value)}
+                        disabled={isLocked}
+                        placeholder="Ej. Maquinado de pieza especial..."
+                        className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-3 py-2 text-sm text-white mt-1 focus:outline-none focus:border-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                    />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                    <div>
+                        <label className="text-xs font-medium text-neutral-300"># Factura</label>
+                        <input
+                            value={invoiceNumber}
+                            onChange={(e) => setInvoiceNumber(e.target.value)}
+                            disabled={isLocked}
+                            placeholder="Folio o número"
+                            className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-3 py-2 text-sm text-white mt-1 focus:outline-none focus:border-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                        />
+                    </div>
+                    <div>
+                        <label className="text-xs font-medium text-neutral-300">Fecha factura</label>
+                        <input
+                            type="date"
+                            value={invoiceDate}
+                            onChange={(e) => setInvoiceDate(e.target.value)}
+                            disabled={isLocked}
+                            className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-3 py-2 text-sm text-white mt-1 focus:outline-none focus:border-cyan-500 [color-scheme:dark] disabled:opacity-50 disabled:cursor-not-allowed"
+                        />
+                    </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                    <div>
+                        <label className="text-xs font-medium text-neutral-300">Subtotal (Bruto) *</label>
+                        <input
+                            type="number"
+                            inputMode="decimal"
+                            step="0.01"
+                            value={gross}
+                            onChange={(e) => setGross(e.target.value)}
+                            disabled={isLocked}
+                            placeholder="0.00"
+                            className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-3 py-2 text-sm text-white mt-1 focus:outline-none focus:border-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                        />
+                        <p className="text-[10px] text-neutral-500 mt-1">IVA 16% se recalcula automáticamente</p>
+                    </div>
+                    <div>
+                        <label className="text-xs font-medium text-neutral-300">Fecha vencimiento</label>
+                        <input
+                            type="date"
+                            value={dueDate}
+                            onChange={(e) => setDueDate(e.target.value)}
+                            disabled={isLocked}
+                            className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-3 py-2 text-sm text-white mt-1 focus:outline-none focus:border-cyan-500 [color-scheme:dark] disabled:opacity-50 disabled:cursor-not-allowed"
+                        />
+                    </div>
+                </div>
+                <div>
+                    <label className="text-xs font-medium text-neutral-300">Notas (opcional)</label>
+                    <textarea
+                        value={notes}
+                        onChange={(e) => setNotes(e.target.value)}
+                        disabled={isLocked}
+                        rows={2}
+                        className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-3 py-2 text-sm text-white mt-1 focus:outline-none focus:border-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                    />
+                </div>
+                {!isLocked && (
+                    <div className="bg-cyan-500/5 border border-cyan-500/20 rounded-xl p-3 text-xs space-y-1">
+                        <div className="flex justify-between text-neutral-300"><span>Bruto:</span><span className="font-mono">${grossNum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                        <div className="flex justify-between text-neutral-300"><span>IVA 16%:</span><span className="font-mono">${vat.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                        <div className="flex justify-between text-white font-semibold border-t border-cyan-500/20 pt-1"><span>Total:</span><span className="font-mono">${net.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                    </div>
+                )}
+                {isLocked && (
+                    <div className="bg-rose-500/10 border border-rose-500/30 rounded-xl p-3 text-xs text-rose-200">
+                        Partida bloqueada para edición. {invoice.status === 'cancelled' ? 'Está cancelada.' : 'Tiene pagos aplicados — solo puedes editar concepto, folio y notas.'}
+                    </div>
+                )}
+            </div>
+            <div className="mt-6 flex justify-end gap-3">
+                <button onClick={onClose} className="px-4 py-2 text-sm text-neutral-300 hover:text-white bg-neutral-800 hover:bg-neutral-700 rounded-xl">Cancelar</button>
+                <button onClick={submit} disabled={busy || isLocked} className="px-5 py-2 text-sm font-semibold text-white bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed">
+                    {busy ? "Guardando..." : "Guardar cambios"}
                 </button>
             </div>
         </ModalShell>
