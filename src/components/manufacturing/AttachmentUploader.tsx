@@ -13,6 +13,7 @@ export type AttachedFile = {
     file_kind?: string; // drawing | reference | wps | photo | other
     mime_type?: string | null;
     created_at?: string;
+    is_current?: boolean; // v2: marca la última versión subida de este file_kind
 };
 
 type Props = {

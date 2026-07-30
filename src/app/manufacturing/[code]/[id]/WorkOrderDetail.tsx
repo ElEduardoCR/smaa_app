@@ -8,7 +8,8 @@ import {
     ArrowLeft, Factory, Play, Pause, CheckCircle2, AlertCircle, RefreshCw,
     Paperclip, Cog, Flame, Cpu, ShieldCheck, Camera, Image as ImageIcon, X,
     Plus, Trash2, FileText, Box, Save, Lock, ChevronRight, FileQuestion,
-    Edit2, Send, Loader2, MapPin, ArrowRight, Upload, ListChecks
+    Edit2, Send, Loader2, MapPin, ArrowRight, Upload, ListChecks,
+    Users, UserPlus, Check, MessageSquarePlus, History, Sparkles
 } from "lucide-react";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -86,6 +87,9 @@ type Module = { id: string; code: string; name: string; color: string; icon: str
 type Wps = { id: string; code: string; name: string; joint_type: string | null; base_metal: string | null; filler_metal: string | null; position: string | null; shielding_gas: string | null; amperage: string | null; voltage: string | null; travel_speed: string | null; preheat_temp: string | null; notes: string | null };
 type Pause = { id: string; reason: string; custom_reason: string | null; paused_at: string; resumed_at: string | null; paused_by: string | null; notes: string | null };
 type CompletionPhoto = { id: string; photo_url: string; label: string; lat: number | null; lng: number | null; captured_at: string };
+type EmployeeOpt = { id: string; full_name: string; username: string; role: string; position: string | null; photo_url: string | null };
+type OperatorAssignment = { id: string; employee_id: string; role: string; added_at: string; added_by: string | null; employee: EmployeeOpt | null };
+type WONote = { id: string; note: string; created_by: string | null; created_by_name: string | null; created_at: string };
 
 export default function WorkOrderDetail({ code, woId }: { code: string; woId: string }) {
     const router = useRouter();
@@ -99,6 +103,15 @@ export default function WorkOrderDetail({ code, woId }: { code: string; woId: st
     const [activeFile, setActiveFile] = useState<AttachedFile | null>(null);
     const [loading, setLoading] = useState(true);
     const [statusMsg, setStatusMsg] = useState<{ type: "error" | "success" | "info"; text: string } | null>(null);
+
+    // v2: operators (M:N), notes (append-only), current-employee id (para autor de nuevas notas)
+    const [operators, setOperators] = useState<OperatorAssignment[]>([]);
+    const [woNotes, setWoNotes] = useState<WONote[]>([]);
+    const [availableEmployees, setAvailableEmployees] = useState<EmployeeOpt[]>([]);
+    const [operatorPickerOpen, setOperatorPickerOpen] = useState(false);
+    const [newNote, setNewNote] = useState("");
+    const [currentEmployeeId, setCurrentEmployeeId] = useState<string | null>(null);
+    const [currentEmployeeName, setCurrentEmployeeName] = useState<string>("");
 
     // Permisos del usuario para este módulo/sub-módulo
     const [perms, setPerms] = useState<{ can_view: boolean; can_create: boolean; can_edit: boolean; can_delete: boolean; can_start: boolean; can_pause: boolean; can_complete: boolean; can_request_supplies: boolean; can_purchase: boolean } | null>(null);
@@ -114,6 +127,30 @@ export default function WorkOrderDetail({ code, woId }: { code: string; woId: st
         })();
         return () => { aborted = true; };
     }, [code]);
+
+    // v2: cargar empleado actual (para atribuir nuevas notas) + catálogo de empleados activos
+    useEffect(() => {
+        let aborted = false;
+        (async () => {
+            try {
+                const sessRes = await fetch(`/api/me/permissions`);
+                if (sessRes.ok) {
+                    const j = await sessRes.json();
+                    if (!aborted && j.user) {
+                        setCurrentEmployeeId(j.user.id || null);
+                        setCurrentEmployeeName(j.user.fullName || j.user.username || "");
+                    }
+                }
+                const empRes = await supabase
+                    .from("employees")
+                    .select("id, full_name, username, role, position, photo_url")
+                    .eq("is_active", true)
+                    .order("full_name");
+                if (!aborted) setAvailableEmployees(empRes.data || []);
+            } catch (e) { /* ignore */ }
+        })();
+        return () => { aborted = true; };
+    }, []);
 
     // Operator flow
     const [operatorName, setOperatorName] = useState("");
@@ -152,14 +189,31 @@ export default function WorkOrderDetail({ code, woId }: { code: string; woId: st
             setWo(formatted);
             setModule(m || null);
 
-            const [{ data: atts }, { data: ps }, { data: cps }] = await Promise.all([
+            const [{ data: atts }, { data: ps }, { data: cps }, { data: ops }, { data: nots }] = await Promise.all([
                 supabase.from("work_order_files").select("*").eq("work_order_id", woId).order("created_at", { ascending: false }),
                 supabase.from("work_order_pauses").select("*").eq("work_order_id", woId).order("paused_at", { ascending: false }),
                 supabase.from("work_order_completion_photos").select("*").eq("work_order_id", woId).order("captured_at", { ascending: true }),
+                supabase
+                    .from("work_order_operators")
+                    .select("id, employee_id, role, added_at, added_by, employee:employees(id, full_name, username, role, position, photo_url)")
+                    .eq("work_order_id", woId)
+                    .order("added_at", { ascending: true }),
+                supabase
+                    .from("work_order_notes")
+                    .select("id, note, created_by, created_by_name, created_at")
+                    .eq("work_order_id", woId)
+                    .order("created_at", { ascending: false }),
             ]);
             setAttachments(atts || []);
             setPauses(ps || []);
             setCompletionPhotos(cps || []);
+            // normalizar joins de Supabase (a veces devuelve array)
+            const opsNorm = (ops || []).map((o: any) => ({
+                ...o,
+                employee: Array.isArray(o.employee) ? o.employee[0] : o.employee,
+            }));
+            setOperators(opsNorm);
+            setWoNotes(nots || []);
 
             if (formatted.module?.code === "soldadura") {
                 const { data: wps } = await supabase
@@ -177,13 +231,19 @@ export default function WorkOrderDetail({ code, woId }: { code: string; woId: st
     };
     useEffect(() => { if (woId) load(); }, [woId]);
 
-    // Auto-select first PDF / STEP to show in viewer
+    // v2: Auto-select el archivo "actual" más reciente (is_current=true) que sea viewable.
+    // Si no hay is_current marcado, fallback al más reciente por created_at.
     useEffect(() => {
         if (activeFile || attachments.length === 0) return;
-        const firstViewable = attachments.find(a =>
+        const viewables = attachments.filter(a =>
             fileTypeFromName(a.file_name) === "pdf" || fileTypeFromName(a.file_name) === "step"
         );
-        if (firstViewable) setActiveFile(firstViewable);
+        // Prioridad 1: is_current=true y viewable
+        const currentViewable = viewables.find(a => a.is_current);
+        // Prioridad 2: el más reciente viewable
+        const fallback = viewables[0];
+        const target = currentViewable || fallback;
+        if (target) setActiveFile(target);
     }, [attachments, activeFile]);
 
     const flash = (type: "error" | "success" | "info", text: string) => {
@@ -381,6 +441,61 @@ export default function WorkOrderDetail({ code, woId }: { code: string; woId: st
         } catch (e: any) { flash("error", e?.message || "Error."); }
     };
 
+    // --- v2: Operadores (M:N con employees) ---
+    const handleAddOperator = async (employeeId: string) => {
+        if (!wo) return;
+        if (operators.find(o => o.employee_id === employeeId)) {
+            flash("info", "Ese empleado ya está asignado.");
+            return;
+        }
+        setBusy(true);
+        try {
+            const { error } = await supabase.from("work_order_operators").insert([{
+                work_order_id: wo.id,
+                employee_id: employeeId,
+                role: "operator",
+                added_by: currentEmployeeId,
+            }]);
+            if (error) throw error;
+            flash("success", "Operador asignado.");
+            await load();
+        } catch (e: any) { flash("error", e?.message || "Error."); }
+        finally { setBusy(false); }
+    };
+
+    const handleRemoveOperator = async (assignmentId: string) => {
+        if (!confirm("¿Quitar a este operador de la OT?")) return;
+        setBusy(true);
+        try {
+            const { error } = await supabase.from("work_order_operators").delete().eq("id", assignmentId);
+            if (error) throw error;
+            flash("success", "Operador removido.");
+            await load();
+        } catch (e: any) { flash("error", e?.message || "Error."); }
+        finally { setBusy(false); }
+    };
+
+    // --- v2: Notas append-only ---
+    const handleAddNote = async () => {
+        if (!wo) return;
+        const trimmed = newNote.trim();
+        if (!trimmed) return;
+        setBusy(true);
+        try {
+            const { error } = await supabase.from("work_order_notes").insert([{
+                work_order_id: wo.id,
+                note: trimmed,
+                created_by: currentEmployeeId,
+                created_by_name: currentEmployeeName || "Anónimo",
+            }]);
+            if (error) throw error;
+            setNewNote("");
+            flash("success", "Nota agregada al historial.");
+            await load();
+        } catch (e: any) { flash("error", e?.message || "Error."); }
+        finally { setBusy(false); }
+    };
+
     if (loading) {
         return (
             <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
@@ -451,16 +566,90 @@ export default function WorkOrderDetail({ code, woId }: { code: string; woId: st
                 <div className="grid grid-cols-1 xl:grid-cols-[1fr_640px] gap-5">
                     {/* LEFT: actions */}
                     <div className="space-y-5 min-w-0">
-                        {/* Operator name */}
+                        {/* v2: Operadores asignados (M:N) */}
                         {wo.status !== "Cancelled" && wo.status !== "QC_Released" && (
-                            <div className="bg-neutral-800/40 p-4 rounded-2xl border border-neutral-700/50 flex flex-col sm:flex-row sm:items-center gap-3">
-                                <label className="text-xs text-neutral-400 whitespace-nowrap">Operador responsable</label>
-                                <input
-                                    value={operatorName}
-                                    onChange={e => setOperatorName(e.target.value)}
-                                    className="flex-1 min-w-0 bg-neutral-900/60 border border-neutral-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
-                                    placeholder="Tu nombre completo"
-                                />
+                            <div className="bg-neutral-800/40 p-4 rounded-2xl border border-neutral-700/50">
+                                <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
+                                    <label className="text-xs text-neutral-400 uppercase tracking-wider flex items-center gap-1.5">
+                                        <Users className="w-3.5 h-3.5" /> Operadores asignados
+                                        <span className="text-neutral-600 normal-case">({operators.length})</span>
+                                    </label>
+                                    <button
+                                        onClick={() => setOperatorPickerOpen(!operatorPickerOpen)}
+                                        className="text-xs text-cyan-300 hover:text-white bg-cyan-500/10 hover:bg-cyan-500/20 px-2.5 py-1 rounded-lg border border-cyan-500/20 inline-flex items-center gap-1.5"
+                                    >
+                                        <UserPlus className="w-3 h-3" /> {operatorPickerOpen ? "Cerrar" : "Asignar"}
+                                    </button>
+                                </div>
+                                {/* Chips de operadores asignados */}
+                                {operators.length === 0 ? (
+                                    <p className="text-xs text-neutral-500">Sin operadores asignados. Click en "Asignar" para agregar.</p>
+                                ) : (
+                                    <div className="flex flex-wrap gap-2">
+                                        {operators.map(op => (
+                                            <div key={op.id} className="inline-flex items-center gap-2 bg-cyan-500/10 border border-cyan-500/30 rounded-full pl-1 pr-2 py-1">
+                                                {op.employee?.photo_url ? (
+                                                    // eslint-disable-next-line @next/next/no-img-element
+                                                    <img src={op.employee.photo_url} alt={op.employee.full_name} className="w-6 h-6 rounded-full object-cover" />
+                                                ) : (
+                                                    <div className="w-6 h-6 rounded-full bg-gradient-to-br from-cyan-500/30 to-cyan-700/30 flex items-center justify-center text-[10px] font-bold text-cyan-200">
+                                                        {(op.employee?.full_name || "??").split(/\s+/).slice(0, 2).map(p => p[0]?.toUpperCase()).join("")}
+                                                    </div>
+                                                )}
+                                                <div className="text-xs leading-tight">
+                                                    <p className="text-white font-semibold">{op.employee?.full_name || "—"}</p>
+                                                    <p className="text-cyan-300/70 text-[10px]">{op.employee?.position || op.employee?.role || ""}</p>
+                                                </div>
+                                                <button
+                                                    onClick={() => handleRemoveOperator(op.id)}
+                                                    disabled={busy}
+                                                    className="ml-1 p-0.5 text-cyan-300 hover:text-rose-300 disabled:opacity-30"
+                                                    title="Quitar"
+                                                >
+                                                    <X className="w-3.5 h-3.5" />
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {/* Picker dropdown */}
+                                {operatorPickerOpen && (
+                                    <div className="mt-3 border-t border-neutral-700/50 pt-3">
+                                        <p className="text-[10px] uppercase tracking-wider text-neutral-500 mb-2">Empleados activos ({availableEmployees.length})</p>
+                                        <div className="max-h-56 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                                            {availableEmployees.map(emp => {
+                                                const assigned = operators.find(o => o.employee_id === emp.id);
+                                                return (
+                                                    <button
+                                                        key={emp.id}
+                                                        onClick={() => { handleAddOperator(emp.id); setOperatorPickerOpen(false); }}
+                                                        disabled={busy || !!assigned}
+                                                        className={cn(
+                                                            "text-left px-2.5 py-1.5 rounded-lg border text-xs flex items-center gap-2 transition-colors",
+                                                            assigned
+                                                                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-200 cursor-not-allowed"
+                                                                : "bg-neutral-900/50 border-neutral-700/50 hover:border-cyan-500/40 hover:bg-cyan-500/5 text-neutral-200"
+                                                        )}
+                                                    >
+                                                        <div className="flex-1 min-w-0">
+                                                            <p className="font-semibold truncate">{emp.full_name}</p>
+                                                            <p className="text-[10px] text-neutral-500 truncate">{emp.position || emp.role}</p>
+                                                        </div>
+                                                        {assigned && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Compatibilidad legacy: si wo.operator_name existe, mostrar */}
+                                {wo.operator_name && operators.length === 0 && (
+                                    <p className="text-[10px] text-neutral-500 mt-2 italic">
+                                        Legacy: <span className="text-neutral-400">{wo.operator_name}</span> (registrado antes del sistema M:N)
+                                    </p>
+                                )}
                             </div>
                         )}
 
@@ -599,13 +788,67 @@ export default function WorkOrderDetail({ code, woId }: { code: string; woId: st
                             </div>
                         )}
 
-                        {/* Notes */}
-                        {wo.notes && (
-                            <div className="bg-neutral-800/40 p-5 rounded-2xl border border-neutral-700/50">
-                                <h3 className="text-xs text-neutral-400 uppercase tracking-wider mb-2">Notas de la OT</h3>
-                                <p className="text-sm text-neutral-200 whitespace-pre-wrap">{wo.notes}</p>
-                            </div>
-                        )}
+                        {/* v2: Notas append-only — historial + input al final */}
+                        <div className="bg-neutral-800/40 p-5 rounded-2xl border border-neutral-700/50">
+                            <h3 className="text-xs text-neutral-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                                <History className="w-3.5 h-3.5" /> Historial de notas
+                                <span className="text-neutral-600 normal-case">({woNotes.length})</span>
+                            </h3>
+                            {woNotes.length === 0 ? (
+                                <p className="text-xs text-neutral-500 italic">Aún no hay notas. Agrega la primera abajo.</p>
+                            ) : (
+                                <ul className="space-y-2.5 mb-4">
+                                    {woNotes.map(n => {
+                                        const isLegacy = n.created_by_name === "Migrado de campo legacy";
+                                        return (
+                                            <li key={n.id} className="bg-neutral-900/40 border border-neutral-800/60 rounded-lg p-3">
+                                                <div className="flex items-center justify-between mb-1 gap-2 flex-wrap">
+                                                    <p className="text-[10px] uppercase tracking-wider text-neutral-400 flex items-center gap-1.5">
+                                                        <Users className="w-3 h-3" /> {n.created_by_name || "Anónimo"}
+                                                        {isLegacy && <span className="text-[9px] font-normal text-amber-400 normal-case">(legacy)</span>}
+                                                    </p>
+                                                    <p className="text-[10px] text-neutral-500 font-mono">
+                                                        {new Date(n.created_at).toLocaleString()}
+                                                    </p>
+                                                </div>
+                                                <p className="text-sm text-neutral-200 whitespace-pre-wrap">{n.note}</p>
+                                            </li>
+                                        );
+                                    })}
+                                </ul>
+                            )}
+                            {/* Input para nueva nota (al final) */}
+                            {wo.status !== "Cancelled" && (
+                                <div className="border-t border-neutral-700/50 pt-3 space-y-2">
+                                    <label className="text-[10px] uppercase tracking-wider text-neutral-400 flex items-center gap-1.5">
+                                        <MessageSquarePlus className="w-3 h-3" /> Agregar nota al historial
+                                    </label>
+                                    <textarea
+                                        value={newNote}
+                                        onChange={(e) => setNewNote(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                                                e.preventDefault();
+                                                handleAddNote();
+                                            }
+                                        }}
+                                        rows={3}
+                                        placeholder="Escribe una nota o actualización. No se borrará lo anterior."
+                                        className="w-full bg-neutral-900/60 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-cyan-500/50"
+                                    />
+                                    <div className="flex justify-between items-center">
+                                        <p className="text-[10px] text-neutral-500">Tip: Ctrl+Enter para enviar. {currentEmployeeName && `Se atribuye a: ${currentEmployeeName}`}</p>
+                                        <button
+                                            onClick={handleAddNote}
+                                            disabled={busy || !newNote.trim()}
+                                            className="text-xs text-white bg-cyan-500 hover:bg-cyan-600 px-3 py-1.5 rounded-lg font-semibold disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
+                                        >
+                                            <MessageSquarePlus className="w-3.5 h-3.5" /> Agregar
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
 
                         {/* Pause history */}
                         {pauses.length > 0 && (
@@ -773,7 +1016,10 @@ export default function WorkOrderDetail({ code, woId }: { code: string; woId: st
                         {/* File list / quick switch */}
                         {attachments.length > 0 && (
                             <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-2xl p-3">
-                                <p className="text-xs uppercase tracking-wider text-neutral-400 mb-2 px-1">Cambiar de archivo</p>
+                                <p className="text-xs uppercase tracking-wider text-neutral-400 mb-2 px-1 flex items-center gap-1.5">
+                                    <Sparkles className="w-3 h-3" /> Archivos
+                                    <span className="text-neutral-600 normal-case">({attachments.length})</span>
+                                </p>
                                 <ul className="space-y-1 max-h-44 overflow-y-auto">
                                     {attachments.map(a => {
                                         const type = fileTypeFromName(a.file_name);
@@ -792,8 +1038,11 @@ export default function WorkOrderDetail({ code, woId }: { code: string; woId: st
                                                     {type === "image" && <ImageIcon className="w-4 h-4 text-emerald-400" />}
                                                     {type === "other" && <FileQuestion className="w-4 h-4 text-neutral-400" />}
                                                     <span className="truncate flex-1">{a.file_name}</span>
-                                                    {type === "pdf" && <span className="text-[10px] text-rose-300/80">PDF</span>}
-                                                    {type === "step" && <span className="text-[10px] text-cyan-300/80">3D</span>}
+                                                    {a.is_current && a.file_kind && a.file_kind !== "other" && (
+                                                        <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30" title="Última versión subida">Actual</span>
+                                                    )}
+                                                    {type === "pdf" && !a.is_current && <span className="text-[10px] text-rose-300/80">PDF</span>}
+                                                    {type === "step" && !a.is_current && <span className="text-[10px] text-cyan-300/80">3D</span>}
                                                 </button>
                                             </li>
                                         );

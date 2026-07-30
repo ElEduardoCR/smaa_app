@@ -721,6 +721,178 @@ const TEST_CASES: TestCase[] = [
             return { ok: allEnabled, note: `${r.rows.filter(x => x.rowsecurity).length}/${r.rows.length} con RLS` };
         },
     },
+    // ===========================================================
+    // Manufacturing v2 (Operators M:N, Notes append-only, File versions)
+    // ===========================================================
+    {
+        id: 'MFG2-001',
+        description: 'Tablas nuevas work_order_operators y work_order_notes existen',
+        fixture: 'TEST_admin',
+        expect: 'allow',
+        run: async (c) => {
+            const r = await c.query(`
+                SELECT tablename FROM pg_tables
+                WHERE schemaname='public' AND tablename IN ('work_order_operators','work_order_notes')
+            `);
+            return { ok: r.rows.length === 2, note: `Encontradas: ${r.rows.map(x => x.tablename).join(', ')}` };
+        },
+    },
+    {
+        id: 'MFG2-002',
+        description: 'work_order_files tiene columna is_current (boolean, NOT NULL, default true)',
+        fixture: 'TEST_admin',
+        expect: 'allow',
+        run: async (c) => {
+            const r = await c.query(`
+                SELECT column_name, data_type, is_nullable, column_default
+                FROM information_schema.columns
+                WHERE table_schema='public' AND table_name='work_order_files' AND column_name='is_current'
+            `);
+            const col = r.rows[0];
+            return {
+                ok: !!col && col.data_type === 'boolean' && col.is_nullable === 'NO' && col.column_default?.includes('true'),
+                note: col ? `type=${col.data_type}, nullable=${col.is_nullable}, default=${col.column_default}` : 'no encontrado'
+            };
+        },
+    },
+    {
+        id: 'MFG2-003',
+        description: 'Trigger trg_wo_file_set_current: insertar 2 archivos del mismo kind → el primero is_current=false, el segundo true',
+        fixture: 'TEST_admin',
+        expect: 'allow',
+        run: async (c) => {
+            // Crear OT de prueba
+            const wo = await c.query(
+                `INSERT INTO work_orders (order_number, status, notes)
+                 VALUES ('TEST-MFG2-003', 'Open', NULL) RETURNING id`
+            );
+            const woId = wo.rows[0].id;
+            // Insertar 2 archivos drawing
+            const a1 = await c.query(
+                `INSERT INTO work_order_files (work_order_id, file_name, file_url, file_kind) VALUES ($1, 'plano_v1.pdf', 'https://t/v1', 'drawing') RETURNING id, is_current`,
+                [woId]
+            );
+            const a2 = await c.query(
+                `INSERT INTO work_order_files (work_order_id, file_name, file_url, file_kind) VALUES ($1, 'plano_v2.pdf', 'https://t/v2', 'drawing') RETURNING id, is_current`,
+                [woId]
+            );
+            // Re-leer el primero
+            const v1 = await c.query(`SELECT is_current FROM work_order_files WHERE id = $1`, [a1.rows[0].id]);
+            const ok = v1.rows[0].is_current === false && a2.rows[0].is_current === true;
+            // Cleanup
+            await c.query(`DELETE FROM work_order_files WHERE work_order_id = $1`, [woId]);
+            await c.query(`DELETE FROM work_orders WHERE id = $1`, [woId]);
+            return { ok, note: `v1.is_current=${v1.rows[0].is_current} (esperado false), v2.is_current=${a2.rows[0].is_current} (esperado true)` };
+        },
+    },
+    {
+        id: 'MFG2-004',
+        description: 'Trigger NO afecta a file_kind=other (los "other" se quedan todos como is_current=true)',
+        fixture: 'TEST_admin',
+        expect: 'allow',
+        run: async (c) => {
+            const wo = await c.query(
+                `INSERT INTO work_orders (order_number, status) VALUES ('TEST-MFG2-004', 'Open') RETURNING id`
+            );
+            const woId = wo.rows[0].id;
+            const a1 = await c.query(
+                `INSERT INTO work_order_files (work_order_id, file_name, file_url, file_kind) VALUES ($1, 'doc1.pdf', 'https://t/d1', 'other') RETURNING id, is_current`,
+                [woId]
+            );
+            const a2 = await c.query(
+                `INSERT INTO work_order_files (work_order_id, file_name, file_url, file_kind) VALUES ($1, 'doc2.pdf', 'https://t/d2', 'other') RETURNING id, is_current`,
+                [woId]
+            );
+            const v1 = await c.query(`SELECT is_current FROM work_order_files WHERE id = $1`, [a1.rows[0].id]);
+            const ok = v1.rows[0].is_current === true && a2.rows[0].is_current === true;
+            await c.query(`DELETE FROM work_order_files WHERE work_order_id = $1`, [woId]);
+            await c.query(`DELETE FROM work_orders WHERE id = $1`, [woId]);
+            return { ok, note: `other: v1=${v1.rows[0].is_current}, v2=${a2.rows[0].is_current} (ambos true esperado)` };
+        },
+    },
+    {
+        id: 'MFG2-005',
+        description: 'work_order_operators: una OT puede tener varios empleados (M:N)',
+        fixture: 'TEST_admin',
+        expect: 'allow',
+        run: async (c) => {
+            const emp1 = await c.query(`SELECT id FROM employees WHERE username = 'TEST_master'`);
+            const emp2 = await c.query(`SELECT id FROM employees WHERE username = 'TEST_admin'`);
+            const wo = await c.query(`INSERT INTO work_orders (order_number, status) VALUES ('TEST-MFG2-005', 'Open') RETURNING id`);
+            const woId = wo.rows[0].id;
+            await c.query(
+                `INSERT INTO work_order_operators (work_order_id, employee_id, role) VALUES ($1, $2, 'operator'), ($1, $3, 'supervisor')`,
+                [woId, emp1.rows[0].id, emp2.rows[0].id]
+            );
+            const cnt = await c.query(`SELECT COUNT(*) as c FROM work_order_operators WHERE work_order_id = $1`, [woId]);
+            // Cleanup
+            await c.query(`DELETE FROM work_order_operators WHERE work_order_id = $1`, [woId]);
+            await c.query(`DELETE FROM work_orders WHERE id = $1`, [woId]);
+            return { ok: Number(cnt.rows[0].c) === 2, note: `${cnt.rows[0].c} operadores asignados (esperado 2)` };
+        },
+    },
+    {
+        id: 'MFG2-006',
+        description: 'work_order_operators: UNIQUE (work_order_id, employee_id) — no se puede duplicar',
+        fixture: 'TEST_admin',
+        expect: 'allow',
+        run: async (c) => {
+            const emp = await c.query(`SELECT id FROM employees WHERE username = 'TEST_master'`);
+            const wo = await c.query(`INSERT INTO work_orders (order_number, status) VALUES ('TEST-MFG2-006', 'Open') RETURNING id`);
+            const woId = wo.rows[0].id;
+            await c.query(
+                `INSERT INTO work_order_operators (work_order_id, employee_id, role) VALUES ($1, $2, 'operator')`,
+                [woId, emp.rows[0].id]
+            );
+            let duplicateFailed = false;
+            try {
+                await c.query(
+                    `INSERT INTO work_order_operators (work_order_id, employee_id, role) VALUES ($1, $2, 'operator')`,
+                    [woId, emp.rows[0].id]
+                );
+            } catch (e: any) {
+                duplicateFailed = e.message.includes('duplicate') || e.message.includes('unique') || e.code === '23505';
+            }
+            await c.query(`DELETE FROM work_order_operators WHERE work_order_id = $1`, [woId]);
+            await c.query(`DELETE FROM work_orders WHERE id = $1`, [woId]);
+            return { ok: duplicateFailed, note: duplicateFailed ? 'Duplicate bloqueado ✓' : 'Duplicate NO fue bloqueado ✗' };
+        },
+    },
+    {
+        id: 'MFG2-007',
+        description: 'work_order_notes: append-only — múltiples notas por OT quedan todas registradas',
+        fixture: 'TEST_admin',
+        expect: 'allow',
+        run: async (c) => {
+            const wo = await c.query(`INSERT INTO work_orders (order_number, status) VALUES ('TEST-MFG2-007', 'Open') RETURNING id`);
+            const woId = wo.rows[0].id;
+            const emp = await c.query(`SELECT id FROM employees WHERE username = 'TEST_master'`);
+            for (let i = 0; i < 3; i++) {
+                await c.query(
+                    `INSERT INTO work_order_notes (work_order_id, note, created_by, created_by_name) VALUES ($1, $2, $3, 'TEST master')`,
+                    [woId, `Nota ${i + 1}`, emp.rows[0].id]
+                );
+            }
+            const cnt = await c.query(`SELECT COUNT(*) as c, MAX(note) as last_note FROM work_order_notes WHERE work_order_id = $1`, [woId]);
+            await c.query(`DELETE FROM work_order_notes WHERE work_order_id = $1`, [woId]);
+            await c.query(`DELETE FROM work_orders WHERE id = $1`, [woId]);
+            return { ok: Number(cnt.rows[0].c) === 3 && cnt.rows[0].last_note === 'Nota 3', note: `${cnt.rows[0].c} notas, última="${cnt.rows[0].last_note}"` };
+        },
+    },
+    {
+        id: 'MFG2-008',
+        description: 'Notas legacy de work_orders.notes se migraron a work_order_notes',
+        fixture: 'TEST_admin',
+        expect: 'allow',
+        run: async (c) => {
+            const r = await c.query(`
+                SELECT COUNT(*) as migrated_count
+                FROM work_order_notes
+                WHERE created_by_name = 'Migrado de campo legacy'
+            `);
+            return { ok: Number(r.rows[0].migrated_count) > 0, note: `${r.rows[0].migrated_count} notas migradas de campos legacy` };
+        },
+    },
 ];
 
 // =============================================================================
@@ -795,6 +967,11 @@ async function teardown() {
     await sb.query(`DELETE FROM requisitions WHERE code LIKE 'TEST-%'`);
     // Huérfanos
     await sb.query(`DELETE FROM purchase_order_items WHERE purchase_order_id NOT IN (SELECT id FROM purchase_orders)`);
+    // MFG2: limpiar OTs y data de prueba de manufacturing v2
+    await sb.query(`DELETE FROM work_order_operators WHERE work_order_id IN (SELECT id FROM work_orders WHERE order_number LIKE 'TEST-MFG2-%')`);
+    await sb.query(`DELETE FROM work_order_notes WHERE work_order_id IN (SELECT id FROM work_orders WHERE order_number LIKE 'TEST-MFG2-%')`);
+    await sb.query(`DELETE FROM work_order_files WHERE work_order_id IN (SELECT id FROM work_orders WHERE order_number LIKE 'TEST-MFG2-%')`);
+    await sb.query(`DELETE FROM work_orders WHERE order_number LIKE 'TEST-MFG2-%'`);
     // AR: limpiar todo lo de prueba
     await sb.query(`DELETE FROM ar_payment_promise_items WHERE promise_id IN (SELECT id FROM ar_payment_promises WHERE client_notes = 'TEST promesa')`);
     await sb.query(`DELETE FROM ar_payment_promises WHERE client_notes = 'TEST promesa'`);
