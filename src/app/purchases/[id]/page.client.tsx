@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { updatePurchaseOrderAction, deletePurchaseOrderAction } from "@/app/actions/purchases";
-import { ArrowLeft, Save, Trash2, Loader2, AlertCircle, CheckCircle2, ExternalLink, Plus, ShoppingCart, Truck, Calendar, FileText, Receipt, FileCheck } from "lucide-react";
+import { updatePurchaseOrderAction, deletePurchaseOrderAction, addPurchaseAttachmentAction, deletePurchaseAttachmentAction } from "@/app/actions/purchases";
+import { ArrowLeft, Save, Trash2, Loader2, AlertCircle, CheckCircle2, ExternalLink, Plus, ShoppingCart, Truck, Calendar, FileText, Receipt, FileCheck, Paperclip, X, Upload, Layers, Camera, FilePlus } from "lucide-react";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -73,6 +73,73 @@ export default function PurchaseOrderEditClient({
     const [saving, setSaving] = useState(false);
     const [deleting, setDeleting] = useState(false);
     const [msg, setMsg] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+
+    // Adjuntos múltiples (facturas, evidencia)
+    type Attachment = { id: string; kind: 'invoice' | 'evidence' | 'other'; file_url: string; file_name: string; content_type: string | null; uploaded_at: string };
+    const [attachments, setAttachments] = useState<Attachment[]>([]);
+    const [loadingAttachments, setLoadingAttachments] = useState(true);
+    const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+    const [pendingKind, setPendingKind] = useState<'invoice' | 'evidence' | 'other'>('invoice');
+    const [uploadingAtt, setUploadingAtt] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+    const loadAttachments = async () => {
+        setLoadingAttachments(true);
+        const { data, error } = await supabase
+            .from('purchase_order_attachments')
+            .select('id, kind, file_url, file_name, content_type, uploaded_at')
+            .eq('purchase_order_id', po.id)
+            .order('uploaded_at', { ascending: true });
+        if (error) {
+            console.warn('No se pudieron cargar adjuntos:', error);
+            setAttachments([]);
+        } else {
+            setAttachments((data || []) as any);
+        }
+        setLoadingAttachments(false);
+    };
+
+    useEffect(() => { loadAttachments(); }, [po.id]);
+
+    const handleUploadAttachments = async () => {
+        if (pendingFiles.length === 0) return;
+        setUploadingAtt(true);
+        try {
+            const toBase64 = (file: File): Promise<string> =>
+                new Promise((res, rej) => {
+                    const reader = new FileReader();
+                    reader.onload = () => res(String(reader.result || "").split(",")[1] || "");
+                    reader.onerror = rej;
+                    reader.readAsDataURL(file);
+                });
+            const files = await Promise.all(pendingFiles.map(async (f) => ({
+                base64: await toBase64(f),
+                fileName: f.name,
+                contentType: f.type || "application/octet-stream",
+            })));
+            await addPurchaseAttachmentAction(po.id, files, pendingKind);
+            setPendingFiles([]);
+            await loadAttachments();
+        } catch (e: any) {
+            setMsg({ type: 'error', text: e.message || "Error al subir adjuntos." });
+        } finally {
+            setUploadingAtt(false);
+        }
+    };
+
+    const handleDeleteAttachment = async (id: string) => {
+        if (!confirm("¿Eliminar este adjunto?")) return;
+        try {
+            await deletePurchaseAttachmentAction(id);
+            await loadAttachments();
+        } catch (e: any) {
+            setMsg({ type: 'error', text: e.message || "Error al eliminar." });
+        }
+    };
+
+    const invoiceCount = attachments.filter((a) => a.kind === 'invoice').length;
+    const evidenceCount = attachments.filter((a) => a.kind === 'evidence').length;
+    const otherCount = attachments.filter((a) => a.kind === 'other').length;
 
     // Recalcular totales cuando cambian items
     const subtotal = items.reduce((s, it) => s + (Number(it.quantity) || 0) * (Number(it.unit_price) || 0), 0);
@@ -259,36 +326,173 @@ export default function PurchaseOrderEditClient({
                         </div>
                     </div>
 
-                    {/* Evidencia adjunta (de la requisición) - read-only */}
-                    {(po.supplier_quote_url || po.invoice_url || po.evidence_photo_url) && (
-                        <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-2xl p-4">
-                            <p className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                                <FileCheck className="w-3.5 h-3.5" /> Evidencia adjunta
-                            </p>
-                            <div className="flex flex-wrap gap-2">
-                                {po.supplier_quote_url && (
-                                    <a href={po.supplier_quote_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs bg-neutral-900/60 hover:bg-neutral-800 border border-neutral-700 px-3 py-1.5 rounded-lg text-neutral-200">
-                                        <FileText className="w-3.5 h-3.5 text-amber-400" /> Cotización del proveedor <ExternalLink className="w-3 h-3 text-neutral-500" />
-                                    </a>
-                                )}
-                                {po.invoice_url && (
-                                    <a href={po.invoice_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs bg-neutral-900/60 hover:bg-neutral-800 border border-neutral-700 px-3 py-1.5 rounded-lg text-neutral-200">
-                                        <Receipt className="w-3.5 h-3.5 text-emerald-400" /> Factura <ExternalLink className="w-3 h-3 text-neutral-500" />
-                                    </a>
-                                )}
-                                {po.evidence_photo_url && (
-                                    <a href={po.evidence_photo_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs bg-neutral-900/60 hover:bg-neutral-800 border border-neutral-700 px-3 py-1.5 rounded-lg text-neutral-200">
-                                        <Receipt className="w-3.5 h-3.5 text-emerald-400" /> Foto factura <ExternalLink className="w-3 h-3 text-neutral-500" />
-                                    </a>
-                                )}
-                            </div>
-                            {po.invoice_date && (
-                                <p className="text-[10px] text-neutral-500 mt-2 flex items-center gap-1.5">
-                                    <Calendar className="w-3 h-3" /> Fecha factura: {new Date(po.invoice_date).toLocaleDateString('es-MX', { dateStyle: 'medium' })}
+                    {/* Evidencia adjunta (multi-archivo) */}
+                    <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-2xl p-4">
+                        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                            <div>
+                                <p className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                                    <Paperclip className="w-3.5 h-3.5" /> Archivos adjuntos
                                 </p>
+                                <div className="flex items-center gap-2 text-[11px] text-neutral-400">
+                                    <span className="inline-flex items-center gap-1"><Receipt className="w-3 h-3 text-emerald-400" /> {invoiceCount} factura{invoiceCount === 1 ? "" : "s"}</span>
+                                    <span className="text-neutral-700">·</span>
+                                    <span className="inline-flex items-center gap-1"><Camera className="w-3 h-3 text-orange-400" /> {evidenceCount} foto{evidenceCount === 1 ? "" : "s"}</span>
+                                    {otherCount > 0 && (
+                                        <>
+                                            <span className="text-neutral-700">·</span>
+                                            <span className="inline-flex items-center gap-1"><FileText className="w-3 h-3 text-violet-400" /> {otherCount} otro{otherCount === 1 ? "" : "s"}</span>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                            {canEdit && (
+                                <div className="flex items-center gap-2">
+                                    <select
+                                        value={pendingKind}
+                                        onChange={(e) => setPendingKind(e.target.value as any)}
+                                        className="text-xs bg-neutral-900/60 border border-neutral-700 rounded-lg px-2 py-1.5 text-neutral-200 focus:outline-none focus:border-orange-500"
+                                    >
+                                        <option value="invoice">Factura</option>
+                                        <option value="evidence">Foto del material</option>
+                                        <option value="other">Otro documento</option>
+                                    </select>
+                                    <button
+                                        type="button"
+                                        onClick={() => fileInputRef.current?.click()}
+                                        className="inline-flex items-center gap-1.5 text-xs text-orange-300 hover:text-orange-200 bg-orange-500/10 hover:bg-orange-500/20 px-3 py-1.5 rounded-lg border border-orange-500/30"
+                                    >
+                                        <FilePlus className="w-3.5 h-3.5" /> Agregar archivo(s)
+                                    </button>
+                                </div>
                             )}
                         </div>
-                    )}
+
+                        {/* Cotización del proveedor (de la requisición, no modificable aquí) */}
+                        {po.supplier_quote_url && (
+                            <div className="flex flex-wrap gap-2 mb-2">
+                                <a href={po.supplier_quote_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs bg-neutral-900/60 hover:bg-neutral-800 border border-neutral-700 px-3 py-1.5 rounded-lg text-neutral-200">
+                                    <FileText className="w-3.5 h-3.5 text-amber-400" /> Cotización del proveedor <ExternalLink className="w-3 h-3 text-neutral-500" />
+                                </a>
+                            </div>
+                        )}
+
+                        {/* Lista de adjuntos */}
+                        {loadingAttachments ? (
+                            <p className="text-[11px] text-neutral-500">Cargando adjuntos…</p>
+                        ) : attachments.length === 0 ? (
+                            <p className="text-[11px] text-neutral-500">
+                                Sin adjuntos todavía. {canEdit ? 'Usa "Agregar archivo(s)" arriba.' : ''}
+                            </p>
+                        ) : (
+                            <ul className="space-y-1.5">
+                                {attachments.map((a) => {
+                                    const kindStyle =
+                                        a.kind === 'invoice'
+                                            ? { Icon: Receipt, color: 'text-emerald-400', label: 'Factura' }
+                                            : a.kind === 'evidence'
+                                            ? { Icon: Camera, color: 'text-orange-400', label: 'Foto' }
+                                            : { Icon: FileText, color: 'text-violet-400', label: 'Otro' };
+                                    const { Icon, color, label } = kindStyle;
+                                    return (
+                                        <li
+                                            key={a.id}
+                                            className="flex items-center gap-2 bg-neutral-900/40 border border-neutral-700/50 rounded-lg px-3 py-2 text-sm"
+                                        >
+                                            <Icon className={cn("w-4 h-4 flex-shrink-0", color)} />
+                                            <div className="flex-1 min-w-0">
+                                                <a
+                                                    href={a.file_url}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    className="text-neutral-200 hover:text-emerald-300 truncate block"
+                                                >
+                                                    {a.file_name}
+                                                </a>
+                                                <p className="text-[10px] text-neutral-500">
+                                                    {label} · {new Date(a.uploaded_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' })}
+                                                </p>
+                                            </div>
+                                            <a
+                                                href={a.file_url}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="p-1.5 text-neutral-500 hover:text-emerald-300"
+                                                title="Abrir"
+                                            >
+                                                <ExternalLink className="w-3.5 h-3.5" />
+                                            </a>
+                                            {canEdit && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleDeleteAttachment(a.id)}
+                                                    className="p-1.5 text-neutral-500 hover:text-rose-300"
+                                                    title="Eliminar"
+                                                >
+                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                </button>
+                                            )}
+                                        </li>
+                                    );
+                                })}
+                            </ul>
+                        )}
+
+                        {/* Drop zone / preview de archivos pendientes */}
+                        {canEdit && pendingFiles.length > 0 && (
+                            <div className="mt-3 p-3 bg-orange-500/5 border border-orange-500/20 rounded-lg">
+                                <p className="text-[11px] text-neutral-300 mb-2">
+                                    {pendingFiles.length} archivo{pendingFiles.length === 1 ? "" : "s"} listo{pendingFiles.length === 1 ? "" : "s"} para subir como <strong className="text-white">{pendingKind === 'invoice' ? 'Factura' : pendingKind === 'evidence' ? 'Foto' : 'Otro'}</strong>:
+                                </p>
+                                <ul className="space-y-1 mb-3">
+                                    {pendingFiles.map((f, idx) => (
+                                        <li key={idx} className="flex items-center gap-2 text-xs text-neutral-300">
+                                            <FileText className="w-3.5 h-3.5 text-orange-400 flex-shrink-0" />
+                                            <span className="truncate flex-1">{f.name}</span>
+                                            <span className="text-neutral-500">{(f.size / 1024).toFixed(1)} KB</span>
+                                            <button
+                                                type="button"
+                                                onClick={() => setPendingFiles((p) => p.filter((_, i) => i !== idx))}
+                                                className="text-neutral-500 hover:text-rose-300"
+                                            >
+                                                <X className="w-3.5 h-3.5" />
+                                            </button>
+                                        </li>
+                                    ))}
+                                </ul>
+                                <button
+                                    type="button"
+                                    onClick={handleUploadAttachments}
+                                    disabled={uploadingAtt}
+                                    className="w-full inline-flex items-center justify-center gap-1.5 text-xs text-white bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 px-3 py-2 rounded-lg border border-emerald-500/30"
+                                >
+                                    {uploadingAtt ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                                    Subir {pendingFiles.length} archivo{pendingFiles.length === 1 ? "" : "s"}
+                                </button>
+                            </div>
+                        )}
+
+                        {/* Input oculto para adjuntar */}
+                        {canEdit && (
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                multiple
+                                accept={pendingKind === 'evidence' ? 'image/*' : '.pdf,image/*,.doc,.docx,.xls,.xlsx'}
+                                className="hidden"
+                                onChange={(e) => {
+                                    if (!e.target.files) return;
+                                    setPendingFiles(Array.from(e.target.files));
+                                    e.target.value = "";
+                                }}
+                            />
+                        )}
+
+                        {po.invoice_date && (
+                            <p className="text-[10px] text-neutral-500 mt-2 flex items-center gap-1.5">
+                                <Calendar className="w-3 h-3" /> Fecha factura: {new Date(po.invoice_date).toLocaleDateString('es-MX', { dateStyle: 'medium' })}
+                            </p>
+                        )}
+                    </div>
 
                     {/* Items */}
                     <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-2xl p-4">

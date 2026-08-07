@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { generatePurchaseOrderPDF } from "@/lib/generatePoPdf";
-import { receivePurchaseOrderAction, uploadPurchaseEvidenceAction, deletePurchaseOrderAction as obsoletePOAction, restorePurchaseOrderAction } from "@/app/actions/purchases";
-import { ShoppingCart, Plus, RefreshCw, ArrowLeft, Download, Eye, CheckCircle, Upload, FileText, Camera, Inbox, Search, X, Filter, Edit2, Archive, ArchiveRestore } from "lucide-react";
+import { receivePurchaseOrderAction, deletePurchaseOrderAction as obsoletePOAction, restorePurchaseOrderAction } from "@/app/actions/purchases";
+import { ShoppingCart, Plus, RefreshCw, ArrowLeft, Download, Eye, CheckCircle, Upload, FileText, Camera, Inbox, Search, X, Filter, Edit2, Archive, ArchiveRestore, Layers, Receipt } from "lucide-react";
 import Link from "next/link";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -26,15 +26,19 @@ type PO = {
     created_at: string;
     invoice_date: string | null;
     is_active?: boolean;
+    purchase_group_id?: string | null;
     supplier: { business_name: string; rfc: string; email?: string; address?: string; is_active?: boolean; } | null;
 };
 
 export default function PurchasesPage() {
     const [orders, setOrders] = useState<PO[]>([]);
+    const [attachmentCounts, setAttachmentCounts] = useState<Record<string, { invoice: number; evidence: number; other: number }>>({});
     const [isLoading, setIsLoading] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [receivingPO, setReceivingPO] = useState<string | null>(null);
+    const [receiveFiles, setReceiveFiles] = useState<File[]>([]);
+    const [receiveEvidenceFiles, setReceiveEvidenceFiles] = useState<File[]>([]);
+    const [uploadingReceive, setUploadingReceive] = useState(false);
     const [pendingInboxCount, setPendingInboxCount] = useState(0);
     const [showObsolete, setShowObsolete] = useState(false);
 
@@ -55,6 +59,25 @@ export default function PurchasesPage() {
             if (error) throw error;
             const formatted = (data as any[]).map(po => ({ ...po, supplier: Array.isArray(po.supplier) ? po.supplier[0] : po.supplier }));
             setOrders(formatted || []);
+
+            // Traer el conteo de adjuntos por PO en una sola query
+            try {
+                const { data: attCounts } = await supabase
+                    .from('purchase_order_attachments')
+                    .select('purchase_order_id, kind');
+                const map: Record<string, { invoice: number; evidence: number; other: number }> = {};
+                for (const a of (attCounts || []) as any[]) {
+                    const pid = a.purchase_order_id;
+                    if (!map[pid]) map[pid] = { invoice: 0, evidence: 0, other: 0 };
+                    if (a.kind === 'invoice') map[pid].invoice++;
+                    else if (a.kind === 'evidence') map[pid].evidence++;
+                    else map[pid].other++;
+                }
+                setAttachmentCounts(map);
+            } catch (attErr) {
+                // Si la tabla no existe aún (migración pendiente), no rompemos la lista.
+                console.warn('No se pudieron cargar conteos de adjuntos:', attErr);
+            }
         } catch (error: any) {
             console.error("Error fetching purchase orders:", error);
         } finally {
@@ -92,24 +115,6 @@ export default function PurchasesPage() {
         }
     };
 
-    const handleUploadPurchaseEvidence = async (poId: string, file: File) => {
-        try {
-            // Server action con permission gate (purchases:edit)
-            const reader = new FileReader();
-            const dataUrl: string = await new Promise((res, rej) => {
-                reader.onload = () => res(String(reader.result || ""));
-                reader.onerror = rej;
-                reader.readAsDataURL(file);
-            });
-            const b64 = dataUrl.split(",")[1] || "";
-            await uploadPurchaseEvidenceAction(poId, b64, file.name, file.type || "application/octet-stream");
-            fetchOrders();
-        } catch (error: any) {
-            console.error('Error uploading purchase photo:', error);
-            alert(`Error al subir el archivo: ${error.message}`);
-        }
-    };
-
     const handleDownloadPDF = async (po: PO) => {
         try {
             const { data: items, error } = await supabase
@@ -144,32 +149,57 @@ export default function PurchasesPage() {
     };
 
     const handleReceive = async (poId: string) => {
-        if (!selectedFile) {
-            alert("Por favor selecciona el archivo de la factura.");
+        if (receiveFiles.length === 0) {
+            alert("Adjunta al menos una factura (PDF o imagen).");
             return;
         }
 
         setIsSubmitting(true);
+        setUploadingReceive(true);
         try {
-            // Server action con permission gate (purchases:edit)
-            const reader = new FileReader();
-            const dataUrl: string = await new Promise((res, rej) => {
-                reader.onload = () => res(String(reader.result || ""));
-                reader.onerror = rej;
-                reader.readAsDataURL(selectedFile);
-            });
-            const b64 = dataUrl.split(",")[1] || "";
-            await receivePurchaseOrderAction(poId, b64, selectedFile.name, selectedFile.type || "application/octet-stream");
+            // Convertir cada archivo a base64 (DataURL → base64) y mandarlo al server action.
+            const toBase64 = (file: File): Promise<string> =>
+                new Promise((res, rej) => {
+                    const reader = new FileReader();
+                    reader.onload = () => res(String(reader.result || "").split(",")[1] || "");
+                    reader.onerror = rej;
+                    reader.readAsDataURL(file);
+                });
+
+            const invoices = await Promise.all(
+                receiveFiles.map(async (f) => ({
+                    base64: await toBase64(f),
+                    fileName: f.name,
+                    contentType: f.type || "application/octet-stream",
+                }))
+            );
+            const evidences = await Promise.all(
+                receiveEvidenceFiles.map(async (f) => ({
+                    base64: await toBase64(f),
+                    fileName: f.name,
+                    contentType: f.type || "application/octet-stream",
+                }))
+            );
+
+            await receivePurchaseOrderAction(poId, invoices, evidences);
 
             setReceivingPO(null);
-            setSelectedFile(null);
+            setReceiveFiles([]);
+            setReceiveEvidenceFiles([]);
             fetchOrders();
         } catch (error: any) {
             console.error("Error receiving PO:", error);
             alert("Error al recibir la compra: " + error.message);
         } finally {
             setIsSubmitting(false);
+            setUploadingReceive(false);
         }
+    };
+
+    const openReceiveModal = (poId: string) => {
+        setReceivingPO(poId);
+        setReceiveFiles([]);
+        setReceiveEvidenceFiles([]);
     };
 
     const formatCurrency = (amt: number) => `$${Number(amt).toFixed(2)}`;
@@ -326,7 +356,7 @@ export default function PurchasesPage() {
                                     <th className="px-6 py-4">Total</th>
                                     <th className="px-6 py-4">Status</th>
                                     <th className="px-6 py-4">Cotización Prov.</th>
-                                    <th className="px-6 py-4 text-center">Evidencia Recepción</th>
+                                    <th className="px-6 py-4 text-center">Archivos</th>
                                     <th className="px-6 py-4 rounded-tr-xl text-right">Acciones</th>
                                 </tr>
                             </thead>
@@ -349,9 +379,32 @@ export default function PurchasesPage() {
                                         )}
                                     </td></tr>
                                 ) : (
-                                    filteredOrders.map((po) => {
+                                    (() => {
+                                        // Calcular el conteo de POs por grupo (para mostrar "1/3", "2/3", etc.)
+                                        const groupCounts: Record<string, number> = {};
+                                        for (const p of filteredOrders) {
+                                            if (p.purchase_group_id) {
+                                                groupCounts[p.purchase_group_id] = (groupCounts[p.purchase_group_id] || 0) + 1;
+                                            }
+                                        }
+                                        // Calcular la posición de cada PO dentro de su grupo (ordenado por po_number)
+                                        const groupPosition: Record<string, { idx: number; total: number }> = {};
+                                        const byGroup: Record<string, PO[]> = {};
+                                        for (const p of filteredOrders) {
+                                            if (p.purchase_group_id) {
+                                                (byGroup[p.purchase_group_id] = byGroup[p.purchase_group_id] || []).push(p);
+                                            }
+                                        }
+                                        for (const gid of Object.keys(byGroup)) {
+                                            byGroup[gid].sort((a, b) => (a.po_number || '').localeCompare(b.po_number || ''));
+                                            byGroup[gid].forEach((p, i) => {
+                                                groupPosition[p.id] = { idx: i + 1, total: byGroup[gid].length };
+                                            });
+                                        }
+                                        return filteredOrders.map((po) => {
                                         const isObsolete = po.is_active === false;
                                         const supplierObsolete = po.supplier?.is_active === false;
+                                        const grpInfo = po.purchase_group_id ? groupPosition[po.id] : null;
                                         return (
                                             <tr key={po.id} className={cn(
                                                 "transition-colors",
@@ -359,12 +412,24 @@ export default function PurchasesPage() {
                                                     ? "bg-neutral-900/30 text-neutral-500 hover:bg-neutral-800/40"
                                                     : "hover:bg-neutral-800/80"
                                             )}>
-                                                <td className="px-6 py-4"><span className={cn(
-                                                    "font-mono font-medium px-2.5 py-1 rounded-md border",
-                                                    isObsolete
-                                                        ? "text-neutral-500 line-through bg-neutral-700/20 border-neutral-700/30"
-                                                        : "text-orange-300 bg-orange-500/10 border-orange-500/20"
-                                                )}>{po.po_number}</span></td>
+                                                <td className="px-6 py-4">
+                                                    <div className="flex flex-col gap-1 items-start">
+                                                        <span className={cn(
+                                                            "font-mono font-medium px-2.5 py-1 rounded-md border",
+                                                            isObsolete
+                                                                ? "text-neutral-500 line-through bg-neutral-700/20 border-neutral-700/30"
+                                                                : "text-orange-300 bg-orange-500/10 border-orange-500/20"
+                                                        )}>{po.po_number}</span>
+                                                        {grpInfo && grpInfo.total > 1 && (
+                                                            <span
+                                                                title={`Multicompra: ${grpInfo.total} proveedores en este grupo`}
+                                                                className="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-300 border border-violet-500/30"
+                                                            >
+                                                                <Layers className="w-2.5 h-2.5" /> Multi {grpInfo.idx}/{grpInfo.total}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </td>
                                                 <td className={cn(
                                                     "px-6 py-4 font-medium",
                                                     isObsolete ? "text-neutral-500" : "text-neutral-200"
@@ -386,18 +451,41 @@ export default function PurchasesPage() {
                                                 </td>
 
                                                 <td className="px-6 py-4 text-center">
-                                                    {po.evidence_photo_url ? (
-                                                        <a href={po.evidence_photo_url} target="_blank" rel="noopener noreferrer"
-                                                            className="inline-flex items-center gap-1.5 text-xs font-medium text-orange-400 hover:text-orange-300 bg-orange-500/10 hover:bg-orange-500/20 px-2.5 py-1.5 rounded-lg border border-orange-500/20 transition-colors">
-                                                            <Eye className="w-3.5 h-3.5" /> Ver Foto
-                                                        </a>
-                                                    ) : (
-                                                        <label className={cn("inline-flex items-center gap-1.5 text-xs font-medium text-orange-400 hover:text-orange-300 bg-orange-500/10 hover:bg-orange-500/20 px-2.5 py-1.5 rounded-lg border border-orange-500/20 cursor-pointer transition-colors", isObsolete && "opacity-50 pointer-events-none")}>
-                                                            <Camera className="w-3.5 h-3.5" /> Subir Foto
-                                                            <input type="file" accept="image/*" className="hidden"
-                                                                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadPurchaseEvidence(po.id, f); e.target.value = ''; }} />
-                                                        </label>
-                                                    )}
+                                                    {(() => {
+                                                        const counts = attachmentCounts[po.id] || { invoice: 0, evidence: 0, other: 0 };
+                                                        const total = counts.invoice + counts.evidence + counts.other;
+                                                        if (total === 0) {
+                                                            return <span className="text-neutral-600 text-xs">—</span>;
+                                                        }
+                                                        return (
+                                                            <div className="inline-flex items-center gap-1.5 flex-wrap justify-center">
+                                                                {counts.invoice > 0 && (
+                                                                    <span
+                                                                        title={`${counts.invoice} factura${counts.invoice === 1 ? "" : "s"}`}
+                                                                        className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-300 border border-emerald-500/20"
+                                                                    >
+                                                                        <Receipt className="w-3 h-3" /> {counts.invoice}
+                                                                    </span>
+                                                                )}
+                                                                {counts.evidence > 0 && (
+                                                                    <span
+                                                                        title={`${counts.evidence} foto${counts.evidence === 1 ? "" : "s"}`}
+                                                                        className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-orange-500/10 text-orange-300 border border-orange-500/20"
+                                                                    >
+                                                                        <Camera className="w-3 h-3" /> {counts.evidence}
+                                                                    </span>
+                                                                )}
+                                                                {counts.other > 0 && (
+                                                                    <span
+                                                                        title={`${counts.other} otro${counts.other === 1 ? "" : "s"}`}
+                                                                        className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-violet-500/10 text-violet-300 border border-violet-500/20"
+                                                                    >
+                                                                        <FileText className="w-3 h-3" /> {counts.other}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })()}
                                                 </td>
 
                                                 <td className="px-6 py-4 text-right space-x-2 whitespace-nowrap">
@@ -408,7 +496,7 @@ export default function PurchasesPage() {
                                                     ) : (
                                                         <>
                                                             {po.status !== 'Received' ? (
-                                                                <button onClick={() => setReceivingPO(po.id)} className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-3 py-1.5 rounded-lg border border-emerald-500/20 transition-colors">
+                                                                <button onClick={() => openReceiveModal(po.id)} className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-3 py-1.5 rounded-lg border border-emerald-500/20 transition-colors">
                                                                     <CheckCircle className="w-3.5 h-3.5" /> Recibir
                                                                 </button>
                                                             ) : po.invoice_url ? (
@@ -430,7 +518,8 @@ export default function PurchasesPage() {
                                                 </td>
                                             </tr>
                                         );
-                                    })
+                                        });
+                                    })()
                                 )}
                             </tbody>
                         </table>
@@ -438,31 +527,170 @@ export default function PurchasesPage() {
                 </div>
             </div>
 
-            {/* Receive Modal */}
+            {/* Receive Modal — soporta múltiples facturas y múltiples fotos */}
             {receivingPO && (
                 <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                    <div className="bg-neutral-900 border border-neutral-700/50 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+                    <div className="bg-neutral-900 border border-neutral-700/50 rounded-2xl p-6 w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto">
                         <h3 className="text-xl font-bold text-white mb-2">Recibir Orden de Compra</h3>
-                        <p className="text-neutral-400 text-sm mb-6">Sube la factura del proveedor para completar esta recepción.</p>
+                        <p className="text-neutral-400 text-sm mb-5">
+                            Adjunta una o varias facturas del proveedor (puedes subir varias a la vez) y, opcionalmente,
+                            fotos del material recibido.
+                        </p>
 
-                        <div className="space-y-4">
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium text-neutral-300 ml-1">Factura (PDF o Imagen) *</label>
-                                <div className="relative">
-                                    <input type="file" onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
-                                        className="w-full bg-neutral-800/50 border border-neutral-700 rounded-xl px-4 py-3 text-neutral-300 text-sm file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-emerald-500/10 file:text-emerald-400 hover:file:bg-emerald-500/20 cursor-pointer"
-                                        accept=".pdf,image/*" />
+                        <div className="space-y-5">
+                            {/* Facturas (múltiples) */}
+                            <div>
+                                <div className="flex items-center justify-between mb-1.5">
+                                    <label className="text-sm font-medium text-neutral-300">Factura(s) (PDF o Imagen) *</label>
+                                    <span className="text-[10px] text-neutral-500">{receiveFiles.length} archivo{receiveFiles.length === 1 ? "" : "s"}</span>
                                 </div>
+                                <FileMultiPicker
+                                    files={receiveFiles}
+                                    onChange={setReceiveFiles}
+                                    accept=".pdf,image/*"
+                                    disabled={isSubmitting}
+                                    primary
+                                />
                             </div>
-                            <div className="pt-4 flex justify-end gap-3">
-                                <button onClick={() => { setReceivingPO(null); setSelectedFile(null); }} disabled={isSubmitting} className="px-5 py-2.5 text-sm font-medium text-neutral-300 hover:text-white bg-neutral-800 hover:bg-neutral-700 rounded-xl transition-colors">Cancelar</button>
-                                <button onClick={() => handleReceive(receivingPO)} disabled={!selectedFile || isSubmitting} className="px-5 py-2.5 text-sm font-medium text-white bg-emerald-500 hover:bg-emerald-600 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
-                                    {isSubmitting ? <><RefreshCw className="w-4 h-4 animate-spin" /> Procesando...</> : <><Upload className="w-4 h-4" /> Finalizar</>}
+
+                            {/* Evidencia fotográfica (múltiples, opcional) */}
+                            <div>
+                                <div className="flex items-center justify-between mb-1.5">
+                                    <label className="text-sm font-medium text-neutral-300">Fotos del material (opcional)</label>
+                                    <span className="text-[10px] text-neutral-500">{receiveEvidenceFiles.length} archivo{receiveEvidenceFiles.length === 1 ? "" : "s"}</span>
+                                </div>
+                                <FileMultiPicker
+                                    files={receiveEvidenceFiles}
+                                    onChange={setReceiveEvidenceFiles}
+                                    accept="image/*"
+                                    disabled={isSubmitting}
+                                />
+                            </div>
+
+                            <div className="pt-2 flex justify-end gap-3">
+                                <button
+                                    onClick={() => { setReceivingPO(null); setReceiveFiles([]); setReceiveEvidenceFiles([]); }}
+                                    disabled={isSubmitting}
+                                    className="px-5 py-2.5 text-sm font-medium text-neutral-300 hover:text-white bg-neutral-800 hover:bg-neutral-700 rounded-xl transition-colors"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    onClick={() => handleReceive(receivingPO)}
+                                    disabled={receiveFiles.length === 0 || isSubmitting}
+                                    className="px-5 py-2.5 text-sm font-medium text-white bg-emerald-500 hover:bg-emerald-600 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                                >
+                                    {isSubmitting
+                                        ? <><RefreshCw className="w-4 h-4 animate-spin" /> {uploadingReceive ? "Subiendo…" : "Procesando…"}</>
+                                        : <><Upload className="w-4 h-4" /> Finalizar recepción</>}
                                 </button>
                             </div>
                         </div>
                     </div>
                 </div>
+            )}
+        </div>
+    );
+}
+
+// =============================================================================
+// FileMultiPicker
+// Reutilizable: muestra la lista de archivos seleccionados, permite agregar
+// más con un solo click, y quitar individualmente. El input nativo sigue
+// aceptando `multiple` para arrastrar/soltar varios a la vez.
+// =============================================================================
+function FileMultiPicker({
+    files,
+    onChange,
+    accept,
+    disabled,
+    primary = false,
+}: {
+    files: File[];
+    onChange: (next: File[]) => void;
+    accept: string;
+    disabled?: boolean;
+    primary?: boolean;
+}) {
+    const inputRef = useRef<HTMLInputElement | null>(null);
+
+    const add = (incoming: FileList | null) => {
+        if (!incoming) return;
+        const next = [...files];
+        for (let i = 0; i < incoming.length; i++) {
+            const f = incoming[i];
+            if (!f) continue;
+            // Evitar duplicados por (name + size + lastModified)
+            if (next.some((x) => x.name === f.name && x.size === f.size && x.lastModified === f.lastModified)) continue;
+            next.push(f);
+        }
+        onChange(next);
+    };
+
+    const remove = (idx: number) => {
+        onChange(files.filter((_, i) => i !== idx));
+    };
+
+    const formatSize = (bytes: number) => {
+        if (bytes < 1024) return `${bytes} B`;
+        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+        return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    };
+
+    return (
+        <div className="space-y-2">
+            <label
+                onClick={() => !disabled && inputRef.current?.click()}
+                onDragOver={(e) => { if (disabled) return; e.preventDefault(); }}
+                onDrop={(e) => {
+                    if (disabled) return;
+                    e.preventDefault();
+                    add(e.dataTransfer.files);
+                }}
+                className={cn(
+                    "flex items-center justify-center gap-2 w-full bg-neutral-800/50 border-2 border-dashed rounded-xl px-4 py-4 text-sm cursor-pointer transition-colors",
+                    primary
+                        ? "border-emerald-500/40 text-emerald-200 hover:border-emerald-500/60 hover:bg-emerald-500/5"
+                        : "border-neutral-700 text-neutral-300 hover:border-orange-500/40 hover:bg-neutral-800",
+                    disabled && "opacity-50 pointer-events-none"
+                )}
+            >
+                <Upload className="w-4 h-4" />
+                <span>Subir archivo{files.length > 0 ? "s" : ""} (puedes arrastrar varios)</span>
+                <input
+                    ref={inputRef}
+                    type="file"
+                    multiple
+                    accept={accept}
+                    className="hidden"
+                    disabled={disabled}
+                    onChange={(e) => { add(e.target.files); e.target.value = ""; }}
+                />
+            </label>
+            {files.length > 0 && (
+                <ul className="space-y-1.5">
+                    {files.map((f, idx) => (
+                        <li
+                            key={`${f.name}-${f.size}-${f.lastModified}-${idx}`}
+                            className="flex items-center gap-2 bg-neutral-900/50 border border-neutral-700/60 rounded-lg px-3 py-2 text-sm"
+                        >
+                            <FileText className={cn("w-4 h-4 flex-shrink-0", primary ? "text-emerald-400" : "text-orange-400")} />
+                            <div className="flex-1 min-w-0">
+                                <p className="truncate text-neutral-200">{f.name}</p>
+                                <p className="text-[10px] text-neutral-500">{formatSize(f.size)}</p>
+                            </div>
+                            <button
+                                type="button"
+                                disabled={disabled}
+                                onClick={(e) => { e.preventDefault(); remove(idx); }}
+                                className="p-1 text-neutral-500 hover:text-rose-300 disabled:opacity-50"
+                                title="Quitar"
+                            >
+                                <X className="w-3.5 h-3.5" />
+                            </button>
+                        </li>
+                    ))}
+                </ul>
             )}
         </div>
     );

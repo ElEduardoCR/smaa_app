@@ -704,3 +704,37 @@ DROP POLICY IF EXISTS "Allow all operations for commission_agents" ON public.com
 CREATE POLICY "Allow all operations for commission_agents" ON public.commission_agents
     FOR ALL USING (true) WITH CHECK (true);
 
+
+
+-- ===== 20260806130000_purchase_groups.sql =====
+-- Multicompra: agrupar varias POs (una por proveedor) bajo un mismo
+-- purchase_group_id. Retrocompatible: POs existentes quedan con NULL.
+ALTER TABLE public.purchase_orders
+    ADD COLUMN IF NOT EXISTS purchase_group_id UUID;
+
+CREATE INDEX IF NOT EXISTS idx_purchase_orders_group
+    ON public.purchase_orders (purchase_group_id)
+    WHERE purchase_group_id IS NOT NULL;
+
+
+-- ===== 20260806130001_purchase_attachments.sql =====
+-- Adjuntos múltiples por PO (facturas, evidencia, otros).
+CREATE TABLE IF NOT EXISTS public.purchase_order_attachments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    purchase_order_id UUID NOT NULL REFERENCES public.purchase_orders(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL DEFAULT 'invoice',
+    file_url TEXT NOT NULL,
+    file_name TEXT NOT NULL,
+    file_size BIGINT,
+    content_type TEXT,
+    uploaded_by UUID REFERENCES public.employees(id),
+    uploaded_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_po_attachments_po
+    ON public.purchase_order_attachments (purchase_order_id, uploaded_at DESC);
+
+ALTER TABLE public.purchase_order_attachments ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow all on purchase_order_attachments" ON public.purchase_order_attachments;
+CREATE POLICY "Allow all on purchase_order_attachments"
+    ON public.purchase_order_attachments FOR ALL USING (true) WITH CHECK (true);

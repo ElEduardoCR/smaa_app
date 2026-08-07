@@ -414,16 +414,20 @@ function PurchaseModal({ reqId, onClose, onDone }: { reqId: string; onClose: () 
                                     </span>
                                 </div>
                             )}
-                            <div className="flex items-center justify-end gap-2 pt-1">
-                                <button type="button" onClick={onClose} className="px-4 py-2 rounded-xl text-sm text-neutral-300 hover:bg-neutral-800">
-                                    Cerrar
-                                </button>
+                            <div className="flex items-center justify-between gap-2 pt-1 flex-wrap">
                                 <Link
                                     href="/purchases"
+                                    className="text-xs text-neutral-400 hover:text-orange-300 underline-offset-2 hover:underline inline-flex items-center gap-1"
+                                >
+                                    <ExternalLink className="w-3 h-3" /> Ver PO en módulo de Compras
+                                </Link>
+                                <button
+                                    type="button"
+                                    onClick={onClose}
                                     className="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white text-sm font-semibold flex items-center gap-1.5"
                                 >
-                                    <ExternalLink className="w-3.5 h-3.5" /> Ir a Compras
-                                </Link>
+                                    <CheckCircle2 className="w-3.5 h-3.5" /> Listo
+                                </button>
                             </div>
                         </div>
                     ) : (

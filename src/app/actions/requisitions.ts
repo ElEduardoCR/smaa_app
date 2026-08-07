@@ -125,7 +125,10 @@ export async function completePurchaseAction(
     if (!invoiceUrl) throw new Error('La factura es obligatoria.');
 
     const { data: req, error } = await supabase.from('requisitions').select('*').eq('id', id).maybeSingle();
-    if (error) throw error;
+    if (error) {
+        console.error('[completePurchaseAction] no se pudo leer la requisición', id, error);
+        throw new Error('No se pudo leer la requisición: ' + (error.message || 'error desconocido.'));
+    }
     if (!req) throw new Error('Requisición no encontrada.');
     if (req.status !== 'pending') throw new Error('La requisición ya fue procesada.');
 
@@ -150,13 +153,19 @@ export async function completePurchaseAction(
     // (el comprador lo asigna después con purchases:edit).
     let supplierId: string | null = (req as any).suggested_supplier_id || null;
     if (!supplierId && (req as any).suggested_supplier_text) {
-        const { data: matched } = await supabase
-            .from('suppliers')
-            .select('id')
-            .ilike('business_name', (req as any).suggested_supplier_text.trim())
-            .limit(1)
-            .maybeSingle();
-        if (matched) supplierId = matched.id;
+        try {
+            const { data: matched } = await supabase
+                .from('suppliers')
+                .select('id')
+                .ilike('business_name', (req as any).suggested_supplier_text.trim())
+                .limit(1)
+                .maybeSingle();
+            if (matched) supplierId = matched.id;
+        } catch (matchErr) {
+            // No bloqueamos el cierre de compra si falla el match — solo dejamos
+            // supplier_id en null y el comprador lo asigna después.
+            console.warn('[completePurchaseAction] supplier match falló (no crítico):', matchErr);
+        }
     }
 
     // Construir notas combinadas
@@ -185,7 +194,10 @@ export async function completePurchaseAction(
         })
         .select('id, po_number')
         .single();
-    if (poErr) throw poErr;
+    if (poErr) {
+        console.error('[completePurchaseAction] no se pudo crear la PO', poErr);
+        throw new Error('No se pudo crear la orden de compra: ' + (poErr.message || 'error desconocido.'));
+    }
 
     // 2. Copiar los items de la requisición al PO (con precios 0; el
     // comprador los llena después).
@@ -200,7 +212,10 @@ export async function completePurchaseAction(
         const { error: itemsErr } = await supabase
             .from('purchase_order_items')
             .insert(poItems);
-        if (itemsErr) throw itemsErr;
+        if (itemsErr) {
+            console.error('[completePurchaseAction] no se pudieron copiar los items', itemsErr);
+            throw new Error('No se pudieron copiar los artículos a la PO: ' + (itemsErr.message || 'error desconocido.'));
+        }
     }
 
     // 3. Marcar la requisición como comprada
@@ -215,11 +230,22 @@ export async function completePurchaseAction(
             notes: combinedNotes,
         })
         .eq('id', id);
-    if (upErr) throw upErr;
+    if (upErr) {
+        console.error('[completePurchaseAction] no se pudo marcar la requisición como comprada', upErr);
+        throw new Error('No se pudo actualizar la requisición: ' + (upErr.message || 'error desconocido.'));
+    }
 
-    revalidatePath('/requisitions');
-    revalidatePath(`/requisitions/${id}`);
-    revalidatePath('/purchases');
+    // revalidate va al FINAL, solo si todo lo anterior tuvo éxito. Si lo
+    // pusiéramos antes, un fallo posterior dejaría al Server Component
+    // con caché vieja apuntando a un estado roto.
+    try {
+        revalidatePath('/requisitions');
+        revalidatePath(`/requisitions/${id}`);
+        revalidatePath('/purchases');
+    } catch (rvErr) {
+        // revalidate no es crítico: la próxima navegación refrescará igual.
+        console.warn('[completePurchaseAction] revalidatePath warning:', rvErr);
+    }
 
     return {
         poId: insertedPO.id,
@@ -236,11 +262,14 @@ export async function uploadRequisitionFileAction(
     const session = await getSession();
     if (!session) throw new Error('No autenticado.');
 
-    // Para subir archivos a requisiciones: aceptamos `can_create` (crear),
-    // `can_request_supplies` (legacy, sinónimo de create), `can_edit` (editar
-    // requisiciones existentes y agregar archivos) o `can_purchase` (adjuntar
-    // facturas al cerrar la compra).
+    // Para subir archivos a requisiciones basta con tener acceso al módulo.
+    // Un operador con solo `can_view` también puede aportar cotizaciones que
+    // se consiguieron externamente (el comprador las verá al procesarla).
+    // Si tiene `can_create`/`can_request_supplies` puede crear la requisición
+    // completa; `can_edit` edita una existente; `can_purchase` adjunta la
+    // factura al cerrar la compra.
     const canUpload = session.role === 'master' ||
+        can(session.role, session.permissions, 'requisitions', 'view') ||
         can(session.role, session.permissions, 'requisitions', 'create') ||
         can(session.role, session.permissions, 'requisitions', 'request_supplies') ||
         can(session.role, session.permissions, 'requisitions', 'edit') ||
