@@ -88,6 +88,9 @@ export default function DocumentsIndex() {
                         <button onClick={load} className="p-2 text-neutral-400 hover:text-white hover:bg-neutral-700 rounded-lg transition-colors flex items-center gap-2 text-sm" disabled={loading}>
                             <RefreshCw className={cn("w-4 h-4", loading && "animate-spin text-violet-400")} /> Actualizar
                         </button>
+                        <Link href="/documents/requests" className="flex items-center justify-center gap-2 bg-neutral-800 hover:bg-neutral-700 text-white px-4 py-3 rounded-xl font-medium transition-all border border-neutral-700">
+                            <FileText className="w-4 h-4" /> Requisiciones
+                        </Link>
                         <Link href="/documents/new" className="flex items-center justify-center gap-2 bg-violet-500 hover:bg-violet-600 text-white px-5 py-3 rounded-xl font-medium transition-all hover:shadow-[0_0_20px_rgba(139,92,246,0.4)] active:scale-95">
                             <Plus className="w-5 h-5" /> Nuevo documento
                         </Link>

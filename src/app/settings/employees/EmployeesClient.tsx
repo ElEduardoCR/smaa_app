@@ -49,7 +49,7 @@ type Employee = {
     id: string;
     full_name: string;
     username: string;
-    role: "master" | "admin" | "operator";
+    role: "master" | "admin" | "operator" | "document_controller" | "top_management";
     position: string | null;
     phone: string | null;
     photo_url: string | null;
@@ -63,6 +63,8 @@ const ROLE_LABEL: Record<string, { label: string; chip: string }> = {
     master:   { label: "Master",   chip: "bg-orange-500/20 text-orange-300 border-orange-500/30" },
     admin:    { label: "Admin",    chip: "bg-cyan-500/20 text-cyan-300 border-cyan-500/30" },
     operator: { label: "Operador", chip: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" },
+    document_controller: { label: "Controlador de Documentos", chip: "bg-violet-500/20 text-violet-300 border-violet-500/30" },
+    top_management:       { label: "Alta Dirección",          chip: "bg-amber-500/20 text-amber-300 border-amber-500/30" },
 };
 
 // MODULE_CATALOG y ALL_FLAG_KEYS vienen de @/lib/moduleCatalog — fuente única.
@@ -367,7 +369,7 @@ function EmployeeEditorModal({
     const [username, setUsername] = useState(employee?.username || "");
     const [password, setPassword] = useState("");
     const [showPwd, setShowPwd] = useState(false);
-    const [role, setRole] = useState<"master" | "admin" | "operator">(employee?.role || "operator");
+    const [role, setRole] = useState<"master" | "admin" | "operator" | "document_controller" | "top_management">(employee?.role || "operator");
     const [position, setPosition] = useState(employee?.position || "");
     const [phone, setPhone] = useState(employee?.phone || "");
     const [isActive, setIsActive] = useState(employee?.is_active ?? true);
@@ -620,6 +622,8 @@ function EmployeeEditorModal({
                                 >
                                     <option value="operator">Operador</option>
                                     <option value="admin">Administrador</option>
+                                    <option value="document_controller">Controlador de Documentos</option>
+                                    <option value="top_management">Alta Dirección</option>
                                     {isMaster && <option value="master">Master</option>}
                                 </select>
                             </Field>

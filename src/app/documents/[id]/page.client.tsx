@@ -190,6 +190,9 @@ export default function DocumentDetailPage({
                         </div>
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
+                        <Link href={`/documents/requests/new?target=${doc.id}`} className="text-sm flex items-center gap-1.5 bg-violet-500/10 hover:bg-violet-500/20 text-violet-200 border border-violet-500/30 px-3 py-2 rounded-lg">
+                            <FileText className="w-4 h-4" /> Solicitar cambio
+                        </Link>
                         {canEdit && (
                             <Link href={`/documents/new?id=${doc.id}`} className="text-sm flex items-center gap-1.5 bg-neutral-800 hover:bg-neutral-700 text-white px-3 py-2 rounded-lg border border-neutral-700">
                                 <Edit2 className="w-4 h-4" /> Editar
