@@ -18,6 +18,20 @@ function cn(...inputs: (string | undefined | null | false)[]) {
     return twMerge(clsx(inputs));
 }
 
+// Un <input type="file" {...register(...)}> mete un FileList en el form state,
+// no un array ni un File suelto. Este helper normaliza los 3 casos.
+function getFirstFile(x: any): File | undefined {
+    if (!x) return undefined;
+    if (x instanceof File) return x;
+    if (typeof FileList !== 'undefined' && x instanceof FileList) return x[0] || undefined;
+    if (Array.isArray(x)) return x[0] instanceof File ? x[0] : undefined;
+    // duck-typing para FileList en SSR/edge donde la clase no existe
+    if (typeof x === 'object' && 'length' in x && typeof x[0] !== 'undefined') {
+        return x[0] instanceof File ? x[0] : undefined;
+    }
+    return undefined;
+}
+
 // =============================================================================
 // Schemas
 // =============================================================================
@@ -116,18 +130,17 @@ function NewPOForm() {
 
                 // Subir cotización del proveedor si hay
                 let supplierQuoteUrl: string | null = null;
-                const fileList: File[] = (g as any).supplier_quote_file;
-                const f = Array.isArray(fileList) ? fileList[0] : (fileList as any);
+                const f = getFirstFile((g as any).supplier_quote_file);
                 if (f) {
-                    const fileExt = (f as File).name.split('.').pop();
+                    const fileExt = f.name.split('.').pop() || 'file';
                     const fileName = `quote_${Date.now()}.${fileExt}`;
                     const filePath = `supplier_quotes/${fileName}`;
                     const { error: uploadError } = await supabase.storage
                         .from('purchase_files')
-                        .upload(filePath, f as File, {
+                        .upload(filePath, f, {
                             cacheControl: '3600',
                             upsert: false,
-                            contentType: (f as File).type,
+                            contentType: f.type,
                         });
                     if (uploadError) throw uploadError;
                     const { data: publicUrlData } = supabase.storage.from('purchase_files').getPublicUrl(filePath);
@@ -170,18 +183,17 @@ function NewPOForm() {
                 const total = subtotal + vatTotal;
 
                 let supplierQuoteUrl: string | null = null;
-                const fileList: any = (g as any).supplier_quote_file;
-                const f = Array.isArray(fileList) ? fileList[0] : fileList;
+                const f = getFirstFile((g as any).supplier_quote_file);
                 if (f) {
-                    const fileExt = (f as File).name.split('.').pop();
+                    const fileExt = f.name.split('.').pop() || 'file';
                     const fileName = `quote_g${i}_${Date.now()}.${fileExt}`;
                     const filePath = `supplier_quotes/${fileName}`;
                     const { error: uploadError } = await supabase.storage
                         .from('purchase_files')
-                        .upload(filePath, f as File, {
+                        .upload(filePath, f, {
                             cacheControl: '3600',
                             upsert: false,
-                            contentType: (f as File).type,
+                            contentType: f.type,
                         });
                     if (uploadError) throw uploadError;
                     const { data: publicUrlData } = supabase.storage.from('purchase_files').getPublicUrl(filePath);
