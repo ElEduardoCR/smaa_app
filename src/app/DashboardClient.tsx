@@ -6,7 +6,7 @@ import { twMerge } from "tailwind-merge";
 import {
     Users, LogOut, BarChart3, Receipt, ShieldCheck, Cog,
     Wallet, BookOpen, History, Factory, Truck, ChevronRight,
-    ClipboardList, UserCog
+    ClipboardList, UserCog, ShieldAlert, Layers
 } from "lucide-react";
 import { logoutAction } from "@/app/actions/auth";
 
@@ -36,7 +36,7 @@ type ModuleCard = {
 const ICONS: Record<string, any> = {
     Users, BarChart3, Receipt, ShieldCheck, Cog,
     Wallet, BookOpen, History, Factory, Truck,
-    ClipboardList, UserCog,
+    ClipboardList, UserCog, ShieldAlert, Layers,
 };
 
 const COLOR_CLASSES: Record<string, { border: string; icon: string; hover: string; }> = {
@@ -53,6 +53,7 @@ const COLOR_CLASSES: Record<string, { border: string; icon: string; hover: strin
 const CATEGORIES: { name: string; color: string }[] = [
     { name: "Operación", color: "text-orange-300" },
     { name: "Comercial", color: "text-cyan-300" },
+    { name: "Calidad",   color: "text-rose-300" },
     { name: "Finanzas",  color: "text-emerald-300" },
     { name: "Sistema",   color: "text-violet-300" },
 ];

@@ -40,17 +40,22 @@ const ALL_MODULES: Array<ModuleCard & { moduleCode: string; subCode?: string | n
       Icon: "BookOpen", color: "violet", category: "Sistema" },
     { moduleCode: "documents",     href: "/changes",        title: "Control de Cambios", desc: "Bitácora de cambios + sync automático de GitHub.",
       Icon: "History", color: "sky", category: "Sistema" },
+    { moduleCode: "document_requests", href: "/documents/requests", title: "Requisiciones de Documentos", desc: "Solicitudes de documento nuevo o cambio con workflow de aprobación.",
+      Icon: "Layers", color: "violet", category: "Sistema", badge: "NUEVO" },
+    { moduleCode: "pfmea",         href: "/pfmea",          title: "PFMEA / AMEF", desc: "Análisis modal de fallos y efectos. RPN = S × O × D.",
+      Icon: "ShieldAlert", color: "rose", category: "Calidad", badge: "NUEVO" },
     { moduleCode: "dashboard",     href: "/dashboard",      title: "Dashboard",   desc: "Estadísticas del negocio: ventas, compras, gastos.",
       Icon: "BarChart3", color: "orange", category: "Sistema" },
     { moduleCode: "settings",      href: "/settings",       title: "Configuración", desc: "Datos de la empresa, logo y PDF.",
       Icon: "Cog", color: "slate", category: "Sistema" },
     { moduleCode: "employees",     href: "/settings/employees", title: "Empleados", desc: "Alta, edición y permisos por módulo de cada usuario.",
-      Icon: "UserCog", color: "rose", category: "Sistema", badge: "NUEVO" },
+      Icon: "UserCog", color: "rose", category: "Sistema" },
 ];
 
 const CATEGORIES: { name: string; color: string }[] = [
     { name: "Operación", color: "text-orange-300" },
     { name: "Comercial", color: "text-cyan-300" },
+    { name: "Calidad",   color: "text-rose-300" },
     { name: "Finanzas",  color: "text-emerald-300" },
     { name: "Sistema",   color: "text-violet-300" },
 ];
