@@ -2,7 +2,12 @@ import 'server-only';
 import { supabase } from './supabase';
 import { hashPassword, verifyPassword } from './password';
 
-export type EmployeeRole = 'master' | 'admin' | 'operator';
+export type EmployeeRole =
+    | 'master'
+    | 'admin'
+    | 'operator'
+    | 'document_controller'
+    | 'top_management';
 
 export type Employee = {
     id: string;

@@ -179,6 +179,26 @@ export const MODULE_CATALOG: ModuleDef[] = [
         ],
     },
     {
+        code: 'document_requests',
+        label: 'Requisiciones de Documentos',
+        routePrefix: 'documents/requests',
+        actions: [
+            { key: 'can_view', label: 'Ver' },
+            { key: 'can_create', label: 'Crear' },
+        ],
+    },
+    {
+        code: 'pfmea',
+        label: 'PFMEA / AMEF',
+        routePrefix: 'pfmea',
+        actions: [
+            { key: 'can_view', label: 'Ver' },
+            { key: 'can_create', label: 'Crear' },
+            { key: 'can_edit', label: 'Editar' },
+            { key: 'can_delete', label: 'Eliminar' },
+        ],
+    },
+    {
         code: 'settings',
         label: 'Configuración empresa',
         routePrefix: 'settings',
