@@ -15,6 +15,7 @@ function cn(...inputs: (string | undefined | null | false)[]) {
 type WOOption = {
     id: string;
     order_number: string;
+    status: string;
     notes: string | null;
     quotation?: { quotation_number: string; client?: { business_name: string } };
 };
@@ -36,13 +37,18 @@ function NewDeliveryForm() {
     useEffect(() => {
         async function fetchWOs() {
             try {
-                // Only show WOs released by Quality
+                // Traemos OTs en status 'QC' (en cola de calidad) y 'QC_Released'
+                // (liberadas). Las liberadas son las que se pueden entregar; las
+                // 'QC' se muestran deshabilitadas para que el usuario tenga
+                // visibilidad de dónde está su OT y sepa que todavía no fue
+                // liberada por Calidad.
                 const { data, error } = await supabase
                     .from('work_orders')
-                    .select('id, order_number, notes, work_title, client_name, module_id, module:manufacturing_modules(code, name), quotation:quotations(quotation_number, client:clients(business_name, rfc, address, email))')
-                    .eq('status', 'QC_Released')
+                    .select('id, order_number, status, notes, work_title, client_name, module_id, qc_released_at, module:manufacturing_modules(code, name), quotation:quotations(quotation_number, client:clients(business_name, rfc, address, email))')
+                    .in('status', ['QC', 'QC_Released'])
                     .not('id', 'in', `(SELECT work_order_id FROM deliveries)`)
-                    .order('qc_released_at', { ascending: false });
+                    .order('status', { ascending: true })  // QC antes que QC_Released
+                    .order('qc_released_at', { ascending: false, nullsFirst: false });
                 if (error) throw error;
 
                 const formatted = (data as any[]).map(wo => {
@@ -123,16 +129,40 @@ function NewDeliveryForm() {
                     <h2 className="text-lg font-semibold text-white mb-4">Orden de Trabajo (ya liberada por Calidad)</h2>
                     <div className="space-y-2">
                         <label className="text-sm font-medium text-neutral-300 ml-1">Seleccionar OT *</label>
+                        {workOrders.length === 0 && !isLoadingWOs && (
+                            <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-4 text-sm text-amber-200 space-y-2">
+                                <p className="font-semibold">No hay OTs disponibles para crear entrega.</p>
+                                <p className="text-amber-300/80 text-xs">
+                                    Para que una OT aparezca aquí, primero debe pasar por Calidad y ser <strong>liberada</strong>
+                                    (firmar como Calidad en la sección "Revisión de Calidad" dentro de la OT). Si ya la liberaste
+                                    y no aparece, revisa que no tenga ya una entrega registrada.
+                                </p>
+                                <Link href="/quality" className="inline-flex items-center gap-1.5 text-xs text-sky-300 hover:text-white bg-sky-500/10 hover:bg-sky-500/20 px-3 py-1.5 rounded-lg border border-sky-500/20">
+                                    Ir a Calidad →
+                                </Link>
+                            </div>
+                        )}
                         <select value={selectedWOId} onChange={(e) => setSelectedWOId(e.target.value)}
-                            className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-4 py-3 text-white appearance-none focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                            className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-4 py-3 text-white appearance-none focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all disabled:opacity-50"
                             disabled={isLoadingWOs}>
                             <option value="" disabled>Elige una orden de trabajo...</option>
-                            {workOrders.map(wo => (
-                                <option key={wo.id} value={wo.id}>
-                                    {wo.order_number} — {(wo as any).module?.name || ''} — {wo.quotation?.client?.business_name || wo.notes?.slice(0, 40) || ''} ({wo.quotation?.quotation_number || 'ad-hoc'})
-                                </option>
-                            ))}
+                            {workOrders.map(wo => {
+                                const isPending = wo.status === 'QC';
+                                return (
+                                    <option
+                                        key={wo.id}
+                                        value={isPending ? '' : wo.id}
+                                        disabled={isPending}
+                                    >
+                                        {isPending ? '⏳ ' : '✓ '}
+                                        {wo.order_number} — {(wo as any).module?.name || ''} — {wo.quotation?.client?.business_name || wo.notes?.slice(0, 40) || ''} ({wo.quotation?.quotation_number || 'ad-hoc'}){isPending ? '   [En calidad — pendiente de liberar]' : ''}
+                                    </option>
+                                );
+                            })}
                         </select>
+                        <p className="text-[11px] text-neutral-500 ml-1">
+                            Las OTs con "✓" ya están liberadas por Calidad. Las que aparecen con "⏳ En calidad" todavía no se han liberado, por lo que no se puede crear su entrega todavía.
+                        </p>
                     </div>
                     {selectedWO && (
                         <div className="mt-4 bg-neutral-900/40 p-4 rounded-xl border border-neutral-700/30">
