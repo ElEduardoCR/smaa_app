@@ -28,6 +28,66 @@ export type CreateRequisitionInput = {
     quotation_urls: string[];            // cotizaciones ya subidas al storage
 };
 
+export type RequisitionUploadPurpose =
+    | 'quotation'
+    | 'purchase_invoice'
+    | 'purchase_evidence';
+
+const REQUISITION_FILE_LIMIT_BYTES = 20 * 1024 * 1024;
+
+type RequisitionRecord = {
+    suggested_supplier_id: string | null;
+    suggested_supplier_text: string | null;
+};
+
+type RequisitionItemRecord = {
+    description: string;
+    quantity: number;
+};
+
+function hasRequisitionUploadPermission(
+    session: Awaited<ReturnType<typeof requireSession>>,
+    purpose: RequisitionUploadPurpose
+) {
+    if (session.role === 'master') return true;
+    if (purpose === 'quotation') {
+        return can(session.role, session.permissions, 'requisitions', 'create') ||
+            can(session.role, session.permissions, 'requisitions', 'request_supplies');
+    }
+    return can(session.role, session.permissions, 'requisitions', 'purchase');
+}
+
+function validateRequisitionUpload(
+    fileName: string,
+    contentType: string,
+    fileSize: number,
+    purpose: RequisitionUploadPurpose
+) {
+    if (!fileName?.trim()) throw new Error('El archivo no tiene nombre.');
+    if (!Number.isFinite(fileSize) || fileSize <= 0) throw new Error('El archivo está vacío.');
+    if (fileSize > REQUISITION_FILE_LIMIT_BYTES) {
+        throw new Error('El archivo excede el límite de 20 MB.');
+    }
+
+    const safeType = (contentType || '').toLowerCase();
+    const extension = fileName.split('.').pop()?.toLowerCase() || '';
+    const isImage = safeType.startsWith('image/') || ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'].includes(extension);
+    const isPdf = safeType === 'application/pdf' || extension === 'pdf';
+    const isOfficeDocument = [
+        'doc', 'docx', 'xls', 'xlsx',
+    ].includes(extension);
+
+    if (purpose === 'purchase_evidence' && !isImage) {
+        throw new Error('La evidencia de recibido debe ser una imagen.');
+    }
+    if (purpose === 'purchase_invoice' && !isPdf && !isImage) {
+        throw new Error('La factura debe ser un PDF o una imagen.');
+    }
+    if (purpose === 'quotation' && !isPdf && !isImage && !isOfficeDocument) {
+        throw new Error('La cotización debe ser PDF, imagen, Word o Excel.');
+    }
+}
+
 export async function createRequisitionAction(input: CreateRequisitionInput) {
     const session = await requireSession();
 
@@ -151,13 +211,14 @@ export async function completePurchaseAction(
     // Resolver el supplier_id: si la requisición lo tiene, usarlo. Si solo
     // tiene texto libre, intentar matchear por business_name. Si no, null
     // (el comprador lo asigna después con purchases:edit).
-    let supplierId: string | null = (req as any).suggested_supplier_id || null;
-    if (!supplierId && (req as any).suggested_supplier_text) {
+    const typedReq = req as typeof req & RequisitionRecord;
+    let supplierId: string | null = typedReq.suggested_supplier_id || null;
+    if (!supplierId && typedReq.suggested_supplier_text) {
         try {
             const { data: matched } = await supabase
                 .from('suppliers')
                 .select('id')
-                .ilike('business_name', (req as any).suggested_supplier_text.trim())
+                .ilike('business_name', typedReq.suggested_supplier_text.trim())
                 .limit(1)
                 .maybeSingle();
             if (matched) supplierId = matched.id;
@@ -187,7 +248,7 @@ export async function completePurchaseAction(
             total: 0,
             supplier_quote_url: firstQuotation?.file_url || null,
             invoice_url: invoiceUrl,
-            invoice_photo_url: invoicePhotoUrl,
+            evidence_photo_url: invoicePhotoUrl,
             invoice_date: new Date().toISOString(),
             requisition_id: id,
             notes: combinedNotes,
@@ -202,7 +263,7 @@ export async function completePurchaseAction(
     // 2. Copiar los items de la requisición al PO (con precios 0; el
     // comprador los llena después).
     if (reqItems && reqItems.length > 0) {
-        const poItems = reqItems.map((it: any) => ({
+        const poItems = (reqItems as RequisitionItemRecord[]).map((it) => ({
             purchase_order_id: insertedPO.id,
             description: it.description,
             quantity: it.quantity,
@@ -254,38 +315,37 @@ export async function completePurchaseAction(
     };
 }
 
-export async function uploadRequisitionFileAction(
-    base64: string,
+export async function createRequisitionUploadAction(
     fileName: string,
-    contentType: string
-): Promise<string> {
-    const session = await getSession();
-    if (!session) throw new Error('No autenticado.');
-
-    // Para subir archivos a requisiciones basta con tener acceso al módulo.
-    // Un operador con solo `can_view` también puede aportar cotizaciones que
-    // se consiguieron externamente (el comprador las verá al procesarla).
-    // Si tiene `can_create`/`can_request_supplies` puede crear la requisición
-    // completa; `can_edit` edita una existente; `can_purchase` adjunta la
-    // factura al cerrar la compra.
-    const canUpload = session.role === 'master' ||
-        can(session.role, session.permissions, 'requisitions', 'view') ||
-        can(session.role, session.permissions, 'requisitions', 'create') ||
-        can(session.role, session.permissions, 'requisitions', 'request_supplies') ||
-        can(session.role, session.permissions, 'requisitions', 'edit') ||
-        can(session.role, session.permissions, 'requisitions', 'purchase');
-
-    if (!canUpload) {
-        throw new Error('No tienes permisos para adjuntar archivos a requisiciones.');
+    contentType: string,
+    fileSize: number,
+    purpose: RequisitionUploadPurpose
+): Promise<{ path: string; token: string; publicUrl: string }> {
+    const session = await requireSession();
+    if (!hasRequisitionUploadPermission(session, purpose)) {
+        throw new Error(
+            purpose === 'quotation'
+                ? 'No tienes permisos para adjuntar cotizaciones.'
+                : 'No tienes permisos para adjuntar evidencia de compra.'
+        );
     }
-    const buf = Buffer.from(base64, 'base64');
+    validateRequisitionUpload(fileName, contentType, fileSize, purpose);
+
     const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const path = `files/${Date.now()}-${safeName}`;
-    const { error } = await supabase.storage.from('requisition_files').upload(path, buf, {
-        contentType,
-        upsert: false,
-    });
-    if (error) throw new Error('Error al subir el archivo: ' + error.message);
-    const { data } = supabase.storage.from('requisition_files').getPublicUrl(path);
-    return data.publicUrl;
+    const folder = purpose === 'quotation'
+        ? 'quotations'
+        : purpose === 'purchase_invoice'
+            ? 'purchase_invoices'
+            : 'purchase_evidence';
+    const path = `${folder}/${Date.now()}-${session.employeeId}-${safeName}`;
+    const { data, error } = await supabase.storage
+        .from('requisition_files')
+        .createSignedUploadUrl(path, {
+            upsert: false,
+        });
+    if (error || !data?.token) {
+        throw new Error('No se pudo preparar la carga: ' + (error?.message || 'token no generado.'));
+    }
+    const { data: publicData } = supabase.storage.from('requisition_files').getPublicUrl(path);
+    return { path, token: data.token, publicUrl: publicData.publicUrl };
 }

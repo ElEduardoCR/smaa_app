@@ -738,3 +738,7 @@ ALTER TABLE public.purchase_order_attachments ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Allow all on purchase_order_attachments" ON public.purchase_order_attachments;
 CREATE POLICY "Allow all on purchase_order_attachments"
     ON public.purchase_order_attachments FOR ALL USING (true) WITH CHECK (true);
+
+GRANT SELECT, INSERT, UPDATE, DELETE
+    ON public.purchase_order_attachments
+    TO anon, authenticated, service_role;
