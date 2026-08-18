@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
@@ -187,6 +187,31 @@ export default function ClientDetailPage({ clientId }: { clientId: string }) {
         );
     }, [activeInvoices]);
 
+    // IDs de facturas que ya están cubiertas por una promesa CUMPLIDA
+    // (el operador marcó la promesa como "Cumplida" pero el pago real aún
+    // no se ha registrado — el status de la factura sigue siendo pending/partial).
+    // Se usan para tachar visualmente las facturas en la tabla de partidas.
+    const fulfilledInvoiceIds = useMemo(() => {
+        const set = new Set<string>();
+        for (const p of promises) {
+            if (p.status === 'fulfilled') {
+                for (const it of p.items) set.add(it.invoice_id);
+            }
+        }
+        return set;
+    }, [promises]);
+
+    // Estado para expandir/colapsar las filas de promesas y ver el detalle
+    const [expandedPromises, setExpandedPromises] = useState<Set<string>>(new Set());
+    const togglePromise = (id: string) => {
+        setExpandedPromises((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    };
+
     const flash = (type: 'success' | 'error', text: string) => {
         setMsg({ type, text });
         setTimeout(() => setMsg(null), 4000);
@@ -359,14 +384,29 @@ export default function ClientDetailPage({ clientId }: { clientId: string }) {
                                     </td></tr>
                                 ) : activeInvoices.map((inv) => {
                                     const st = STATUS_LABELS[inv.status];
+                                    const isFulfilled = fulfilledInvoiceIds.has(inv.id);
                                     return (
                                         <tr key={inv.id} className={cn(
                                             "border-t border-neutral-800/60 hover:bg-neutral-800/40",
-                                            !inv.is_active && "opacity-50"
+                                            !inv.is_active && "opacity-50",
+                                            isFulfilled && "opacity-60 bg-emerald-500/[0.03] hover:bg-emerald-500/[0.06]"
                                         )}>
                                             <td className="p-3">
-                                                <p className="text-white font-medium text-sm">{inv.invoice_number || "—"}</p>
-                                                <p className="text-[11px] text-neutral-400 line-clamp-1">{inv.concept}</p>
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <p className={cn(
+                                                        "text-white font-medium text-sm",
+                                                        isFulfilled && "line-through decoration-2 decoration-emerald-500/70"
+                                                    )}>{inv.invoice_number || "—"}</p>
+                                                    {isFulfilled && (
+                                                        <span className="text-[9px] uppercase tracking-wider text-emerald-300 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/30 font-bold inline-flex items-center gap-1">
+                                                            <CheckCircle className="w-2.5 h-2.5" /> Cubierta por promesa
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <p className={cn(
+                                                    "text-[11px] text-neutral-400 line-clamp-1",
+                                                    isFulfilled && "line-through decoration-1 decoration-emerald-500/50"
+                                                )}>{inv.concept}</p>
                                                 {inv.source_type === 'issued_cfdi' && (
                                                     <span className="text-[9px] uppercase tracking-wider text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded border border-cyan-500/20 mt-0.5 inline-block">CFDI</span>
                                                 )}
@@ -534,11 +574,13 @@ export default function ClientDetailPage({ clientId }: { clientId: string }) {
                             <h2 className="text-lg font-semibold text-white flex items-center gap-2">
                                 <Send className="w-5 h-5 text-amber-400" /> Promesas de pago del cliente
                             </h2>
+                            <p className="text-[11px] text-neutral-500 mt-1">Haz click en una fila para ver el detalle de facturas y el desglose.</p>
                         </div>
                         <div className="overflow-x-auto">
                             <table className="w-full text-sm">
                                 <thead className="bg-neutral-900/50 text-[10px] uppercase tracking-wider text-neutral-400">
                                     <tr>
+                                        <th className="text-left p-3 w-8"></th>
                                         <th className="text-left p-3">Fecha</th>
                                         <th className="text-left p-3">Esperado</th>
                                         <th className="text-right p-3">Comprometido</th>
@@ -548,34 +590,144 @@ export default function ClientDetailPage({ clientId }: { clientId: string }) {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {promises.map((p) => (
-                                        <tr key={p.id} className="border-t border-neutral-800/60">
-                                            <td className="p-3 text-neutral-300 text-xs">{fmtDate(p.promise_date)}</td>
-                                            <td className="p-3 text-neutral-300 text-xs">{fmtDate(p.expected_payment_date)}</td>
-                                            <td className="p-3 text-right text-amber-300 font-mono font-semibold">{fmtMoney(p.total_committed)}</td>
-                                            <td className="p-3 text-xs text-neutral-400 max-w-[300px] truncate">{p.client_notes || `${p.items.length} factura(s)`}</td>
-                                            <td className="p-3 text-center">
-                                                <span className={cn("text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border",
-                                                    p.status === 'pending' ? "bg-amber-500/15 text-amber-300 border-amber-500/30" :
-                                                    p.status === 'fulfilled' ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30" :
-                                                    "bg-neutral-500/15 text-neutral-400 border-neutral-500/30"
-                                                )}>{p.status}</span>
-                                            </td>
-                                            <td className="p-3 text-right">
-                                                {p.status === 'pending' && (
-                                                    <button onClick={async () => {
-                                                        if (!confirm('¿Marcar promesa como cumplida?')) return;
-                                                        setBusy(true);
-                                                        try { await markPromiseStatusAction(p.id, 'fulfilled'); flash('success', 'Promesa marcada como cumplida.'); await load(); }
-                                                        catch (e: any) { flash('error', e.message); }
-                                                        finally { setBusy(false); }
-                                                    }} disabled={busy} className="text-xs text-emerald-300 hover:text-white bg-emerald-500/10 hover:bg-emerald-500/20 px-2.5 py-1 rounded-lg border border-emerald-500/20">
-                                                        Cumplida
-                                                    </button>
+                                    {promises.map((p) => {
+                                        const isExpanded = expandedPromises.has(p.id);
+                                        // Desglose agregado: prorrateo gross/vat por item según
+                                        // su participación en el net de la factura.
+                                        let aggGross = 0, aggVat = 0, aggNet = 0;
+                                        for (const it of p.items) {
+                                            const inv = it.invoice;
+                                            const committed = Number(it.amount_committed);
+                                            if (inv && Number(inv.net_amount) > 0) {
+                                                const ratio = committed / Number(inv.net_amount);
+                                                aggGross += Number(inv.gross_amount) * ratio;
+                                                aggVat += Number(inv.vat_amount) * ratio;
+                                            }
+                                            aggNet += committed;
+                                        }
+                                        return (
+                                            <Fragment key={p.id}>
+                                                <tr
+                                                    onClick={() => togglePromise(p.id)}
+                                                    className={cn(
+                                                        "border-t border-neutral-800/60 cursor-pointer transition-colors",
+                                                        isExpanded ? "bg-amber-500/[0.04]" : "hover:bg-neutral-800/40"
+                                                    )}
+                                                >
+                                                    <td className="p-3 text-neutral-400">
+                                                        {isExpanded
+                                                            ? <ChevronUp className="w-4 h-4" />
+                                                            : <ChevronDown className="w-4 h-4" />}
+                                                    </td>
+                                                    <td className="p-3 text-neutral-300 text-xs">{fmtDate(p.promise_date)}</td>
+                                                    <td className="p-3 text-neutral-300 text-xs">{fmtDate(p.expected_payment_date)}</td>
+                                                    <td className="p-3 text-right text-amber-300 font-mono font-semibold">{fmtMoney(p.total_committed)}</td>
+                                                    <td className="p-3 text-xs text-neutral-400 max-w-[280px]">
+                                                        <span className="font-semibold text-neutral-200">{p.items.length}</span> {p.items.length === 1 ? 'factura' : 'facturas'}
+                                                        {p.client_notes && (
+                                                            <span className="block text-[10px] text-neutral-500 italic mt-0.5 truncate" title={p.client_notes}>
+                                                                "{p.client_notes}"
+                                                            </span>
+                                                        )}
+                                                    </td>
+                                                    <td className="p-3 text-center">
+                                                        <span className={cn("text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border",
+                                                            p.status === 'pending' ? "bg-amber-500/15 text-amber-300 border-amber-500/30" :
+                                                            p.status === 'fulfilled' ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30" :
+                                                            "bg-neutral-500/15 text-neutral-400 border-neutral-500/30"
+                                                        )}>{p.status}</span>
+                                                    </td>
+                                                    <td className="p-3 text-right" onClick={(e) => e.stopPropagation()}>
+                                                        {p.status === 'pending' && (
+                                                            <button onClick={async () => {
+                                                                if (!confirm('¿Marcar promesa como cumplida?\n\nEsto NO registra el pago. Las facturas se marcarán como cubiertas pero su status de pago no cambiará hasta que registres el pago real.')) return;
+                                                                setBusy(true);
+                                                                try { await markPromiseStatusAction(p.id, 'fulfilled'); flash('success', 'Promesa marcada como cumplida. Registra el pago cuando el dinero llegue.'); await load(); }
+                                                                catch (e: any) { flash('error', e.message); }
+                                                                finally { setBusy(false); }
+                                                            }} disabled={busy} className="text-xs text-emerald-300 hover:text-white bg-emerald-500/10 hover:bg-emerald-500/20 px-2.5 py-1 rounded-lg border border-emerald-500/20">
+                                                                Cumplida
+                                                            </button>
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                                {isExpanded && (
+                                                    <tr className="bg-neutral-900/30">
+                                                        <td colSpan={7} className="p-0">
+                                                            <div className="p-4 border-t border-amber-500/20">
+                                                                {/* Notas del cliente */}
+                                                                {p.client_notes && (
+                                                                    <div className="mb-3 bg-violet-500/5 border border-violet-500/20 rounded-xl p-3">
+                                                                        <p className="text-[10px] uppercase tracking-wider text-violet-300 font-bold mb-1">Nota del cliente</p>
+                                                                        <p className="text-xs text-neutral-200 whitespace-pre-wrap">{p.client_notes}</p>
+                                                                    </div>
+                                                                )}
+
+                                                                {/* Tabla de facturas incluidas */}
+                                                                <div className="rounded-xl border border-neutral-700/50 overflow-hidden">
+                                                                    <table className="w-full text-xs">
+                                                                        <thead className="bg-neutral-900/60 text-[9px] uppercase tracking-wider text-neutral-400">
+                                                                            <tr>
+                                                                                <th className="text-left p-2"># Factura</th>
+                                                                                <th className="text-left p-2">Concepto</th>
+                                                                                <th className="text-right p-2">F. Factura</th>
+                                                                                <th className="text-right p-2">Bruto</th>
+                                                                                <th className="text-right p-2">IVA</th>
+                                                                                <th className="text-right p-2">Total factura</th>
+                                                                                <th className="text-right p-2">Saldo</th>
+                                                                                <th className="text-right p-2">Comprometido</th>
+                                                                            </tr>
+                                                                        </thead>
+                                                                        <tbody>
+                                                                            {p.items.map((it) => {
+                                                                                const inv = it.invoice;
+                                                                                const committed = Number(it.amount_committed);
+                                                                                const invNet = inv ? Number(inv.net_amount) : 0;
+                                                                                const ratio = invNet > 0 ? committed / invNet : 1;
+                                                                                const committedGross = inv ? Number(inv.gross_amount) * ratio : 0;
+                                                                                const committedVat = inv ? Number(inv.vat_amount) * ratio : 0;
+                                                                                return (
+                                                                                    <tr key={it.id} className="border-t border-neutral-800/40">
+                                                                                        <td className="p-2 text-white font-mono">{inv?.invoice_number || it.invoice_id.slice(0, 8)}</td>
+                                                                                        <td className="p-2 text-neutral-300 max-w-[260px] truncate" title={inv?.concept}>{inv?.concept || '—'}</td>
+                                                                                        <td className="p-2 text-right text-neutral-400">{fmtDate(inv?.invoice_date ?? null)}</td>
+                                                                                        <td className="p-2 text-right text-neutral-300 font-mono">{fmtMoney(committedGross)}</td>
+                                                                                        <td className="p-2 text-right text-neutral-300 font-mono">{fmtMoney(committedVat)}</td>
+                                                                                        <td className="p-2 text-right text-neutral-400 font-mono">{inv ? fmtMoney(inv.net_amount) : '—'}</td>
+                                                                                        <td className="p-2 text-right text-rose-300 font-mono">{inv ? fmtMoney(inv.balance) : '—'}</td>
+                                                                                        <td className="p-2 text-right text-amber-300 font-mono font-semibold">{fmtMoney(committed)}</td>
+                                                                                    </tr>
+                                                                                );
+                                                                            })}
+                                                                        </tbody>
+                                                                        <tfoot className="bg-neutral-900/60 border-t-2 border-amber-500/30 text-[11px] font-semibold">
+                                                                            <tr>
+                                                                                <td colSpan={3} className="p-2 text-right text-neutral-400 uppercase tracking-wider">Total prometido:</td>
+                                                                                <td className="p-2 text-right text-neutral-200 font-mono">{fmtMoney(aggGross)}</td>
+                                                                                <td className="p-2 text-right text-neutral-200 font-mono">{fmtMoney(aggVat)}</td>
+                                                                                <td className="p-2 text-right text-white font-mono font-bold">{fmtMoney(aggNet)}</td>
+                                                                                <td colSpan={2}></td>
+                                                                            </tr>
+                                                                        </tfoot>
+                                                                    </table>
+                                                                </div>
+
+                                                                {/* Recordatorio si está cumplida pero sin pago real */}
+                                                                {p.status === 'fulfilled' && (
+                                                                    <div className="mt-3 bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3 text-[11px] text-emerald-200 flex items-start gap-2">
+                                                                        <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                                                                        <span>
+                                                                            Esta promesa está marcada como <strong>cumplida</strong>, pero el pago real aún no se ha registrado. Las facturas se ven tachadas en la tabla de arriba, pero su status de pago (<em>pending / partial / paid</em>) no cambiará hasta que uses el botón <strong>"Registrar pago"</strong>.
+                                                                        </span>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </td>
+                                                    </tr>
                                                 )}
-                                            </td>
-                                        </tr>
-                                    ))}
+                                            </Fragment>
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </div>
