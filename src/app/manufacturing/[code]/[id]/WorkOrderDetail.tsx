@@ -444,21 +444,24 @@ export default function WorkOrderDetail({ code, woId }: { code: string; woId: st
     // --- v2: Operadores (M:N con employees) ---
     const handleAddOperator = async (employeeId: string) => {
         if (!wo) return;
-        if (operators.find(o => o.employee_id === employeeId)) {
-            flash("info", "Ese empleado ya está asignado.");
-            return;
-        }
         setBusy(true);
         try {
-            const { error } = await supabase.from("work_order_operators").insert([{
-                work_order_id: wo.id,
-                employee_id: employeeId,
-                role: "operator",
-                added_by: currentEmployeeId,
-            }]);
+            // upsert idempotente: si ya existe la fila (work_order_id, employee_id),
+            // no hace nada. Resuelve la race condition entre doble-click o múltiples
+            // pestañas abiertas (la BD es la fuente de verdad de la unicidad).
+            const { error } = await supabase.from("work_order_operators").upsert(
+                {
+                    work_order_id: wo.id,
+                    employee_id: employeeId,
+                    role: "operator",
+                    added_by: currentEmployeeId,
+                },
+                { onConflict: "work_order_id,employee_id", ignoreDuplicates: true }
+            );
             if (error) throw error;
             flash("success", "Operador asignado.");
             await load();
+            setOperatorPickerOpen(false);
         } catch (e: any) { flash("error", e?.message || "Error."); }
         finally { setBusy(false); }
     };
@@ -623,7 +626,7 @@ export default function WorkOrderDetail({ code, woId }: { code: string; woId: st
                                                 return (
                                                     <button
                                                         key={emp.id}
-                                                        onClick={() => { handleAddOperator(emp.id); setOperatorPickerOpen(false); }}
+                                                        onClick={() => handleAddOperator(emp.id)}
                                                         disabled={busy || !!assigned}
                                                         className={cn(
                                                             "text-left px-2.5 py-1.5 rounded-lg border text-xs flex items-center gap-2 transition-colors",
