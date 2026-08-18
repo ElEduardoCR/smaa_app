@@ -193,9 +193,13 @@ export default function WorkOrderDetail({ code, woId }: { code: string; woId: st
                 supabase.from("work_order_files").select("*").eq("work_order_id", woId).order("created_at", { ascending: false }),
                 supabase.from("work_order_pauses").select("*").eq("work_order_id", woId).order("paused_at", { ascending: false }),
                 supabase.from("work_order_completion_photos").select("*").eq("work_order_id", woId).order("captured_at", { ascending: true }),
+                // No usamos embed employee:employees(...) aquí porque work_order_operators
+                // tiene 2 FKs a employees (employee_id y added_by) y PostgREST no puede
+                // deducir cuál usar → "Could not embed because more than one relationship".
+                // En su lugar, hacemos un IN() separado y combinamos en cliente.
                 supabase
                     .from("work_order_operators")
-                    .select("id, employee_id, role, added_at, added_by, employee:employees(id, full_name, username, role, position, photo_url)")
+                    .select("id, employee_id, role, added_at, added_by")
                     .eq("work_order_id", woId)
                     .order("added_at", { ascending: true }),
                 supabase
@@ -207,10 +211,20 @@ export default function WorkOrderDetail({ code, woId }: { code: string; woId: st
             setAttachments(atts || []);
             setPauses(ps || []);
             setCompletionPhotos(cps || []);
-            // normalizar joins de Supabase (a veces devuelve array)
+
+            // Traer info de los empleados asignados con un solo query (IN).
+            const empIds = Array.from(new Set((ops || []).map((o: any) => o.employee_id).filter(Boolean)));
+            let empsById = new Map<string, any>();
+            if (empIds.length > 0) {
+                const { data: empsData } = await supabase
+                    .from("employees")
+                    .select("id, full_name, username, role, position, photo_url")
+                    .in("id", empIds);
+                empsById = new Map((empsData || []).map((e: any) => [e.id, e]));
+            }
             const opsNorm = (ops || []).map((o: any) => ({
                 ...o,
-                employee: Array.isArray(o.employee) ? o.employee[0] : o.employee,
+                employee: empsById.get(o.employee_id) || null,
             }));
             setOperators(opsNorm);
             setWoNotes(nots || []);
@@ -464,9 +478,10 @@ export default function WorkOrderDetail({ code, woId }: { code: string; woId: st
         if (!wo) return;
         setBusy(true);
         try {
-            // Insert directo + manejo de 23505 (unique_violation). Es más predecible
-            // que upsert+ignoreDuplicates con multi-column UNIQUE, que tenía un
-            // comportamiento opaco: devolvía OK sin devolver la fila ni refrescar la UI.
+            // Insert directo + manejo de 23505 (unique_violation). Sin embed en el
+            // .select() porque work_order_operators tiene 2 FKs a employees
+            // (employee_id y added_by) y PostgREST no puede deducir cuál usar.
+            // La info del empleado la tomamos del state local (availableEmployees).
             const { data, error } = await supabase
                 .from("work_order_operators")
                 .insert({
@@ -475,7 +490,7 @@ export default function WorkOrderDetail({ code, woId }: { code: string; woId: st
                     role: "operator",
                     added_by: currentEmployeeId,
                 })
-                .select("id, employee_id, role, added_at, added_by, employee:employees(id, full_name, username, role, position, photo_url)")
+                .select("id, employee_id, role, added_at, added_by")
                 .single();
             if (error) {
                 if (error.code === "23505") {
@@ -487,10 +502,8 @@ export default function WorkOrderDetail({ code, woId }: { code: string; woId: st
             } else {
                 // Update optimista: agrega el operador al state inmediatamente para
                 // que la UI no se quede en "0" hasta que load() regrese.
-                const newOp = {
-                    ...data,
-                    employee: Array.isArray(data.employee) ? data.employee[0] : data.employee,
-                };
+                const employee = availableEmployees.find((e: any) => e.id === employeeId) || null;
+                const newOp = { ...data, employee };
                 setOperators((prev) =>
                     prev.find((o) => o.employee_id === employeeId) ? prev : [...prev, newOp]
                 );
