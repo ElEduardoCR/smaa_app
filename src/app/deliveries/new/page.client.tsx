@@ -18,6 +18,7 @@ type WOOption = {
     status: string;
     notes: string | null;
     quotation?: { quotation_number: string; client?: { business_name: string } };
+    _existingDeliveryNumber?: string | null;
 };
 
 function NewDeliveryForm() {
@@ -38,24 +39,35 @@ function NewDeliveryForm() {
         async function fetchWOs() {
             try {
                 // Traemos OTs en status 'QC' (en cola de calidad) y 'QC_Released'
-                // (liberadas). Las liberadas son las que se pueden entregar; las
-                // 'QC' se muestran deshabilitadas para que el usuario tenga
-                // visibilidad de dónde está su OT y sepa que todavía no fue
-                // liberada por Calidad.
+                // (liberadas). Incluimos también las que ya tienen delivery para
+                // dar visibilidad al usuario; las que ya tienen entrega se
+                // muestran deshabilitadas con un label distintivo.
                 const { data, error } = await supabase
                     .from('work_orders')
                     .select('id, order_number, status, notes, work_title, client_name, module_id, qc_released_at, module:manufacturing_modules(code, name), quotation:quotations(quotation_number, client:clients(business_name, rfc, address, email))')
                     .in('status', ['QC', 'QC_Released'])
-                    .not('id', 'in', `(SELECT work_order_id FROM deliveries)`)
                     .order('status', { ascending: true })  // QC antes que QC_Released
                     .order('qc_released_at', { ascending: false, nullsFirst: false });
                 if (error) throw error;
+
+                // Buscar las OTs que ya tienen delivery (para marcarlas y deshabilitarlas)
+                const woIds = (data || []).map((w: any) => w.id);
+                const existingDeliveryByWO: Record<string, string> = {};
+                if (woIds.length > 0) {
+                    const { data: delivs } = await supabase
+                        .from('deliveries')
+                        .select('id, work_order_id, delivery_number')
+                        .in('work_order_id', woIds);
+                    (delivs || []).forEach((d: any) => {
+                        if (d.work_order_id) existingDeliveryByWO[d.work_order_id] = d.delivery_number;
+                    });
+                }
 
                 const formatted = (data as any[]).map(wo => {
                     if (wo.module) wo.module = Array.isArray(wo.module) ? wo.module[0] : wo.module;
                     if (wo.quotation) wo.quotation = Array.isArray(wo.quotation) ? wo.quotation[0] : wo.quotation;
                     if (wo.quotation?.client) wo.quotation.client = Array.isArray(wo.quotation.client) ? wo.quotation.client[0] : wo.quotation.client;
-                    return wo;
+                    return { ...wo, _existingDeliveryNumber: existingDeliveryByWO[wo.id] || null };
                 });
                 setWorkOrders(formatted || []);
             } catch (err) {
@@ -148,20 +160,28 @@ function NewDeliveryForm() {
                             <option value="" disabled>Elige una orden de trabajo...</option>
                             {workOrders.map(wo => {
                                 const isPending = wo.status === 'QC';
+                                const existingDeliv = wo._existingDeliveryNumber;
+                                const disabled = isPending || !!existingDeliv;
+                                let prefix = '✓ ';
+                                if (isPending) prefix = '⏳ ';
+                                else if (existingDeliv) prefix = '🚚 ';
+                                let suffix = '';
+                                if (isPending) suffix = '   [En calidad — pendiente de liberar]';
+                                else if (existingDeliv) suffix = `   [Ya tiene entrega: ${existingDeliv}]`;
                                 return (
                                     <option
                                         key={wo.id}
-                                        value={isPending ? '' : wo.id}
-                                        disabled={isPending}
+                                        value={disabled ? '' : wo.id}
+                                        disabled={disabled}
                                     >
-                                        {isPending ? '⏳ ' : '✓ '}
-                                        {wo.order_number} — {(wo as any).module?.name || ''} — {wo.quotation?.client?.business_name || wo.notes?.slice(0, 40) || ''} ({wo.quotation?.quotation_number || 'ad-hoc'}){isPending ? '   [En calidad — pendiente de liberar]' : ''}
+                                        {prefix}
+                                        {wo.order_number} — {(wo as any).module?.name || ''} — {wo.quotation?.client?.business_name || wo.notes?.slice(0, 40) || ''} ({wo.quotation?.quotation_number || 'ad-hoc'}){suffix}
                                     </option>
                                 );
                             })}
                         </select>
                         <p className="text-[11px] text-neutral-500 ml-1">
-                            Las OTs con "✓" ya están liberadas por Calidad. Las que aparecen con "⏳ En calidad" todavía no se han liberado, por lo que no se puede crear su entrega todavía.
+                            "✓" = liberada y disponible. "⏳" = en calidad (todavía no liberada). "🚚" = ya tiene una entrega registrada.
                         </p>
                     </div>
                     {selectedWO && (
