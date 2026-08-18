@@ -231,6 +231,16 @@ export default function WorkOrderDetail({ code, woId }: { code: string; woId: st
     };
     useEffect(() => { if (woId) load(); }, [woId]);
 
+    // Pre-llenar el nombre del operador (legacy) con el currentEmployee cuando se
+    // carga la sesión, para que el operador no tenga que escribirlo a mano al firmar.
+    // El usuario puede sobrescribirlo si está firmando en nombre de otro.
+    useEffect(() => {
+        if (currentEmployeeName && !operatorName) {
+            setOperatorName(currentEmployeeName);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [currentEmployeeName]);
+
     // v2: Auto-select el archivo "actual" más reciente (is_current=true) que sea viewable.
     // Si no hay is_current marcado, fallback al más reciente por created_at.
     useEffect(() => {
@@ -331,7 +341,15 @@ export default function WorkOrderDetail({ code, woId }: { code: string; woId: st
             flash("error", "No tienes permiso para terminar esta OT.");
             return;
         }
-        if (!operatorName.trim()) {
+        // Fallback: si el campo quedó vacío (porque el usuario lo borró o no había
+        // sesión), usar el primer operador asignado o el currentEmployeeName.
+        let finalOperatorName = operatorName.trim();
+        if (!finalOperatorName) {
+            const fromCurrent = currentEmployeeName?.trim();
+            const fromFirstOp = operators[0]?.employee?.full_name?.trim();
+            finalOperatorName = fromCurrent || fromFirstOp || "";
+        }
+        if (!finalOperatorName) {
             flash("error", "Captura tu nombre antes de firmar.");
             return;
         }
@@ -341,7 +359,7 @@ export default function WorkOrderDetail({ code, woId }: { code: string; woId: st
             await supabase.from("work_orders").update({
                 status: "QC",
                 completed_at: new Date().toISOString(),
-                operator_name: operatorName,
+                operator_name: finalOperatorName,
                 operator_signature_url: sigUrl,
             }).eq("id", wo.id);
             flash("success", "OT terminada. Enviada a Calidad ✅");
@@ -446,22 +464,40 @@ export default function WorkOrderDetail({ code, woId }: { code: string; woId: st
         if (!wo) return;
         setBusy(true);
         try {
-            // upsert idempotente: si ya existe la fila (work_order_id, employee_id),
-            // no hace nada. Resuelve la race condition entre doble-click o múltiples
-            // pestañas abiertas (la BD es la fuente de verdad de la unicidad).
-            const { error } = await supabase.from("work_order_operators").upsert(
-                {
+            // Insert directo + manejo de 23505 (unique_violation). Es más predecible
+            // que upsert+ignoreDuplicates con multi-column UNIQUE, que tenía un
+            // comportamiento opaco: devolvía OK sin devolver la fila ni refrescar la UI.
+            const { data, error } = await supabase
+                .from("work_order_operators")
+                .insert({
                     work_order_id: wo.id,
                     employee_id: employeeId,
                     role: "operator",
                     added_by: currentEmployeeId,
-                },
-                { onConflict: "work_order_id,employee_id", ignoreDuplicates: true }
-            );
-            if (error) throw error;
-            flash("success", "Operador asignado.");
-            await load();
+                })
+                .select("id, employee_id, role, added_at, added_by, employee:employees(id, full_name, username, role, position, photo_url)")
+                .single();
+            if (error) {
+                if (error.code === "23505") {
+                    // Ya estaba asignado — la BD es la fuente de verdad de la unicidad.
+                    flash("info", "Ese empleado ya estaba asignado.");
+                } else {
+                    throw error;
+                }
+            } else {
+                // Update optimista: agrega el operador al state inmediatamente para
+                // que la UI no se quede en "0" hasta que load() regrese.
+                const newOp = {
+                    ...data,
+                    employee: Array.isArray(data.employee) ? data.employee[0] : data.employee,
+                };
+                setOperators((prev) =>
+                    prev.find((o) => o.employee_id === employeeId) ? prev : [...prev, newOp]
+                );
+                flash("success", "Operador asignado.");
+            }
             setOperatorPickerOpen(false);
+            await load();
         } catch (e: any) { flash("error", e?.message || "Error."); }
         finally { setBusy(false); }
     };
