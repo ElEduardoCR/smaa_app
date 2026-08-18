@@ -34,6 +34,15 @@ DROP POLICY IF EXISTS "Allow all on purchase_order_attachments" ON public.purcha
 CREATE POLICY "Allow all on purchase_order_attachments"
     ON public.purchase_order_attachments FOR ALL USING (true) WITH CHECK (true);
 
+-- Los proyectos creados con la exposición automática desactivada no
+-- conceden acceso al Data API para tablas nuevas. La aplicación actual usa
+-- la clave pública + permisos propios en Server Actions, por lo que esta tabla
+-- necesita los mismos grants que el resto del módulo mientras se completa la
+-- migración futura a Supabase Auth/RLS por usuario.
+GRANT SELECT, INSERT, UPDATE, DELETE
+    ON public.purchase_order_attachments
+    TO anon, authenticated, service_role;
+
 COMMENT ON TABLE public.purchase_order_attachments IS
     'Adjuntos de una PO: facturas, evidencia fotográfica, comprobantes extra. kind=invoice|evidence|other.';
 COMMENT ON COLUMN public.purchase_order_attachments.kind IS

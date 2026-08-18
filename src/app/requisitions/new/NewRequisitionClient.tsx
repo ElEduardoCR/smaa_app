@@ -4,21 +4,27 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-    ArrowLeft, Plus, Trash2, Loader2, Save, Package, Store, Calendar, FileText, Upload, X, AlertCircle
+    ArrowLeft, Plus, Trash2, Loader2, Save, Package, Store, FileText, Upload, X, AlertCircle
 } from "lucide-react";
-import { createRequisitionAction, uploadRequisitionFileAction } from "@/app/actions/requisitions";
+import { createRequisitionAction, createRequisitionUploadAction } from "@/app/actions/requisitions";
+import { supabase } from "@/lib/supabase";
 
 type Item = { description: string; quantity: number; unit: string; notes: string };
 type UploadedFile = { name: string; url: string };
+type Priority = 'low' | 'normal' | 'high' | 'urgent';
 
 function emptyItem(): Item {
     return { description: "", quantity: 1, unit: "pza", notes: "" };
 }
 
+function errorMessage(error: unknown, fallback: string) {
+    return error instanceof Error && error.message ? error.message : fallback;
+}
+
 export default function NewRequisitionClient({ suppliers }: { suppliers: { id: string; business_name: string; rfc: string; is_active?: boolean }[] }) {
     const router = useRouter();
 
-    const [priority, setPriority] = useState<'low' | 'normal' | 'high' | 'urgent'>('normal');
+    const [priority, setPriority] = useState<Priority>('normal');
     const [neededBy, setNeededBy] = useState('');
     const [supplierId, setSupplierId] = useState('');
     const [supplierText, setSupplierText] = useState('');
@@ -35,17 +41,21 @@ export default function NewRequisitionClient({ suppliers }: { suppliers: { id: s
         setUploading(true);
         setErr(null);
         try {
-            const reader = new FileReader();
-            const dataUrl: string = await new Promise((res, rej) => {
-                reader.onload = () => res(String(reader.result || ""));
-                reader.onerror = rej;
-                reader.readAsDataURL(f);
-            });
-            const b64 = dataUrl.split(",")[1] || "";
-            const url = await uploadRequisitionFileAction(b64, f.name, f.type || "application/octet-stream");
-            setFiles((prev) => [...prev, { name: f.name, url }]);
-        } catch (ex: any) {
-            setErr(ex.message || "Error al subir archivo.");
+            const upload = await createRequisitionUploadAction(
+                f.name,
+                f.type || "application/octet-stream",
+                f.size,
+                'quotation'
+            );
+            const { error } = await supabase.storage
+                .from('requisition_files')
+                .uploadToSignedUrl(upload.path, upload.token, f, {
+                    contentType: f.type || "application/octet-stream",
+                });
+            if (error) throw new Error('Error al subir la cotización: ' + error.message);
+            setFiles((prev) => [...prev, { name: f.name, url: upload.publicUrl }]);
+        } catch (error: unknown) {
+            setErr(errorMessage(error, "Error al subir archivo."));
         } finally {
             setUploading(false);
             e.target.value = "";
@@ -85,8 +95,8 @@ export default function NewRequisitionClient({ suppliers }: { suppliers: { id: s
                 quotation_urls: files.map((f) => f.url),
             });
             router.push(`/requisitions/${result.id}`);
-        } catch (ex: any) {
-            setErr(ex.message || "Error al crear la requisición.");
+        } catch (error: unknown) {
+            setErr(errorMessage(error, "Error al crear la requisición."));
         } finally {
             setSaving(false);
         }
@@ -124,7 +134,7 @@ export default function NewRequisitionClient({ suppliers }: { suppliers: { id: s
                                 <label className="block text-[11px] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Prioridad</label>
                                 <select
                                     value={priority}
-                                    onChange={(e) => setPriority(e.target.value as any)}
+                                    onChange={(e) => setPriority(e.target.value as Priority)}
                                     className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500"
                                 >
                                     <option value="low">Baja</option>

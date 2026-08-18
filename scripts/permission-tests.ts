@@ -288,6 +288,23 @@ const TEST_CASES: TestCase[] = [
     },
     {
         id: 'PO-006',
+        description: 'PO acepta evidence_photo_url para la foto de recibido',
+        fixture: 'TEST_buyer',
+        expect: 'allow',
+        run: async (c) => {
+            const res = await c.query(
+                `INSERT INTO purchase_orders (supplier_id, status, subtotal, vat_total, total, evidence_photo_url)
+                 VALUES (NULL, 'Draft', 100, 16, 116, 'https://example.com/recibido.jpg')
+                 RETURNING id, evidence_photo_url`,
+            );
+            return {
+                ok: res.rows[0]?.evidence_photo_url === 'https://example.com/recibido.jpg',
+                note: 'Created PO with evidence_photo_url'
+            };
+        },
+    },
+    {
+        id: 'PO-007',
         description: 'Status "Received" es válido (usado por el flujo de "Recibir")',
         fixture: 'TEST_buyer',
         expect: 'allow',
@@ -542,6 +559,35 @@ const TEST_CASES: TestCase[] = [
             const restored = await c.query(`SELECT is_active FROM clients WHERE id = $1`, [id]);
             const ok = created === true && after.rows[0].is_active === false && restored.rows[0].is_active === true;
             return { ok, note: `created=${created} → false → ${restored.rows[0].is_active}` };
+        },
+    },
+    {
+        id: 'SCHEMA-009',
+        description: 'Esquema de Compras incluye purchase_group_id y purchase_order_attachments',
+        fixture: 'TEST_admin',
+        expect: 'allow',
+        run: async (c) => {
+            const [columnRes, tableRes] = await Promise.all([
+                c.query(`
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name = 'purchase_orders'
+                      AND column_name = 'purchase_group_id'
+                `),
+                c.query(`
+                    SELECT table_name
+                    FROM information_schema.tables
+                    WHERE table_schema = 'public'
+                      AND table_name = 'purchase_order_attachments'
+                `),
+            ]);
+            const hasGroup = columnRes.rows.length === 1;
+            const hasAttachments = tableRes.rows.length === 1;
+            return {
+                ok: hasGroup && hasAttachments,
+                note: `purchase_group_id=${hasGroup}, purchase_order_attachments=${hasAttachments}`,
+            };
         },
     },
     // ===========================================================

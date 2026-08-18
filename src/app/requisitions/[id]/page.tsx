@@ -1,9 +1,16 @@
 import { redirect, notFound } from 'next/navigation';
-import Link from 'next/link';
 import { getSession } from '@/lib/session';
 import { can } from '@/lib/permissions';
 import { supabase } from '@/lib/supabase';
-import RequisitionDetailClient from './RequisitionDetailClient';
+import RequisitionDetailClient, { type Requisition } from './RequisitionDetailClient';
+
+type EmployeeSummary = {
+    id: string;
+    full_name: string;
+    position: string | null;
+    photo_url: string | null;
+    username: string;
+};
 
 export default async function RequisitionDetailPage({ params }: { params: Promise<{ id: string }> }) {
     const session = await getSession();
@@ -34,35 +41,36 @@ export default async function RequisitionDetailPage({ params }: { params: Promis
 
     if (error) throw error;
     if (!req) notFound();
+    const typedReq = req as unknown as Requisition;
 
     // Joins a employees en queries separados (defensivos ante nombres de FK).
     const employeeIds = Array.from(new Set(
-        [(req as any).requested_by, (req as any).purchased_by].filter(Boolean)
+        [typedReq.requested_by, typedReq.purchased_by].filter((employeeId): employeeId is string => Boolean(employeeId))
     ));
     const { data: employees } = employeeIds.length
         ? await supabase
             .from('employees')
             .select('id, full_name, position, photo_url, username')
             .in('id', employeeIds)
-        : { data: [] as any[] };
+        : { data: [] as EmployeeSummary[] };
 
-    const empMap = new Map<string, any>((employees || []).map((e: any) => [e.id, e]));
-    const requester = empMap.get((req as any).requested_by) || null;
-    const purchaser = empMap.get((req as any).purchased_by) || null;
+    const employeeList = (employees || []) as EmployeeSummary[];
+    const empMap = new Map<string, EmployeeSummary>(employeeList.map((employee) => [employee.id, employee]));
+    const requester = empMap.get(typedReq.requested_by) || null;
+    const purchaser = typedReq.purchased_by ? empMap.get(typedReq.purchased_by) || null : null;
 
-    const enriched = { ...(req as any), requester, purchaser };
+    const enriched: Requisition = { ...typedReq, requester, purchaser };
 
     // Permisos de acción
-    const isOwner = (req as any).requested_by === session.employeeId;
+    const isOwner = typedReq.requested_by === session.employeeId;
     const isMaster = session.role === 'master';
     const canPurchase = isMaster || can(session.role, session.permissions, 'requisitions', 'purchase');
     const canCancel = isOwner || canPurchase;
 
     return (
         <RequisitionDetailClient
-            currentUserId={session.employeeId}
-            canPurchase={canPurchase && (req as any).status === 'pending'}
-            canCancel={canCancel && (req as any).status === 'pending'}
+            canPurchase={canPurchase && typedReq.status === 'pending'}
+            canCancel={canCancel && typedReq.status === 'pending'}
             req={enriched}
         />
     );

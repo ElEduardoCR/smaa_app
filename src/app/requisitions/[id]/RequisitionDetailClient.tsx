@@ -4,10 +4,11 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-    ArrowLeft, Loader2, Save, Upload, X, FileText, Package, Store, Calendar,
-    User as UserIcon, CheckCircle2, XCircle, Receipt, Image as ImageIcon, ExternalLink, AlertCircle
+    ArrowLeft, Loader2, Upload, X, FileText, Package, Store, Calendar,
+    CheckCircle2, XCircle, Receipt, Image as ImageIcon, ExternalLink, AlertCircle
 } from "lucide-react";
-import { cancelRequisitionAction, completePurchaseAction, uploadRequisitionFileAction } from "@/app/actions/requisitions";
+import { cancelRequisitionAction, completePurchaseAction, createRequisitionUploadAction } from "@/app/actions/requisitions";
+import { supabase } from "@/lib/supabase";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -15,9 +16,10 @@ function cn(...inputs: (string | undefined | null | false)[]) {
     return twMerge(clsx(inputs));
 }
 
-type Requisition = {
+export type Requisition = {
     id: string;
     code: string;
+    requested_by: string;
     status: 'pending' | 'purchased' | 'cancelled';
     priority: 'low' | 'normal' | 'high' | 'urgent';
     needed_by: string | null;
@@ -67,13 +69,15 @@ function initials(name: string) {
     return parts.map((p) => p[0]?.toUpperCase() || "").join("");
 }
 
+function errorMessage(error: unknown, fallback: string) {
+    return error instanceof Error && error.message ? error.message : fallback;
+}
+
 export default function RequisitionDetailClient({
-    currentUserId,
     canPurchase,
     canCancel,
     req,
 }: {
-    currentUserId: string;
     canPurchase: boolean;
     canCancel: boolean;
     req: Requisition;
@@ -125,8 +129,8 @@ export default function RequisitionDetailClient({
                                     try {
                                         await cancelRequisitionAction(req.id);
                                         router.refresh();
-                                    } catch (e: any) {
-                                        alert(e.message);
+                                    } catch (error: unknown) {
+                                        alert(errorMessage(error, 'No se pudo cancelar la requisición.'));
                                     } finally {
                                         setCancelling(false);
                                     }
@@ -285,14 +289,14 @@ export default function RequisitionDetailClient({
                 )}
 
                 {showPurchaseModal && (
-                    <PurchaseModal reqId={req.id} onClose={() => setShowPurchaseModal(false)} onDone={() => { setShowPurchaseModal(false); router.refresh(); }} />
+                    <PurchaseModal reqId={req.id} onClose={() => setShowPurchaseModal(false)} />
                 )}
             </div>
         </div>
     );
 }
 
-function PurchaseModal({ reqId, onClose, onDone }: { reqId: string; onClose: () => void; onDone: () => void }) {
+function PurchaseModal({ reqId, onClose }: { reqId: string; onClose: () => void }) {
     const router = useRouter();
     const [invoiceUrl, setInvoiceUrl] = useState('');
     const [photoUrl, setPhotoUrl] = useState('');
@@ -306,18 +310,22 @@ function PurchaseModal({ reqId, onClose, onDone }: { reqId: string; onClose: () 
         setUploading(kind);
         setErr(null);
         try {
-            const reader = new FileReader();
-            const dataUrl: string = await new Promise((res, rej) => {
-                reader.onload = () => res(String(reader.result || ""));
-                reader.onerror = rej;
-                reader.readAsDataURL(file);
-            });
-            const b64 = dataUrl.split(",")[1] || "";
-            const url = await uploadRequisitionFileAction(b64, file.name, file.type || "application/octet-stream");
-            if (kind === 'invoice') setInvoiceUrl(url);
-            else setPhotoUrl(url);
-        } catch (e: any) {
-            setErr(e.message || "Error al subir.");
+            const upload = await createRequisitionUploadAction(
+                file.name,
+                file.type || "application/octet-stream",
+                file.size,
+                kind === 'invoice' ? 'purchase_invoice' : 'purchase_evidence'
+            );
+            const { error } = await supabase.storage
+                .from('requisition_files')
+                .uploadToSignedUrl(upload.path, upload.token, file, {
+                    contentType: file.type || "application/octet-stream",
+                });
+            if (error) throw new Error('Error al subir el archivo: ' + error.message);
+            if (kind === 'invoice') setInvoiceUrl(upload.publicUrl);
+            else setPhotoUrl(upload.publicUrl);
+        } catch (error: unknown) {
+            setErr(errorMessage(error, "Error al subir."));
         } finally {
             setUploading(null);
         }
@@ -336,8 +344,8 @@ function PurchaseModal({ reqId, onClose, onDone }: { reqId: string; onClose: () 
             setResult({ poNumber: res.poNumber, poId: res.poId, needsSupplier: res.needsSupplier });
             // Refresca la lista de requisiciones
             router.refresh();
-        } catch (ex: any) {
-            setErr(ex.message);
+        } catch (error: unknown) {
+            setErr(errorMessage(error, "No se pudo cerrar la compra."));
         } finally {
             setSaving(false);
         }
