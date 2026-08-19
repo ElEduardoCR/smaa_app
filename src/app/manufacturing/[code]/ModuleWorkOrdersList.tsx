@@ -112,7 +112,7 @@ export default function ModuleWorkOrdersList({ code }: { code: string }) {
 
     return (
         <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 p-3 sm:p-6 md:p-8 lg:p-10 font-[family-name:var(--font-sans)]">
-            <div className="max-w-6xl mx-auto space-y-8">
+            <div className="max-w-[1800px] mx-auto space-y-8">
                 <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
                     <div className="flex items-center gap-4">
                         <Link href="/manufacturing" className="p-3 bg-neutral-800 hover:bg-neutral-700 rounded-xl transition-colors text-neutral-400 hover:text-white border border-neutral-700">
@@ -163,9 +163,10 @@ export default function ModuleWorkOrdersList({ code }: { code: string }) {
                     ))}
                 </div>
 
-                <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-3xl overflow-hidden backdrop-blur-sm">
+                {/* Tabla (md+) */}
+                <div className="hidden md:block bg-neutral-800/40 border border-neutral-700/50 rounded-3xl overflow-hidden backdrop-blur-sm">
                     <div className="overflow-x-auto">
-                        <table className="w-full text-left text-sm whitespace-nowrap">
+                        <table className="w-full text-left text-sm">
                             <thead className="bg-neutral-900/50 text-neutral-400 uppercase text-xs font-semibold tracking-wider">
                                 <tr>
                                     <th className="px-6 py-4 rounded-tl-xl">OT #</th>
@@ -195,7 +196,7 @@ export default function ModuleWorkOrdersList({ code }: { code: string }) {
                                 ) : (
                                     filtered.map(wo => (
                                         <tr key={wo.id} className="hover:bg-neutral-800/80 transition-colors group">
-                                            <td className="px-6 py-4">
+                                            <td className="px-6 py-4 whitespace-nowrap">
                                                 <span className="font-mono font-medium text-orange-300 bg-orange-500/10 px-2.5 py-1 rounded-md border border-orange-500/20">
                                                     {wo.order_number}
                                                 </span>
@@ -206,7 +207,7 @@ export default function ModuleWorkOrdersList({ code }: { code: string }) {
                                             <td className="px-6 py-4 text-neutral-200">
                                                 {wo.quotation?.client?.business_name || wo.client_name || <span className="text-neutral-500">—</span>}
                                             </td>
-                                            <td className="px-6 py-4">
+                                            <td className="px-6 py-4 whitespace-nowrap">
                                                 {wo.quotation?.quotation_number ? (
                                                     <span className="font-mono text-emerald-300 text-xs bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
                                                         {wo.quotation.quotation_number}
@@ -215,18 +216,18 @@ export default function ModuleWorkOrdersList({ code }: { code: string }) {
                                                     <span className="text-xs text-neutral-500 italic">Sin cotización</span>
                                                 )}
                                             </td>
-                                            <td className="px-6 py-4 text-xs text-neutral-300">
+                                            <td className="px-6 py-4 text-xs text-neutral-300 whitespace-nowrap">
                                                 {wo.priority || "Normal"}
                                             </td>
-                                            <td className="px-6 py-4 text-neutral-400">
+                                            <td className="px-6 py-4 text-neutral-400 whitespace-nowrap">
                                                 {new Date(wo.created_at).toLocaleDateString()}
                                             </td>
-                                            <td className="px-6 py-4">
+                                            <td className="px-6 py-4 whitespace-nowrap">
                                                 <span className={cn("px-2.5 py-1 rounded-full text-xs font-semibold border", STATUS_STYLES[wo.status] || STATUS_STYLES["Open"])}>
                                                     {STATUS_LABEL[wo.status] || wo.status}
                                                 </span>
                                             </td>
-                                            <td className="px-6 py-4 text-right">
+                                            <td className="px-6 py-4 text-right whitespace-nowrap">
                                                 <Link
                                                     href={`/manufacturing/${code}/${wo.id}`}
                                                     className="inline-flex items-center gap-1.5 text-xs font-medium text-orange-400 hover:text-orange-300 transition-colors bg-orange-500/10 hover:bg-orange-500/20 px-3 py-1.5 rounded-lg border border-orange-500/20"
@@ -240,6 +241,64 @@ export default function ModuleWorkOrdersList({ code }: { code: string }) {
                             </tbody>
                         </table>
                     </div>
+                </div>
+
+                {/* Cards (mobile/tablet) */}
+                <div className="md:hidden space-y-3">
+                    {loading ? (
+                        <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-2xl p-8 text-center text-neutral-400">
+                            <RefreshCw className={cn("w-6 h-6 animate-spin mx-auto mb-3", colorCls)} />
+                            Cargando…
+                        </div>
+                    ) : filtered.length === 0 ? (
+                        <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-2xl p-8 text-center text-neutral-400">
+                            <div className="bg-neutral-800/50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 border border-neutral-700">
+                                <Icon className="w-8 h-8 text-neutral-500" />
+                            </div>
+                            <p className="text-lg text-neutral-300 font-medium">No hay órdenes en este filtro</p>
+                            <p className="text-sm mt-1">Crea una nueva OT con el botón de arriba.</p>
+                        </div>
+                    ) : (
+                        filtered.map(wo => (
+                            <div key={wo.id} className="bg-neutral-800/40 border border-neutral-700/50 rounded-2xl p-4 hover:bg-neutral-800/60 transition-colors">
+                                <div className="flex items-start justify-between gap-3 mb-3">
+                                    <div className="min-w-0 flex-1">
+                                        <span className="font-mono font-medium text-orange-300 bg-orange-500/10 px-2.5 py-1 rounded-md border border-orange-500/20 text-xs">
+                                            {wo.order_number}
+                                        </span>
+                                        <p className="text-white font-medium mt-2 break-words">{wo.work_title || <span className="text-neutral-600">—</span>}</p>
+                                    </div>
+                                    <span className={cn("shrink-0 px-2.5 py-1 rounded-full text-[10px] font-semibold border", STATUS_STYLES[wo.status] || STATUS_STYLES["Open"])}>
+                                        {STATUS_LABEL[wo.status] || wo.status}
+                                    </span>
+                                </div>
+                                <div className="space-y-1.5 text-xs text-neutral-300 mb-3">
+                                    <p>
+                                        <span className="text-neutral-500">Cliente: </span>
+                                        {wo.quotation?.client?.business_name || wo.client_name || <span className="text-neutral-500">—</span>}
+                                    </p>
+                                    <p className="flex items-center gap-2 flex-wrap">
+                                        <span className="text-neutral-500">Cot: </span>
+                                        {wo.quotation?.quotation_number ? (
+                                            <span className="font-mono text-emerald-300 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                                                {wo.quotation.quotation_number}
+                                            </span>
+                                        ) : (
+                                            <span className="text-neutral-500 italic">Sin cotización</span>
+                                        )}
+                                        <span className="text-neutral-500">· Prioridad: {wo.priority || "Normal"}</span>
+                                        <span className="text-neutral-500">· {new Date(wo.created_at).toLocaleDateString()}</span>
+                                    </p>
+                                </div>
+                                <Link
+                                    href={`/manufacturing/${code}/${wo.id}`}
+                                    className="flex items-center justify-center gap-1.5 w-full text-xs font-medium text-orange-400 hover:text-orange-300 transition-colors bg-orange-500/10 hover:bg-orange-500/20 px-3 py-2 rounded-lg border border-orange-500/20"
+                                >
+                                    <Eye className="w-3.5 h-3.5" /> Abrir OT
+                                </Link>
+                            </div>
+                        ))
+                    )}
                 </div>
             </div>
         </div>
