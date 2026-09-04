@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import ExpedienteTab from "./ExpedienteTab";
 import {
     ArrowLeft, User, Mail, Phone, MapPin, Calendar, Banknote, Briefcase, RefreshCw,
     Edit, AlertCircle, Plus, Trash2, Gift, Minus, Save, X, Check, Lock
@@ -76,7 +77,7 @@ export default function EmployeeDetailPage({ id: employeeId }: { id: string }) {
     const [deductions, setDeductions] = useState<Deduction[]>([]);
     const [receipts, setReceipts] = useState<Receipt[]>([]);
     const [loading, setLoading] = useState(true);
-    const [tab, setTab] = useState<"info" | "bonuses" | "deductions" | "receipts">("info");
+    const [tab, setTab] = useState<"info" | "bonuses" | "deductions" | "receipts" | "expediente">("info");
     const [msg, setMsg] = useState<{ type: "error" | "success"; text: string } | null>(null);
     const [editMode, setEditMode] = useState(false);
     const [saving, setSaving] = useState(false);
@@ -262,6 +263,7 @@ export default function EmployeeDetailPage({ id: employeeId }: { id: string }) {
                         { k: "bonuses", label: `Bonos (${bonuses.length})` },
                         { k: "deductions", label: `Deducciones fijas (${deductions.length})` },
                         { k: "receipts", label: `Recibos (${receipts.length})` },
+                        { k: "expediente", label: "Expediente" },
                     ].map(t => (
                         <button key={t.k} onClick={() => setTab(t.k as any)}
                             className={cn("text-sm px-4 py-2 rounded-xl border transition-colors",
@@ -304,7 +306,15 @@ export default function EmployeeDetailPage({ id: employeeId }: { id: string }) {
                                 </select>
                             </FieldRow>
                             <FieldRow label={payroll.payment_type === "hourly" ? "Tarifa por hora" : "Salario base"} editMode={editMode}>
-                                <Input type="number" step="0.01" value={payroll.base_salary || ""} onChange={(v: string) => setField("base_salary", Number(v) || 0)} disabled={!editMode} />
+                                <Input
+                                    type="number"
+                                    step="0.01"
+                                    value={(payroll.payment_type === "hourly" ? payroll.hourly_rate : payroll.base_salary) || ""}
+                                    onChange={(v: string) => payroll.payment_type === "hourly"
+                                        ? setField("hourly_rate", Number(v) || 0)
+                                        : setField("base_salary", Number(v) || 0)}
+                                    disabled={!editMode}
+                                />
                             </FieldRow>
                             <FieldRow label="Salario diario" editMode={editMode}>
                                 <Input type="number" step="0.01" value={payroll.daily_salary || ""} onChange={(v: string) => setField("daily_salary", Number(v) || 0)} disabled={!editMode} />
@@ -340,6 +350,10 @@ export default function EmployeeDetailPage({ id: employeeId }: { id: string }) {
                             <FieldRow label="Notas" editMode={editMode} colSpan={2}><Textarea value={payroll.notes || ""} onChange={(v: string) => setField("notes", v || null)} disabled={!editMode} rows={3} /></FieldRow>
                         </Card>
                     </div>
+                )}
+
+                {tab === "expediente" && (
+                    <ExpedienteTab employeeId={employeeId} onFiscalDataApplied={load} />
                 )}
 
                 {tab === "bonuses" && (

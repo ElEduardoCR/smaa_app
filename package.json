@@ -6,7 +6,12 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:hikvision": "tsx scripts/test-hikvision-attendance.ts",
+    "test:hikvision-direct": "tsx scripts/test-hikvision-direct-events.ts",
+    "test:hikvision-bridge": "tsx scripts/test-hikvision-lan-bridge.ts",
+    "test:attendance": "tsx scripts/test-attendance-calculation.ts",
+    "test:time-clock": "tsx scripts/test-time-clock-import.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
@@ -25,9 +30,11 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-hook-form": "^7.71.2",
+    "read-excel-file": "^9.3.10",
     "tailwind-merge": "^3.5.0",
     "tesseract.js": "^5.1.1",
     "three": "^0.169.0",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^4.3.6"
   },
   "devDependencies": {

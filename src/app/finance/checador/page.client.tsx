@@ -1,10 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
 import {
-    ArrowLeft, Clock, Upload, RefreshCw, FileText, AlertTriangle, CheckCircle2, Eye, Trash2, Calendar, Users
+    AlertTriangle,
+    ArrowLeft,
+    Bot,
+    CalendarDays,
+    CheckCircle2,
+    ChevronLeft,
+    ChevronRight,
+    Clock3,
+    FileSpreadsheet,
+    RefreshCw,
+    UploadCloud,
+    Users,
 } from "lucide-react";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -13,488 +23,527 @@ function cn(...inputs: (string | undefined | null | false)[]) {
     return twMerge(clsx(inputs));
 }
 
-const fmt = (n: number | null | undefined) => (Number(n) || 0).toFixed(2);
-
-type Upload = {
-    id: string; file_name: string; file_url: string;
-    period_start: string; period_end: string; format: string | null;
-    status: string; rows_total: number; rows_parsed: number; rows_unmatched: number;
-    error_message: string | null; uploaded_at: string; parsed_at: string | null;
+type Employee = {
+    employeeId: string;
+    code: string;
+    fullName: string;
 };
 
-// Parser CSV simple pero tolerante. Detecta columnas por nombres comunes.
-function parseCSV(text: string): { rows: any[]; errors: string[] } {
-    const errors: string[] = [];
-    const lines = text.split(/\r?\n/).filter(l => l.trim());
-    if (lines.length < 2) return { rows: [], errors: ["El archivo está vacío o solo tiene encabezados."] };
-    const split = (line: string) => {
-        // Soporta CSV con comas o punto y coma
-        const sep = line.includes(";") && !line.includes(",") ? ";" : ",";
-        return line.split(sep).map(c => c.trim().replace(/^"|"$/g, ""));
+type DailyRecord = {
+    id: string;
+    employeeId: string;
+    employeeCode: string;
+    workDate: string;
+    checkIn: string | null;
+    checkOut: string | null;
+    workedMinutes: number;
+};
+
+type Upload = {
+    id: string;
+    file_name: string;
+    period_start: string;
+    period_end: string;
+    format: string;
+    status: string;
+    rows_total: number;
+    rows_parsed: number;
+    rows_unmatched: number;
+    rows_inserted: number;
+    rows_updated: number;
+    rows_unchanged: number;
+    rows_conflicted: number;
+    uploaded_at: string;
+    interpreter: string;
+};
+
+type WeeklyPayload = {
+    weekStart: string;
+    weekEnd: string;
+    employees: Employee[];
+    records: DailyRecord[];
+    uploads: Upload[];
+    latestRecordedDate: string | null;
+    ai: {
+        provider: "deepseek" | "deterministic";
+        configured: boolean;
+        model: string | null;
+        thinking: boolean;
+        reasoningEffort: "high" | null;
     };
-    const headers = split(lines[0]).map(h => h.toLowerCase());
-    const idxOf = (...candidates: string[]) => {
-        for (const c of candidates) {
-            const i = headers.findIndex(h => h === c || h.includes(c));
-            if (i !== -1) return i;
-        }
-        return -1;
-    };
-    const idCol = idxOf("id_empleado", "employee_id", "no_empleado", "codigo", "code", "employee", "empleado");
-    const dateCol = idxOf("fecha", "date", "dia");
-    const inCol = idxOf("entrada", "check_in", "checkin", "in", "hora_entrada", "ingreso");
-    const outCol = idxOf("salida", "check_out", "checkout", "out", "hora_salida", "egreso");
-    const hoursCol = idxOf("horas", "hours", "horas_trabajadas", "worked_hours");
-    // Modo "long": cada fila es un solo evento (entrada o salida)
-    const timeCol = idxOf("hora", "time", "timestamp");
-    const typeCol = idxOf("tipo", "type", "io", "in_out");
-    if (idCol === -1 || dateCol === -1) {
-        return { rows: [], errors: ["Faltan columnas obligatorias. Se requiere al menos: id_empleado y fecha."] };
-    }
-    const rows: any[] = [];
-    for (let i = 1; i < lines.length; i++) {
-        const cols = split(lines[i]);
-        if (cols.length < 2) continue;
-        rows.push({
-            employee_code: cols[idCol] || "",
-            date: cols[dateCol] || "",
-            check_in: inCol !== -1 ? cols[inCol] : "",
-            check_out: outCol !== -1 ? cols[outCol] : "",
-            hours: hoursCol !== -1 ? cols[hoursCol] : "",
-            time: timeCol !== -1 ? cols[timeCol] : "",
-            type: typeCol !== -1 ? cols[typeCol] : "",
-        });
-    }
-    return { rows, errors };
+};
+
+type PreviewRecord = {
+    employeeCode: string;
+    employeeName: string | null;
+    workDate: string;
+    checkIn: string | null;
+    checkOut: string | null;
+    workedMinutes: number;
+    action: "insert" | "complete" | "unchanged" | "conflict" | "unmatched";
+};
+
+type Preview = {
+    fileName: string;
+    rowsTotal: number;
+    rowsDetected: number;
+    rowsReady: number;
+    unmatchedCount: number;
+    unmatchedCodes: string[];
+    conflictCount: number;
+    warnings: string[];
+    interpreter: string;
+    sheetRoles: Array<{
+        sheetIndex: number;
+        sheetName: string;
+        role: "attendance_source" | "summary" | "schedule" | "shift_definition" | "employee_detail" | "irrelevant";
+    }>;
+    periodStart: string;
+    periodEnd: string;
+    records: PreviewRecord[];
+};
+
+type Message = { type: "error" | "success" | "info"; text: string };
+
+const DAY_NAMES = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
+
+function addDays(date: string, days: number): string {
+    const value = new Date(`${date}T12:00:00.000Z`);
+    value.setUTCDate(value.getUTCDate() + days);
+    return value.toISOString().slice(0, 10);
 }
 
-function parseDate(s: string): Date | null {
-    if (!s) return null;
-    // Try ISO, dd/mm/yyyy, yyyy-mm-dd
-    const isoMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (isoMatch) return new Date(`${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}T12:00:00`);
-    const slashMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
-    if (slashMatch) {
-        let [_, d, m, y] = slashMatch;
-        if (y.length === 2) y = "20" + y;
-        return new Date(`${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}T12:00:00`);
-    }
-    const t = Date.parse(s);
-    return isNaN(t) ? null : new Date(t);
+function currentWeekStart(): string {
+    const value = new Date();
+    const day = value.getDay();
+    value.setDate(value.getDate() - (day === 0 ? 6 : day - 1));
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, "0");
+    const date = String(value.getDate()).padStart(2, "0");
+    return `${year}-${month}-${date}`;
 }
 
-function parseTime(s: string): { h: number; m: number } | null {
-    if (!s) return null;
-    const m = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
-    if (m) return { h: parseInt(m[1]), m: parseInt(m[2]) };
-    return null;
+function dateLabel(date: string, options?: Intl.DateTimeFormatOptions): string {
+    return new Intl.DateTimeFormat("es-MX", options || { day: "numeric", month: "short" })
+        .format(new Date(`${date}T12:00:00.000Z`));
+}
+
+function timeLabel(value: string | null): string {
+    if (!value) return "—";
+    return value.slice(0, 5);
+}
+
+function hoursLabel(minutes: number): string {
+    const hours = Math.floor(minutes / 60);
+    const remainder = minutes % 60;
+    return `${hours}:${String(remainder).padStart(2, "0")}`;
+}
+
+const actionLabel: Record<PreviewRecord["action"], string> = {
+    insert: "Nuevo",
+    complete: "Completa pendiente",
+    unchanged: "Ya registrado",
+    conflict: "Revisar conflicto",
+    unmatched: "Empleado no encontrado",
+};
+
+const sheetRoleLabel: Record<Preview["sheetRoles"][number]["role"], string> = {
+    attendance_source: "Fuente de marcajes",
+    summary: "Resumen",
+    schedule: "Calendario",
+    shift_definition: "Definición de turno",
+    employee_detail: "Detalle duplicado",
+    irrelevant: "No utilizada",
+};
+
+function errorMessage(status: number, payload: { error?: string; message?: string }): string {
+    if (payload.message) return payload.message;
+    if (status === 401) return "Tu sesión terminó. Vuelve a iniciar sesión.";
+    if (status === 403) return "No tienes permiso para importar el checador.";
+    if (status === 413) return "El archivo supera el límite de 5 MB.";
+    if (status === 415) return "Usa un archivo Excel .xls o .xlsx, CSV o TXT.";
+    if (payload.error === "no_matching_records") return "Ningún código del archivo coincide con un empleado activo.";
+    return "No se pudo procesar el archivo. Revisa su formato e intenta nuevamente.";
 }
 
 export default function ChecadorPage() {
-    const [uploads, setUploads] = useState<Upload[]>([]);
-    const [activeUpload, setActiveUpload] = useState<Upload | null>(null);
+    const [weekStart, setWeekStart] = useState(currentWeekStart);
+    const [weekly, setWeekly] = useState<WeeklyPayload | null>(null);
+    const [selectedFile, setSelectedFile] = useState<File | null>(null);
+    const [preview, setPreview] = useState<Preview | null>(null);
     const [loading, setLoading] = useState(true);
     const [busy, setBusy] = useState(false);
-    const [msg, setMsg] = useState<{ type: "error" | "success" | "info"; text: string } | null>(null);
-    const [periodStart, setPeriodStart] = useState(new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10));
-    const [periodEnd, setPeriodEnd] = useState(new Date().toISOString().slice(0, 10));
-    const [preview, setPreview] = useState<{ rows: any[]; errors: string[]; entries: any[]; unmatched: number } | null>(null);
-    const [entries, setEntries] = useState<any[]>([]);
+    const [message, setMessage] = useState<Message | null>(null);
 
-    const load = async () => {
+    const loadWeek = useCallback(async (targetWeek: string) => {
         setLoading(true);
         try {
-            const { data, error } = await supabase
-                .from("time_clock_uploads")
-                .select("*")
-                .order("uploaded_at", { ascending: false })
-                .limit(50);
-            if (error) throw error;
-            setUploads(data || []);
-        } catch (e) { console.error(e); }
-        finally { setLoading(false); }
-    };
-    useEffect(() => { load(); }, []);
+            const response = await fetch(`/api/time-clock/imports?week=${encodeURIComponent(targetWeek)}`, {
+                cache: "no-store",
+            });
+            const payload = await response.json();
+            if (!response.ok) throw new Error(errorMessage(response.status, payload));
+            setWeekly(payload as WeeklyPayload);
+        } catch (error) {
+            setMessage({ type: "error", text: error instanceof Error ? error.message : "No se pudo cargar la semana." });
+        } finally {
+            setLoading(false);
+        }
+    }, []);
 
     useEffect(() => {
-        if (activeUpload) loadEntries(activeUpload.id);
-    }, [activeUpload]);
+        void loadWeek(weekStart);
+    }, [loadWeek, weekStart]);
 
-    const loadEntries = async (uploadId: string) => {
-        const { data } = await supabase
-            .from("time_clock_entries")
-            .select("*, employee:employees(id, full_name, code, payment_type, hourly_rate, weekly_hours, overtime_factor)")
-            .eq("upload_id", uploadId)
-            .order("work_date", { ascending: true });
-        setEntries(data || []);
-    };
+    const days = useMemo(() => Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)), [weekStart]);
+    const recordByEmployeeDay = useMemo(
+        () => new Map((weekly?.records || []).map((record) => [`${record.employeeId}|${record.workDate}`, record])),
+        [weekly?.records],
+    );
 
-    const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const f = e.target.files?.[0];
-        if (!f) return;
-        setMsg(null);
-        setPreview(null);
+    const totals = useMemo(() => {
+        const records = weekly?.records || [];
+        return {
+            complete: records.filter((record) => record.checkIn && record.checkOut).length,
+            pending: records.filter((record) => !record.checkIn || !record.checkOut).length,
+            minutes: records.reduce((sum, record) => sum + record.workedMinutes, 0),
+        };
+    }, [weekly?.records]);
+
+    const sendFile = async (mode: "preview" | "commit") => {
+        if (!selectedFile) return;
         setBusy(true);
+        setMessage(null);
         try {
-            let text = "";
-            if (f.name.toLowerCase().endsWith(".csv") || f.name.toLowerCase().endsWith(".txt")) {
-                text = await f.text();
-            } else if (f.name.toLowerCase().endsWith(".xlsx") || f.name.toLowerCase().endsWith(".xls")) {
-                // Para XLSX mejor pedirle al usuario que exporte a CSV; pero podemos intentar:
-                setMsg({ type: "info", text: "Por ahora el parser soporta CSV/TXT. Exporta tu XLSX como CSV e intenta de nuevo." });
-                setBusy(false);
-                return;
-            } else {
-                setMsg({ type: "error", text: "Formato no soportado. Usa CSV o TXT." });
-                setBusy(false);
-                return;
-            }
-            const { rows, errors } = parseCSV(text);
-            if (rows.length === 0) {
-                setMsg({ type: "error", text: errors.join(" ") || "Archivo sin filas válidas." });
-                setBusy(false);
+            const body = new FormData();
+            body.set("mode", mode);
+            body.set("file", selectedFile);
+            const response = await fetch("/api/time-clock/imports", { method: "POST", body });
+            const payload = await response.json();
+            if (!response.ok) throw new Error(errorMessage(response.status, payload));
+
+            if (mode === "preview") {
+                setPreview(payload as Preview);
+                const ready = Number(payload.rowsReady || 0);
+                setMessage({
+                    type: ready > 0 ? "success" : "info",
+                    text: `Vista previa lista: ${payload.rowsDetected} jornadas detectadas, ${ready} listas para guardar.`,
+                });
                 return;
             }
-            // Match employees
-            const codes = Array.from(new Set(rows.map(r => r.employee_code).filter(Boolean)));
-            const { data: emps } = await supabase.from("payroll_employees").select("id, code, full_name, payment_type, hourly_rate, weekly_hours, overtime_factor").in("code", codes as string[]);
-            const empMap: Record<string, any> = {};
-            (emps || []).forEach((e: any) => { empMap[e.code] = e; });
 
-            // Group by employee+date
-            type Key = string;
-            const grouped: Record<Key, { employee_id: string | null; employee_code: string; date: string; check_in: string; check_out: string; hours: number }> = {};
-            let unmatched = 0;
-            for (const r of rows) {
-                if (!r.employee_code || !r.date) { unmatched++; continue; }
-                const emp = empMap[r.employee_code];
-                if (!emp) unmatched++;
-                // Modo "wide": in/out por fila
-                if (r.check_in || r.check_out) {
-                    const key = `${r.employee_code}|${r.date}`;
-                    if (!grouped[key]) {
-                        grouped[key] = { employee_id: emp?.id || null, employee_code: r.employee_code, date: r.date, check_in: r.check_in, check_out: r.check_out, hours: 0 };
-                    } else {
-                        if (!grouped[key].check_in && r.check_in) grouped[key].check_in = r.check_in;
-                        if (!grouped[key].check_out && r.check_out) grouped[key].check_out = r.check_out;
-                    }
-                } else if (r.hours) {
-                    const key = `${r.employee_code}|${r.date}`;
-                    grouped[key] = { employee_id: emp?.id || null, employee_code: r.employee_code, date: r.date, check_in: "", check_out: "", hours: parseFloat(r.hours) || 0 };
-                } else if (r.time && r.type) {
-                    // Modo "long": cada fila es un evento entrada o salida
-                    const t = r.type.toLowerCase();
-                    const key = `${r.employee_code}|${r.date}`;
-                    if (!grouped[key]) grouped[key] = { employee_id: emp?.id || null, employee_code: r.employee_code, date: r.date, check_in: "", check_out: "", hours: 0 };
-                    if (t.includes("in") || t.includes("entrada") || t === "i" || t === "1") {
-                        grouped[key].check_in = r.time;
-                    } else if (t.includes("out") || t.includes("salida") || t === "o" || t === "2" || t === "s") {
-                        grouped[key].check_out = r.time;
-                    }
-                }
-            }
-
-            // Calcular horas
-            const computed: any[] = [];
-            for (const g of Object.values(grouped)) {
-                let hours = g.hours;
-                let overtime = 0;
-                if (!hours && g.check_in && g.check_out) {
-                    const ci = parseTime(g.check_in);
-                    const co = parseTime(g.check_out);
-                    if (ci && co) {
-                        let mins = (co.h * 60 + co.m) - (ci.h * 60 + ci.m);
-                        if (mins < 0) mins += 24 * 60; // turno nocturno
-                        hours = mins / 60;
-                    }
-                }
-                // Si tenemos el empleado, calcular overtime si supera weekly_hours/5 (jornada diaria base)
-                if (g.employee_id) {
-                    const emp = empMap[g.employee_code];
-                    if (emp) {
-                        const dailyBase = Number(emp.weekly_hours || 48) / 5;
-                        if (hours > dailyBase) {
-                            overtime = hours - dailyBase;
-                            hours = dailyBase;
-                        }
-                    }
-                }
-                computed.push({ ...g, hours_worked: hours, overtime_hours: overtime });
-            }
-
-            setPreview({ rows, errors, entries: computed, unmatched });
-            setMsg({ type: "success", text: `Detecté ${rows.length} filas · ${computed.length} jornadas · ${unmatched} sin matchear.` });
-        } catch (e: any) {
-            setMsg({ type: "error", text: e?.message || "Error al leer el archivo." });
-        } finally {
-            setBusy(false);
-            if ((e.target as HTMLInputElement)) (e.target as HTMLInputElement).value = "";
-        }
-    };
-
-    const confirmUpload = async () => {
-        if (!preview) return;
-        setBusy(true);
-        try {
-            // Subir el archivo crudo a Supabase storage
-            const fileInput = document.getElementById("checador-file") as HTMLInputElement;
-            const f = fileInput?.files?.[0];
-            let fileUrl = "";
-            if (f) {
-                const path = `checador/${Date.now()}_${f.name}`;
-                const { error: upErr } = await supabase.storage.from("finance_files").upload(path, f, { cacheControl: "3600", upsert: false, contentType: f.type });
-                if (upErr) throw upErr;
-                const { data } = supabase.storage.from("finance_files").getPublicUrl(path);
-                fileUrl = data.publicUrl;
-            }
-
-            const { data: up, error: upErr } = await supabase.from("time_clock_uploads").insert([{
-                file_name: f?.name || "archivo.csv",
-                file_url: fileUrl,
-                period_start: periodStart,
-                period_end: periodEnd,
-                format: f?.name.split(".").pop() || "csv",
-                status: "parsed",
-                rows_total: preview.rows.length,
-                rows_parsed: preview.entries.length,
-                rows_unmatched: preview.unmatched,
-                parsed_at: new Date().toISOString(),
-            }]).select().single();
-            if (upErr) throw upErr;
-
-            // Insertar entradas
-            const rowsToInsert = preview.entries.map(e => ({
-                upload_id: up.id,
-                employee_id: e.employee_id,
-                employee_code_raw: e.employee_code,
-                work_date: parseDate(e.date)?.toISOString().slice(0, 10) || e.date,
-                check_in: e.check_in ? new Date(`${parseDate(e.date)?.toISOString().slice(0, 10)}T${e.check_in}`).toISOString() : null,
-                check_out: e.check_out ? new Date(`${parseDate(e.date)?.toISOString().slice(0, 10)}T${e.check_out}`).toISOString() : null,
-                hours_worked: e.hours_worked,
-                overtime_hours: e.overtime_hours,
-            }));
-            const { error: eErr } = await supabase.from("time_clock_entries").insert(rowsToInsert);
-            if (eErr) throw eErr;
-
-            setMsg({ type: "success", text: `Guardado: ${rowsToInsert.length} entradas de checador.` });
+            const result = payload.result || {};
+            const text = result.already_imported
+                ? "Este mismo archivo ya se había procesado; no se duplicó ningún registro."
+                : `Carga guardada: ${result.inserted || 0} jornadas nuevas y ${result.updated || 0} salidas/entradas pendientes completadas.`;
+            setMessage({ type: "success", text });
             setPreview(null);
-            await load();
-            if (up) {
-                setActiveUpload(up);
-            }
-        } catch (e: any) {
-            setMsg({ type: "error", text: e?.message || "Error al guardar." });
+            setSelectedFile(null);
+            const input = document.getElementById("time-clock-file") as HTMLInputElement | null;
+            if (input) input.value = "";
+            await loadWeek(weekStart);
+        } catch (error) {
+            setMessage({ type: "error", text: error instanceof Error ? error.message : "No se pudo procesar el archivo." });
         } finally {
             setBusy(false);
         }
     };
-
-    const deleteUpload = async (u: Upload) => {
-        if (!confirm(`¿Eliminar la carga "${u.file_name}" y todas sus entradas?`)) return;
-        await supabase.from("time_clock_uploads").delete().eq("id", u.id);
-        if (activeUpload?.id === u.id) setActiveUpload(null);
-        load();
-    };
-
-    // Aggregate entries by employee
-    const summary = entries.reduce((acc: any, e: any) => {
-        const id = e.employee_id || `unmatched-${e.employee_code_raw}`;
-        if (!acc[id]) acc[id] = { employee: e.employee, code: e.employee_code_raw, days: 0, hours: 0, overtime: 0 };
-        acc[id].days += 1;
-        acc[id].hours += Number(e.hours_worked) || 0;
-        acc[id].overtime += Number(e.overtime_hours) || 0;
-        return acc;
-    }, {});
 
     return (
-        <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 p-3 sm:p-6 md:p-8 lg:p-10 font-[family-name:var(--font-sans)]">
-            <div className="max-w-6xl mx-auto space-y-6">
-                <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
-                    <div className="flex items-center gap-4">
-                        <Link href="/finance" className="p-3 bg-neutral-800 hover:bg-neutral-700 rounded-xl text-neutral-400 hover:text-white border border-neutral-700">
-                            <ArrowLeft className="w-5 h-5" />
-                        </Link>
-                        <div>
-                            <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-                                <Clock className="w-8 h-8 text-cyan-400" />
-                                Checador
-                            </h1>
-                            <p className="text-neutral-400 text-sm mt-1">Sube el archivo del reloj checador y calcula las horas trabajadas y extras.</p>
+        <div className="min-h-screen bg-[#080b10] text-neutral-200 p-3 sm:p-6 md:p-8 lg:p-10 font-[family-name:var(--font-sans)]">
+            <div className="max-w-[1500px] mx-auto space-y-6">
+                <header className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-neutral-900 to-cyan-950/40 p-6 rounded-3xl border border-cyan-500/15 shadow-2xl shadow-black/20">
+                    <div className="absolute -right-16 -top-20 h-56 w-56 rounded-full bg-cyan-500/10 blur-3xl" />
+                    <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-5">
+                        <div className="flex items-center gap-4">
+                            <Link href="/finance" className="p-3 bg-white/5 hover:bg-white/10 rounded-xl text-neutral-400 hover:text-white border border-white/10 transition-colors">
+                                <ArrowLeft className="w-5 h-5" />
+                            </Link>
+                            <div className="flex items-center gap-3">
+                                <div className="p-2.5 rounded-2xl bg-cyan-500/10 border border-cyan-400/20">
+                                    <Clock3 className="w-7 h-7 text-cyan-300" />
+                                </div>
+                                <div>
+                                    <h1 className="text-2xl sm:text-3xl font-bold text-white">Checador semanal</h1>
+                                    <p className="text-neutral-400 text-sm mt-1">Entradas, salidas y horas acumuladas desde archivos del reloj.</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-neutral-400 bg-black/20 border border-white/10 rounded-xl px-3 py-2">
+                            <span className="h-2 w-2 rounded-full bg-neutral-500" />
+                            Asistencia automática oculta
                         </div>
                     </div>
-                    <button onClick={load} className="p-2 text-neutral-400 hover:text-white hover:bg-neutral-700 rounded-lg transition-colors flex items-center gap-2 text-sm" disabled={loading}>
-                        <RefreshCw className={cn("w-4 h-4", loading && "animate-spin text-cyan-400")} /> Actualizar
-                    </button>
                 </header>
 
-                {msg && (
-                    <div className={cn("p-3 rounded-xl border flex items-center gap-2",
-                        msg.type === "error" ? "bg-red-500/10 border-red-500/30 text-red-300" :
-                        msg.type === "success" ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300" :
-                        "bg-sky-500/10 border-sky-500/30 text-sky-300"
+                {message && (
+                    <div className={cn(
+                        "p-3.5 rounded-xl border flex items-start gap-2.5 text-sm",
+                        message.type === "error" && "bg-red-500/10 border-red-500/30 text-red-200",
+                        message.type === "success" && "bg-emerald-500/10 border-emerald-500/30 text-emerald-200",
+                        message.type === "info" && "bg-sky-500/10 border-sky-500/30 text-sky-200",
                     )}>
-                        {msg.type === "error" ? <AlertTriangle className="w-4 h-4" /> : msg.type === "success" ? <CheckCircle2 className="w-4 h-4" /> : <FileText className="w-4 h-4" />} {msg.text}
+                        {message.type === "error" ? <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" /> : <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />}
+                        {message.text}
                     </div>
                 )}
 
-                {/* Upload section */}
-                <div className="bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 space-y-3">
-                    <h2 className="text-lg font-semibold text-white">1) Subir archivo del checador</h2>
-                    <p className="text-xs text-neutral-400">
-                        Formato: CSV o TXT con columnas: <code className="text-emerald-300">id_empleado</code>, <code className="text-emerald-300">fecha</code>, <code className="text-emerald-300">entrada</code>, <code className="text-emerald-300">salida</code>.
-                        O bien columnas <code className="text-amber-300">id_empleado, fecha, hora, tipo</code> (entrada/salida por fila).
-                        También se acepta una columna directa <code className="text-emerald-300">horas</code>.
-                    </p>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <section className="bg-neutral-900/70 rounded-3xl border border-white/10 overflow-hidden">
+                    <div className="p-5 sm:p-6 border-b border-white/10 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                         <div>
-                            <label className="text-xs text-neutral-400">Inicio del periodo</label>
-                            <input value={periodStart} onChange={e => setPeriodStart(e.target.value)} type="date" className="w-full mt-1 bg-neutral-900/50 border border-neutral-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-cyan-500" />
+                            <p className="text-xs uppercase tracking-[0.2em] text-cyan-400 font-semibold">Registro por semana</p>
+                            <h2 className="text-xl font-semibold text-white mt-1">
+                                {dateLabel(weekStart, { day: "numeric", month: "long" })} – {dateLabel(addDays(weekStart, 6), { day: "numeric", month: "long", year: "numeric" })}
+                            </h2>
+                            <p className="text-xs text-neutral-500 mt-1">
+                                Último día con información: {weekly?.latestRecordedDate ? dateLabel(weekly.latestRecordedDate, { day: "numeric", month: "long", year: "numeric" }) : "sin cargas"}
+                            </p>
                         </div>
-                        <div>
-                            <label className="text-xs text-neutral-400">Fin del periodo</label>
-                            <input value={periodEnd} onChange={e => setPeriodEnd(e.target.value)} type="date" className="w-full mt-1 bg-neutral-900/50 border border-neutral-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-cyan-500" />
-                        </div>
-                        <div>
-                            <label className="text-xs text-neutral-400">Archivo</label>
-                            <input id="checador-file" type="file" accept=".csv,.txt" onChange={handleFile} disabled={busy} className="block w-full mt-1 text-sm text-neutral-300 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-cyan-500/20 file:text-cyan-300 file:font-semibold file:cursor-pointer hover:file:bg-cyan-500/30" />
+                        <div className="flex items-center gap-2">
+                            <button onClick={() => setWeekStart(addDays(weekStart, -7))} className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-neutral-300" aria-label="Semana anterior">
+                                <ChevronLeft className="w-5 h-5" />
+                            </button>
+                            <button onClick={() => setWeekStart(currentWeekStart())} className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-sm text-neutral-300">Esta semana</button>
+                            <button onClick={() => setWeekStart(addDays(weekStart, 7))} className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-neutral-300" aria-label="Semana siguiente">
+                                <ChevronRight className="w-5 h-5" />
+                            </button>
+                            <button onClick={() => void loadWeek(weekStart)} disabled={loading} className="p-2.5 rounded-xl text-neutral-400 hover:text-white hover:bg-white/10 disabled:opacity-50" aria-label="Actualizar">
+                                <RefreshCw className={cn("w-4 h-4", loading && "animate-spin text-cyan-400")} />
+                            </button>
                         </div>
                     </div>
 
-                    {preview && (
-                        <div className="bg-neutral-900/40 border border-neutral-700/50 rounded-xl p-3 mt-3">
-                            <p className="text-sm text-white font-medium mb-2">Vista previa (antes de guardar):</p>
-                            <p className="text-xs text-neutral-400 mb-2">
-                                {preview.entries.length} jornadas detectadas · {preview.unmatched} empleados no matcheados · {preview.errors.length > 0 ? `${preview.errors.length} advertencias` : "sin advertencias"}
-                            </p>
-                            <div className="max-h-64 overflow-y-auto rounded-lg border border-neutral-700/50">
-                                <table className="w-full text-xs">
-                                    <thead className="bg-neutral-800 text-neutral-400">
-                                        <tr>
-                                            <th className="px-3 py-2 text-left">Código</th>
-                                            <th className="px-3 py-2 text-left">Empleado</th>
-                                            <th className="px-3 py-2 text-left">Fecha</th>
-                                            <th className="px-3 py-2 text-left">Entrada</th>
-                                            <th className="px-3 py-2 text-left">Salida</th>
-                                            <th className="px-3 py-2 text-right">Horas</th>
-                                            <th className="px-3 py-2 text-right">Extras</th>
+                    <div className="grid grid-cols-2 md:grid-cols-4 border-b border-white/10">
+                        <Metric icon={<Users className="w-4 h-4" />} label="Empleados" value={String(weekly?.employees.length || 0)} />
+                        <Metric icon={<CheckCircle2 className="w-4 h-4" />} label="Jornadas completas" value={String(totals.complete)} tone="emerald" />
+                        <Metric icon={<AlertTriangle className="w-4 h-4" />} label="Pendientes" value={String(totals.pending)} tone={totals.pending > 0 ? "amber" : "neutral"} />
+                        <Metric icon={<Clock3 className="w-4 h-4" />} label="Horas registradas" value={hoursLabel(totals.minutes)} tone="cyan" />
+                    </div>
+
+                    <div className="overflow-x-auto">
+                        <table className="w-full min-w-[1120px] text-xs">
+                            <thead>
+                                <tr className="bg-black/20 text-neutral-400">
+                                    <th className="sticky left-0 z-20 bg-[#101318] px-4 py-3 text-left min-w-52">Empleado</th>
+                                    {days.map((day, index) => (
+                                        <th key={day} className="px-3 py-3 text-left min-w-32">
+                                            <span className="text-neutral-300">{DAY_NAMES[index]}</span>
+                                            <span className="block text-[10px] text-neutral-600 mt-0.5">{dateLabel(day)}</span>
+                                        </th>
+                                    ))}
+                                    <th className="px-4 py-3 text-right min-w-24">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-white/[0.06]">
+                                {loading ? (
+                                    <tr><td colSpan={9} className="px-4 py-14 text-center text-neutral-500">Cargando semana…</td></tr>
+                                ) : (weekly?.employees.length || 0) === 0 ? (
+                                    <tr><td colSpan={9} className="px-4 py-14 text-center text-neutral-500">No hay empleados activos registrados.</td></tr>
+                                ) : weekly?.employees.map((employee) => {
+                                    const employeeRecords = days.map((day) => recordByEmployeeDay.get(`${employee.employeeId}|${day}`));
+                                    const employeeMinutes = employeeRecords.reduce((sum, record) => sum + (record?.workedMinutes || 0), 0);
+                                    return (
+                                        <tr key={employee.employeeId} className="hover:bg-white/[0.025]">
+                                            <td className="sticky left-0 z-10 bg-[#101318] px-4 py-3 border-r border-white/[0.05]">
+                                                <p className="font-medium text-white truncate max-w-44">{employee.fullName}</p>
+                                                <p className="font-mono text-[10px] text-cyan-400 mt-0.5">{employee.code}</p>
+                                            </td>
+                                            {employeeRecords.map((record, index) => (
+                                                <td key={days[index]} className="px-3 py-3 align-top">
+                                                    {!record ? <span className="text-neutral-700">—</span> : (
+                                                        <div className={cn(
+                                                            "rounded-lg px-2.5 py-2 border",
+                                                            record.checkIn && record.checkOut
+                                                                ? "bg-emerald-500/[0.06] border-emerald-500/15"
+                                                                : "bg-amber-500/[0.07] border-amber-500/20",
+                                                        )}>
+                                                            <p className="font-mono text-neutral-200 whitespace-nowrap">{timeLabel(record.checkIn)} <span className="text-neutral-600">→</span> {timeLabel(record.checkOut)}</p>
+                                                            <p className={cn("text-[10px] mt-1", record.checkIn && record.checkOut ? "text-emerald-400" : "text-amber-300")}>
+                                                                {record.checkIn && record.checkOut ? `${hoursLabel(record.workedMinutes)} h` : "Pendiente"}
+                                                            </p>
+                                                        </div>
+                                                    )}
+                                                </td>
+                                            ))}
+                                            <td className="px-4 py-3 text-right font-mono font-semibold text-cyan-300">{hoursLabel(employeeMinutes)}</td>
                                         </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-neutral-700/30">
-                                        {preview.entries.slice(0, 100).map((e, i) => (
-                                            <tr key={i} className={cn(e.employee_id ? "" : "bg-red-500/5 text-red-300")}>
-                                                <td className="px-3 py-1.5 font-mono">{e.employee_code}</td>
-                                                <td className="px-3 py-1.5">{e.employee_id ? "✓ match" : "✗ no encontrado"}</td>
-                                                <td className="px-3 py-1.5">{e.date}</td>
-                                                <td className="px-3 py-1.5 font-mono">{e.check_in || "—"}</td>
-                                                <td className="px-3 py-1.5 font-mono">{e.check_out || "—"}</td>
-                                                <td className="px-3 py-1.5 text-right font-mono">{fmt(e.hours_worked)}</td>
-                                                <td className="px-3 py-1.5 text-right font-mono text-amber-300">{fmt(e.overtime_hours)}</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                            <div className="flex justify-end mt-3">
-                                <button onClick={confirmUpload} disabled={busy} className="bg-cyan-500 hover:bg-cyan-600 text-white px-5 py-2 rounded-lg text-sm font-semibold flex items-center gap-1.5 disabled:opacity-50">
-                                    {busy ? <RefreshCw className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                                    Confirmar y guardar
-                                </button>
-                            </div>
-                        </div>
-                    )}
-                </div>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
 
-                {/* Uploads list */}
-                <div className="bg-neutral-800/40 p-5 rounded-3xl border border-neutral-700/50">
-                    <h2 className="text-lg font-semibold text-white mb-3">2) Cargas recientes</h2>
-                    {loading ? <p className="text-sm text-neutral-400 text-center py-4">Cargando…</p> : uploads.length === 0 ? (
-                        <p className="text-sm text-neutral-500 text-center py-6">Aún no hay cargas. Sube la primera arriba.</p>
-                    ) : (
-                        <ul className="divide-y divide-neutral-700/50">
-                            {uploads.map(u => (
-                                <li key={u.id} className="py-3 flex items-center gap-3">
-                                    <FileText className="w-5 h-5 text-cyan-400 flex-shrink-0" />
-                                    <div className="flex-1 min-w-0 min-w-0">
-                                        <p className="text-sm text-white truncate">{u.file_name}</p>
-                                        <p className="text-[11px] text-neutral-500">
-                                            {new Date(u.period_start).toLocaleDateString()} → {new Date(u.period_end).toLocaleDateString()} ·
-                                            {" "}{u.rows_parsed} jornadas · {u.rows_unmatched} sin matchear
-                                        </p>
-                                    </div>
-                                    <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full border uppercase",
-                                        u.status === "parsed" ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30" :
-                                        u.status === "pending" ? "bg-amber-500/10 text-amber-300 border-amber-500/30" :
-                                        "bg-red-500/10 text-red-300 border-red-500/30"
-                                    )}>
-                                        {u.status}
-                                    </span>
-                                    <button onClick={() => setActiveUpload(u)} className="p-1.5 text-neutral-400 hover:text-cyan-300 hover:bg-cyan-500/10 rounded transition-colors" title="Ver detalle">
-                                        <Eye className="w-4 h-4" />
-                                    </button>
-                                    <button onClick={() => deleteUpload(u)} className="p-1.5 text-neutral-400 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors" title="Eliminar">
-                                        <Trash2 className="w-4 h-4" />
-                                    </button>
-                                </li>
-                            ))}
-                        </ul>
-                    )}
-                </div>
-
-                {/* Detail of selected upload */}
-                {activeUpload && (
-                    <div className="bg-neutral-800/40 p-5 rounded-3xl border border-neutral-700/50 space-y-3">
-                        <h3 className="text-lg font-semibold text-white flex items-center gap-2">
-                            <Calendar className="w-5 h-5 text-cyan-400" /> {activeUpload.file_name}
-                        </h3>
-                        <p className="text-xs text-neutral-400">
-                            Periodo: {new Date(activeUpload.period_start).toLocaleDateString()} → {new Date(activeUpload.period_end).toLocaleDateString()} · {entries.length} entradas
-                        </p>
-
-                        {/* Summary by employee */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            {Object.values(summary).map((s: any) => (
-                                <div key={s.code} className="bg-neutral-900/40 border border-neutral-700/40 rounded-xl p-3 flex items-center gap-3">
-                                    <Users className="w-5 h-5 text-emerald-400 flex-shrink-0" />
-                                    <div className="flex-1 min-w-0 min-w-0">
-                                        <p className="text-sm text-white truncate">{s.employee?.full_name || s.code}</p>
-                                        <p className="text-[10px] text-neutral-500">{s.days} días · {fmt(s.hours)} h normales · <span className="text-amber-300">{fmt(s.overtime)} h extras</span></p>
-                                    </div>
+                <section className="grid grid-cols-1 xl:grid-cols-[1.45fr_0.75fr] gap-6">
+                    <div className="bg-neutral-900/70 p-5 sm:p-6 rounded-3xl border border-white/10 space-y-5">
+                        <div className="flex items-start justify-between gap-4">
+                            <div>
+                                <div className="flex items-center gap-2 text-cyan-300">
+                                    <UploadCloud className="w-5 h-5" />
+                                    <h2 className="text-lg font-semibold text-white">Subir archivo del checador</h2>
                                 </div>
-                            ))}
+                                <p className="text-sm text-neutral-400 mt-2 max-w-2xl">La interpretación reconoce empleado, fecha, entrada y salida. El ERP calcula las horas y completa pendientes de cargas anteriores sin duplicar días.</p>
+                            </div>
+                            <span className={cn(
+                                "shrink-0 text-[10px] uppercase tracking-wider px-2.5 py-1 rounded-full border",
+                                weekly?.ai.configured ? "bg-violet-500/10 border-violet-400/20 text-violet-300" : "bg-neutral-500/10 border-neutral-500/20 text-neutral-400",
+                            )}>{weekly?.ai.configured ? "V4 Pro · Thinking alto" : "IA pendiente"}</span>
                         </div>
 
-                        {/* Detail table */}
-                        {entries.length > 0 && (
-                            <div className="max-h-96 overflow-y-auto rounded-lg border border-neutral-700/50">
-                                <table className="w-full text-xs">
-                                    <thead className="bg-neutral-800 text-neutral-400 sticky top-0">
-                                        <tr>
-                                            <th className="px-3 py-2 text-left">Empleado</th>
-                                            <th className="px-3 py-2 text-left">Fecha</th>
-                                            <th className="px-3 py-2 text-left">Entrada</th>
-                                            <th className="px-3 py-2 text-left">Salida</th>
-                                            <th className="px-3 py-2 text-right">Horas</th>
-                                            <th className="px-3 py-2 text-right">Extras</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-neutral-700/30">
-                                        {entries.map((e: any) => (
-                                            <tr key={e.id}>
-                                                <td className="px-3 py-1.5">{e.employee?.full_name || e.employee_code_raw}</td>
-                                                <td className="px-3 py-1.5">{e.work_date}</td>
-                                                <td className="px-3 py-1.5 font-mono">{e.check_in ? new Date(e.check_in).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" }) : "—"}</td>
-                                                <td className="px-3 py-1.5 font-mono">{e.check_out ? new Date(e.check_out).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" }) : "—"}</td>
-                                                <td className="px-3 py-1.5 text-right font-mono">{fmt(e.hours_worked)}</td>
-                                                <td className="px-3 py-1.5 text-right font-mono text-amber-300">{fmt(e.overtime_hours)}</td>
-                                            </tr>
+                        <label className={cn(
+                            "block rounded-2xl border border-dashed p-7 text-center transition-colors cursor-pointer",
+                            selectedFile ? "border-cyan-400/40 bg-cyan-500/[0.06]" : "border-neutral-700 hover:border-cyan-500/40 hover:bg-white/[0.02]",
+                        )}>
+                            <FileSpreadsheet className={cn("w-10 h-10 mx-auto", selectedFile ? "text-cyan-300" : "text-neutral-600")} />
+                            <p className="text-sm text-white mt-3">{selectedFile?.name || "Selecciona un Excel .xls o .xlsx"}</p>
+                            <p className="text-xs text-neutral-500 mt-1">También conserva compatibilidad con CSV/TXT · máximo 5 MB</p>
+                            <input
+                                id="time-clock-file"
+                                type="file"
+                                accept=".xls,.xlsx,.csv,.txt,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,text/plain"
+                                className="sr-only"
+                                disabled={busy}
+                                onChange={(event) => {
+                                    setSelectedFile(event.target.files?.[0] || null);
+                                    setPreview(null);
+                                    setMessage(null);
+                                }}
+                            />
+                        </label>
+
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div className="flex items-start gap-2 text-xs text-neutral-500 max-w-xl">
+                                <Bot className="w-4 h-4 mt-0.5 shrink-0 text-violet-400" />
+                                <p>Con DeepSeek activo, el contenido de todas las hojas se envía al proveedor para localizar y organizar los marcajes. El archivo original no se conserva y el ERP valida cada resultado antes de guardarlo.</p>
+                            </div>
+                            <button onClick={() => void sendFile("preview")} disabled={!selectedFile || busy} className="shrink-0 px-5 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold text-sm disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+                                {busy ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Bot className="w-4 h-4" />}
+                                Interpretar archivo
+                            </button>
+                        </div>
+
+                        {preview && (
+                            <div className="rounded-2xl border border-white/10 bg-black/20 overflow-hidden">
+                                <div className="p-4 border-b border-white/10 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                                    <div>
+                                        <p className="text-sm font-medium text-white">Vista previa · {preview.fileName}</p>
+                                        <p className="text-xs text-neutral-500 mt-1">{dateLabel(preview.periodStart)} – {dateLabel(preview.periodEnd)} · {preview.rowsDetected} jornadas · {preview.unmatchedCount} sin coincidencia</p>
+                                    </div>
+                                    <button onClick={() => void sendFile("commit")} disabled={busy || preview.rowsReady <= 0} className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-emerald-950 font-semibold text-sm disabled:opacity-40 flex items-center justify-center gap-2">
+                                        {busy ? <RefreshCw className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                                        Confirmar y guardar
+                                    </button>
+                                </div>
+
+                                {preview.sheetRoles.length > 0 && (
+                                    <div className="px-4 py-3 border-b border-white/10 flex flex-wrap gap-2">
+                                        {preview.sheetRoles.map((sheet) => (
+                                            <span
+                                                key={`${sheet.sheetIndex}-${sheet.sheetName}`}
+                                                className={cn(
+                                                    "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px]",
+                                                    sheet.role === "attendance_source"
+                                                        ? "bg-violet-500/10 border-violet-400/25 text-violet-200"
+                                                        : "bg-white/[0.03] border-white/10 text-neutral-400",
+                                                )}
+                                            >
+                                                <span className="font-medium">{sheet.sheetName}</span>
+                                                <span className="text-neutral-500">·</span>
+                                                {sheetRoleLabel[sheet.role]}
+                                            </span>
                                         ))}
-                                    </tbody>
-                                </table>
+                                    </div>
+                                )}
+
+                                {(preview.warnings.length > 0 || preview.unmatchedCodes.length > 0) && (
+                                    <div className="px-4 py-3 bg-amber-500/[0.05] border-b border-amber-500/10 text-xs text-amber-200">
+                                        {preview.unmatchedCodes.length > 0 && <p>Códigos no encontrados: {preview.unmatchedCodes.join(", ")}</p>}
+                                        {preview.warnings.slice(0, 3).map((warning, index) => <p key={index}>{warning}</p>)}
+                                        {preview.warnings.length > 3 && <p>Y {preview.warnings.length - 3} advertencias más.</p>}
+                                    </div>
+                                )}
+
+                                <div className="max-h-80 overflow-auto">
+                                    <table className="w-full min-w-[720px] text-xs">
+                                        <thead className="sticky top-0 bg-[#171a1f] text-neutral-400">
+                                            <tr>
+                                                <th className="px-3 py-2 text-left">Empleado</th>
+                                                <th className="px-3 py-2 text-left">Fecha</th>
+                                                <th className="px-3 py-2 text-left">Entrada</th>
+                                                <th className="px-3 py-2 text-left">Salida</th>
+                                                <th className="px-3 py-2 text-right">Horas</th>
+                                                <th className="px-3 py-2 text-left">Acción</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-white/[0.05]">
+                                            {preview.records.map((record, index) => (
+                                                <tr key={`${record.employeeCode}-${record.workDate}-${index}`}>
+                                                    <td className="px-3 py-2"><p className="text-white">{record.employeeName || record.employeeCode}</p>{record.employeeName && <p className="font-mono text-[10px] text-neutral-600">{record.employeeCode}</p>}</td>
+                                                    <td className="px-3 py-2">{record.workDate}</td>
+                                                    <td className="px-3 py-2 font-mono">{timeLabel(record.checkIn)}</td>
+                                                    <td className="px-3 py-2 font-mono">{timeLabel(record.checkOut)}</td>
+                                                    <td className="px-3 py-2 text-right font-mono">{hoursLabel(record.workedMinutes)}</td>
+                                                    <td className="px-3 py-2">
+                                                        <span className={cn(
+                                                            "inline-flex px-2 py-1 rounded-full border text-[10px]",
+                                                            record.action === "insert" && "bg-cyan-500/10 border-cyan-500/20 text-cyan-300",
+                                                            record.action === "complete" && "bg-emerald-500/10 border-emerald-500/20 text-emerald-300",
+                                                            record.action === "unchanged" && "bg-neutral-500/10 border-neutral-500/20 text-neutral-400",
+                                                            (record.action === "conflict" || record.action === "unmatched") && "bg-amber-500/10 border-amber-500/20 text-amber-300",
+                                                        )}>{actionLabel[record.action]}</span>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
                         )}
                     </div>
-                )}
+
+                    <div className="bg-neutral-900/70 p-5 rounded-3xl border border-white/10">
+                        <div className="flex items-center gap-2 mb-4"><CalendarDays className="w-5 h-5 text-cyan-300" /><h2 className="text-lg font-semibold text-white">Cargas recientes</h2></div>
+                        {(weekly?.uploads.length || 0) === 0 ? (
+                            <p className="text-sm text-neutral-500 text-center py-10">Aún no hay archivos procesados.</p>
+                        ) : (
+                            <ul className="divide-y divide-white/[0.07]">
+                                {weekly?.uploads.map((upload) => (
+                                    <li key={upload.id} className="py-3.5 first:pt-0 last:pb-0">
+                                        <div className="flex items-start gap-3">
+                                            <div className="p-2 rounded-lg bg-cyan-500/10 border border-cyan-500/10"><FileSpreadsheet className="w-4 h-4 text-cyan-300" /></div>
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-sm text-white truncate">{upload.file_name}</p>
+                                                <p className="text-[11px] text-neutral-500 mt-0.5">{dateLabel(upload.period_start)} – {dateLabel(upload.period_end)} · {new Date(upload.uploaded_at).toLocaleDateString("es-MX")}</p>
+                                                <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 text-[10px]">
+                                                    <span className="text-cyan-300">{upload.rows_inserted} nuevas</span>
+                                                    <span className="text-emerald-300">{upload.rows_updated} completadas</span>
+                                                    <span className="text-neutral-500">{upload.rows_unchanged} repetidas</span>
+                                                    {upload.rows_unmatched > 0 && <span className="text-amber-300">{upload.rows_unmatched} sin empleado</span>}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+                    </div>
+                </section>
             </div>
+        </div>
+    );
+}
+
+function Metric({ icon, label, value, tone = "neutral" }: { icon: React.ReactNode; label: string; value: string; tone?: "neutral" | "cyan" | "emerald" | "amber" }) {
+    return (
+        <div className="px-4 py-3.5 border-r border-b md:border-b-0 border-white/[0.07] last:border-r-0">
+            <div className={cn(
+                "flex items-center gap-1.5 text-[10px] uppercase tracking-wider",
+                tone === "neutral" && "text-neutral-500",
+                tone === "cyan" && "text-cyan-400",
+                tone === "emerald" && "text-emerald-400",
+                tone === "amber" && "text-amber-400",
+            )}>{icon}{label}</div>
+            <p className="text-xl font-semibold text-white mt-1">{value}</p>
         </div>
     );
 }

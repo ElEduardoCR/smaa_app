@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import { calculatePayrollAction } from "@/app/actions/payroll";
 import {
     ArrowLeft, Banknote, RefreshCw, Calculator, CheckCircle2, X, Eye, Save, Download, FileText
 } from "lucide-react";
@@ -24,49 +25,18 @@ type Period = {
     status: string; total_gross: number; total_deductions: number; total_net: number;
 };
 
-// Tarifas ISR mensual aproximadas (régimen general) - tabla oficial
-// (Base gravable hasta, Cuota fija, % sobre excedente)
-const ISR_TABLE_MENSUAL = [
-    { hasta: 746.04,  cuota: 0,      pct: 0.0192 },
-    { hasta: 5062.17, cuota: 14.32,  pct: 0.0640 },
-    { hasta: 8888.50, cuota: 296.04, pct: 0.1088 },
-    { hasta: 13298.83, cuota: 692.96, pct: 0.16 },
-    { hasta: 17688.16, cuota: 1292.16, pct: 0.1792 },
-    { hasta: 35412.32, cuota: 2128.40, pct: 0.2136 },
-    { hasta: 59074.16, cuota: 5665.16, pct: 0.2352 },
-    { hasta: 118086.32, cuota: 12262.48, pct: 0.30 },
-    { hasta: 9999999,  cuota: 32270.60, pct: 0.35 },
-];
-
-function calcISRMensual(base: number): number {
-    if (base <= 0) return 0;
-    let prevHasta = 0;
-    for (const bracket of ISR_TABLE_MENSUAL) {
-        if (base <= bracket.hasta) {
-            const excedente = base - prevHasta;
-            return bracket.cuota + excedente * bracket.pct;
-        }
-        prevHasta = bracket.hasta;
-    }
-    return 0;
-}
-
-// Aproximación simple para IMSS obrero (3% del SBC)
-function calcIMSSEmployee(sbc: number): number {
-    return Math.max(0, sbc * 0.03);
-}
-
 export default function PayrollDetailPage() {
     const params = useParams();
     const router = useRouter();
     const periodId = params?.id as string;
 
     const [period, setPeriod] = useState<Period | null>(null);
-    const [employees, setEmployees] = useState<any[]>([]);
-    const [bonusesMap, setBonusesMap] = useState<Record<string, any[]>>({});
-    const [deductionsMap, setDeductionsMap] = useState<Record<string, any[]>>({});
-    const [entriesMap, setEntriesMap] = useState<Record<string, any[]>>({});
     const [receipts, setReceipts] = useState<any[]>([]);
+    const [empList, setEmpList] = useState<Array<{ employee_id: string; code: string | null; full_name: string }>>([]);
+    // Avisos del motor de nómina (tabla de ISR prorrateada, SBC estimado, etc.)
+    const [warnings, setWarnings] = useState<string[]>([]);
+    const [warningLabels, setWarningLabels] = useState<Record<string, string>>({});
+    const [configError, setConfigError] = useState<{ error: string; action?: string } | null>(null);
     const [loading, setLoading] = useState(true);
     const [busy, setBusy] = useState(false);
     const [msg, setMsg] = useState<{ type: "error" | "success" | "info"; text: string } | null>(null);
@@ -79,186 +49,66 @@ export default function PayrollDetailPage() {
     const load = async () => {
         setLoading(true);
         try {
-            const { data: p, error: pErr } = await supabase.from("payroll_periods").select("*").eq("id", periodId).single();
+            const { data: p, error: pErr } = await supabase
+                .from("payroll_periods").select("*").eq("id", periodId).single();
             if (pErr) throw pErr;
             setPeriod(p);
 
-            const { data: emps } = await supabase.from("payroll_employees").select("*").eq("status", "active").order("full_name");
-            setEmployees(emps || []);
-
-            const { data: bs } = await supabase.from("employee_bonuses").select("*").eq("active", true);
-            const bm: Record<string, any[]> = {};
-            (bs || []).forEach((b: any) => { (bm[b.employee_id] = bm[b.employee_id] || []).push(b); });
-            setBonusesMap(bm);
-
-            const { data: ds } = await supabase.from("employee_deductions").select("*").eq("active", true);
-            const dm: Record<string, any[]> = {};
-            (ds || []).forEach((d: any) => { (dm[d.employee_id] = dm[d.employee_id] || []).push(d); });
-            setDeductionsMap(dm);
-
-            // Cargar entradas del checador para este periodo
-            const { data: tcu } = await supabase
-                .from("time_clock_uploads")
-                .select("id")
-                .gte("period_end", p.start_date)
-                .lte("period_start", p.end_date);
-            const uploadIds = (tcu || []).map((u: any) => u.id);
-            let entries: any[] = [];
-            if (uploadIds.length > 0) {
-                const { data: te } = await supabase
-                    .from("time_clock_entries")
-                    .select("*")
-                    .in("upload_id", uploadIds)
-                    .gte("work_date", p.start_date)
-                    .lte("work_date", p.end_date);
-                entries = te || [];
-            }
-            const em: Record<string, any[]> = {};
-            entries.forEach((e: any) => {
-                if (!e.employee_id) return;
-                (em[e.employee_id] = em[e.employee_id] || []).push(e);
-            });
-            setEntriesMap(em);
-
-            // Recibos ya existentes
+            // Los recibos ya vienen calculados del servidor. El navegador no
+            // vuelve a leer sueldos, bonos ni checador: sólo el resultado.
             const { data: rs } = await supabase
                 .from("payroll_receipts")
-                .select("*, employee:employees(full_name, code)")
+                .select("*")
                 .eq("period_id", periodId);
-            setReceipts(rs || []);
+
+            const { data: emps } = await supabase
+                .from("v_payroll_employees")
+                .select("employee_id, code, full_name");
+            setEmpList((emps || []) as any);
+            const nameById = new Map((emps || []).map((e: any) => [e.employee_id, e]));
+
+            const merged = (rs || []).map((r: any) => ({
+                ...r,
+                employee: nameById.get(r.employee_id) ?? { full_name: "—", code: "—" },
+            })).sort((a: any, b: any) =>
+                (a.employee.full_name || "").localeCompare(b.employee.full_name || ""));
+            setReceipts(merged);
+
+            // Avisos guardados en el último cálculo
+            const allWarnings = new Set<string>();
+            for (const r of merged) {
+                for (const w of (r.calc_warnings || [])) allWarnings.add(w);
+            }
+            setWarnings([...allWarnings]);
         } catch (e: any) { flash("error", e?.message || "Error"); }
         finally { setLoading(false); }
     };
     useEffect(() => { if (periodId) load(); }, [periodId]);
 
     const calculatePayroll = async () => {
-        if (!period) return;
-        if (employees.length === 0) { flash("error", "No hay empleados activos."); return; }
         setBusy(true);
+        setConfigError(null);
         try {
-            const startD = new Date(period.start_date);
-            const endD = new Date(period.end_date);
-            const daysInPeriod = Math.ceil((endD.getTime() - startD.getTime()) / 86400000) + 1;
-            const periodFactor = period.period_type === "monthly" ? 1 : period.period_type === "biweekly" ? 0.5 : 0.25;
-
-            let totalGross = 0, totalDed = 0, totalNet = 0;
-            const newReceipts: any[] = [];
-
-            for (const emp of employees) {
-                const paymentType = emp.payment_type;
-                const periodSalary = paymentType === "monthly" ? Number(emp.base_salary) * periodFactor
-                    : paymentType === "biweekly" ? Number(emp.base_salary)
-                    : paymentType === "weekly" ? Number(emp.base_salary) * (daysInPeriod / 7)
-                    : paymentType === "daily" ? Number(emp.base_salary) * daysInPeriod
-                    : 0;
-
-                // Calcular horas del checador
-                const empEntries = entriesMap[emp.id] || [];
-                const totalHours = empEntries.reduce((acc, e) => acc + Number(e.hours_worked || 0), 0);
-                const totalOvertime = empEntries.reduce((acc, e) => acc + Number(e.overtime_hours || 0), 0);
-                const daysWorked = empEntries.length;
-
-                let basePay = periodSalary;
-                let overtimePay = 0;
-                if (paymentType === "hourly") {
-                    const regularHours = Math.min(totalHours, (Number(emp.weekly_hours) || 48) * (daysInPeriod / 7));
-                    basePay = regularHours * Number(emp.hourly_rate || 0);
-                    overtimePay = totalOvertime * Number(emp.hourly_rate || 0) * Number(emp.overtime_factor || 2);
-                } else {
-                    // Para asalariados, overtime se paga si el checador muestra horas extra
-                    if (totalOvertime > 0) {
-                        const hourlyEquiv = (Number(emp.base_salary) / 30) / 8;
-                        overtimePay = totalOvertime * hourlyEquiv * Number(emp.overtime_factor || 2);
-                    }
-                }
-
-                // Bonos fijos del periodo
-                const empBonuses = bonusesMap[emp.id] || [];
-                const fixedBonuses = empBonuses
-                    .filter(b => b.frequency === period.period_type || (period.period_type === "biweekly" && b.frequency === "monthly" ? false : true))
-                    .filter(b => b.is_fixed);
-                const bonusesTotal = fixedBonuses.reduce((acc, b) => {
-                    if (b.frequency === "monthly" && period.period_type !== "monthly") return acc + Number(b.amount) * periodFactor;
-                    return acc + Number(b.amount);
-                }, 0);
-
-                const grossSalary = basePay + overtimePay + bonusesTotal;
-
-                // ISR (mensual sobre base gravable, prorrateado a periodo)
-                const monthlyBase = grossSalary / (period.period_type === "monthly" ? 1 : period.period_type === "biweekly" ? 2 : 4);
-                const isrMonthly = calcISRMensual(monthlyBase);
-                const isr = isrMonthly * (period.period_type === "monthly" ? 1 : period.period_type === "biweekly" ? 0.5 : 0.25);
-
-                // IMSS obrero (3% SBC aprox)
-                const sbc = (Number(emp.daily_salary) || (Number(emp.base_salary) / 30)) * 1.0453;
-                const imss = calcIMSSEmployee(sbc) * (period.period_type === "monthly" ? 30 : period.period_type === "biweekly" ? 15 : 7) / 30 * (daysWorked / Math.max(daysInPeriod, 1));
-
-                // Deducciones fijas
-                const empDeds = deductionsMap[emp.id] || [];
-                const fixedDed = empDeds.reduce((acc, d) => acc + Number(d.amount_per_period), 0);
-
-                const totalDeductions = isr + imss + fixedDed;
-                const netSalary = grossSalary - totalDeductions;
-
-                totalGross += grossSalary;
-                totalDed += totalDeductions;
-                totalNet += netSalary;
-
-                // Construir recibo
-                const lines: any[] = [
-                    { concept: paymentType === "hourly" ? `Salario por horas (${fmt(totalHours - totalOvertime)} h)` : "Sueldo base", type: "perception", amount: basePay, is_taxable: true },
-                ];
-                if (overtimePay > 0) lines.push({ concept: `Horas extra (${fmt(totalOvertime)} h × ${emp.overtime_factor})`, type: "perception", amount: overtimePay, is_taxable: true });
-                fixedBonuses.forEach(b => lines.push({ concept: b.concept, type: "perception", amount: b.frequency === "monthly" && period.period_type !== "monthly" ? Number(b.amount) * periodFactor : Number(b.amount), is_taxable: b.is_taxable }));
-                if (isr > 0) lines.push({ concept: "ISR", type: "deduction", amount: isr, is_taxable: false });
-                if (imss > 0) lines.push({ concept: "IMSS obrero", type: "deduction", amount: imss, is_taxable: false });
-                empDeds.forEach(d => lines.push({ concept: d.concept, type: "deduction", amount: Number(d.amount_per_period), is_taxable: false }));
-
-                newReceipts.push({
-                    period_id: periodId,
-                    employee_id: emp.id,
-                    days_worked: daysWorked,
-                    hours_worked: totalHours,
-                    overtime_hours: totalOvertime,
-                    base_salary: basePay,
-                    overtime_pay: overtimePay,
-                    bonuses_total: bonusesTotal,
-                    other_income: 0,
-                    gross_salary: grossSalary,
-                    isr,
-                    imss,
-                    fixed_deductions: fixedDed,
-                    other_deductions: 0,
-                    total_deductions: totalDeductions,
-                    net_salary: netSalary,
-                    lines,
-                });
+            const res = await calculatePayrollAction(periodId);
+            if (!res.ok) {
+                // Falta un dato fiscal: el motor se detuvo a propósito en vez
+                // de calcular con parámetros vencidos.
+                setConfigError({ error: res.error, action: res.action });
+                flash("error", res.error);
+                return;
             }
-
-            // Borrar recibos anteriores
-            await supabase.from("payroll_receipts").delete().eq("period_id", periodId);
-
-            // Insertar nuevos recibos + líneas
-            for (const r of newReceipts) {
-                const { lines, ...receipt } = r;
-                const { data: ins, error: iErr } = await supabase.from("payroll_receipts").insert([receipt]).select().single();
-                if (iErr) throw iErr;
-                const linesWithId = lines.map((l: any, i: number) => ({ ...l, receipt_id: ins.id, sort_order: i }));
-                await supabase.from("payroll_receipt_lines").insert(linesWithId);
+            setWarningLabels(res.warningLabels);
+            if (res.result.blockers.length > 0) {
+                setConfigError({ error: res.result.blockers.join(" ") });
+                flash("error", res.result.blockers[0]);
+                return;
             }
-
-            // Actualizar totales del periodo
-            await supabase.from("payroll_periods").update({
-                status: "calculated",
-                total_gross: totalGross,
-                total_deductions: totalDed,
-                total_net: totalNet,
-            }).eq("id", periodId);
-
-            flash("success", `Nómina calculada: ${employees.length} recibos · Total ${fmt(totalNet)}`);
+            flash("success",
+                `Nómina calculada: ${res.result.receipts.length} recibos · Neto ${fmt(res.result.totals.net)}`);
             await load();
-        } catch (e: any) { flash("error", e?.message || "Error al calcular."); }
-        finally { setBusy(false); }
+        } catch (e: any) {
+            flash("error", e?.message || "Error al calcular.");
+        } finally { setBusy(false); }
     };
 
     const approvePeriod = async () => {
@@ -370,6 +220,40 @@ export default function PayrollDetailPage() {
                     </div>
                 )}
 
+                {/* Falta un parámetro fiscal: el motor se detuvo en vez de
+                    calcular con datos vencidos. Se dice qué cargar y dónde. */}
+                {configError && (
+                    <div className="p-4 rounded-xl border bg-red-500/10 border-red-500/30 space-y-2">
+                        <div className="flex items-start gap-2 text-red-300">
+                            <X className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                            <span className="text-sm font-semibold">{configError.error}</span>
+                        </div>
+                        {configError.action && (
+                            <p className="text-xs text-red-200/80 pl-6 leading-relaxed">
+                                <span className="uppercase tracking-wider text-[10px] text-red-300/60">Qué hacer</span>
+                                <br />{configError.action}
+                            </p>
+                        )}
+                    </div>
+                )}
+
+                {/* Avisos no bloqueantes: se calculó, pero con salvedades. */}
+                {warnings.length > 0 && (
+                    <div className="p-4 rounded-xl border bg-amber-500/10 border-amber-500/30 space-y-1.5">
+                        <p className="text-xs uppercase tracking-wider text-amber-300/70 font-semibold">
+                            Avisos del cálculo ({warnings.length})
+                        </p>
+                        <ul className="text-xs text-amber-200/90 space-y-1">
+                            {warnings.map(w => (
+                                <li key={w} className="flex gap-2">
+                                    <span className="text-amber-400">·</span>
+                                    <span>{warningLabels[w] ?? w}</span>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
+
                 {/* Resumen */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <SummaryCard label="Total bruto" value={fmt(period.total_gross)} color="emerald" />
@@ -377,22 +261,20 @@ export default function PayrollDetailPage() {
                     <SummaryCard label="Neto a pagar" value={fmt(period.total_net)} color="amber" />
                 </div>
 
-                {/* Empleados preview (cuando aún no se calcula) */}
+                {/* Empleados a procesar (sin sueldos: el cálculo vive en el servidor) */}
                 {receipts.length === 0 && (
                     <div className="bg-neutral-800/40 p-5 rounded-2xl border border-neutral-700/50">
-                        <h3 className="text-sm font-semibold text-white mb-3">Empleados a procesar ({employees.length})</h3>
+                        <h3 className="text-sm font-semibold text-white mb-3">Empleados a procesar ({empList.length})</h3>
                         <p className="text-xs text-neutral-400 mb-3">
-                            Cuando le des a "Calcular nómina", se generará un recibo por empleado usando:
-                            salario base + horas del checador del periodo + bonos fijos + ISR/IMSS calculado.
+                            Al calcular, el servidor genera un recibo por empleado con: salario del periodo +
+                            horas del checador + bonos fijos, y retiene ISR (tarifa vigente del Anexo 8),
+                            subsidio al empleo y cuotas obrero del IMSS sobre el SBC.
                         </p>
                         <ul className="text-xs text-neutral-300 space-y-1 max-h-64 overflow-y-auto">
-                            {employees.map(e => (
-                                <li key={e.id} className="flex items-center justify-between py-1.5 border-b border-neutral-700/30 last:border-0">
-                                    <span>{e.full_name} <span className="text-neutral-500">({e.code})</span></span>
-                                    <span className="font-mono text-emerald-300">
-                                        {e.payment_type === "hourly" ? `${fmt(e.hourly_rate)}/h` : fmt(e.base_salary)}
-                                        <span className="text-neutral-500 ml-2 text-[10px] uppercase">{e.payment_type}</span>
-                                    </span>
+                            {empList.map(e => (
+                                <li key={e.employee_id} className="flex items-center justify-between py-1.5 border-b border-neutral-700/30 last:border-0">
+                                    <span>{e.full_name}</span>
+                                    <span className="text-neutral-500 font-mono text-[11px]">{e.code}</span>
                                 </li>
                             ))}
                         </ul>

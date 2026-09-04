@@ -2,26 +2,63 @@
  * Aplica una migration de Supabase a la DB.
  *
  * Uso:
+ *   npx tsx scripts/apply-migration.ts <filename>      (lee DB_URL de .env.local)
  *   DB_URL=postgresql://... npx tsx scripts/apply-migration.ts
  *   DB_URL=postgresql://... npx tsx scripts/apply-migration.ts <filename>
  *
  * Si no se pasa filename, toma la migration más reciente del directorio
  * `supabase/migrations/` (ordenada por nombre).
  */
-import { readFileSync, readdirSync } from 'fs';
+import { existsSync, readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { Client } from 'pg';
 
-const DB_URL = process.env.DB_URL;
+/**
+ * Lee DB_URL de .env.local si no viene en el entorno.
+ *
+ * Así la cadena de conexión (que trae la contraseña de la base) no tiene que
+ * ir en la línea de comandos, donde quedaría en el historial de la shell.
+ * .env.local está en .gitignore.
+ */
+function resolveDbUrl(): string | undefined {
+    if (process.env.DB_URL) return process.env.DB_URL;
+    for (const file of ['.env.local', '.env']) {
+        if (!existsSync(file)) continue;
+        const match = readFileSync(file, 'utf-8').match(/^\s*DB_URL\s*=\s*(.+)$/m);
+        if (match) return match[1].trim().replace(/^["']|["']$/g, '');
+    }
+    return undefined;
+}
+
+const DB_URL = resolveDbUrl();
 if (!DB_URL) {
-    console.error('❌ Falta DB_URL. Ejemplo:');
-    console.error('  $env:DB_URL = "postgresql://postgres:xxx@host:5432/postgres"');
-    console.error('  npx tsx scripts/apply-migration.ts');
+    console.error('❌ Falta DB_URL. Ponla en .env.local (recomendado):');
+    console.error('  DB_URL="postgresql://postgres:TU-PASSWORD@db.TU-PROYECTO.supabase.co:5432/postgres"');
+    console.error('');
+    console.error('  o pásala en el entorno:');
+    console.error('  DB_URL="postgresql://..." npx tsx scripts/apply-migration.ts <archivo>');
     process.exit(1);
 }
 
 async function main() {
-    const client = new Client({ connectionString: DB_URL });
+    const client = new Client({
+        connectionString: DB_URL,
+        // Supabase exige TLS. El pooler presenta un certificado que no valida
+        // contra las CA del sistema, así que se cifra sin verificar la cadena
+        // (es lo que documenta Supabase para conexiones directas).
+        ssl: { rejectUnauthorized: false },
+    });
+
+    // Las migraciones que reparan datos reportan lo que hicieron con RAISE
+    // NOTICE / RAISE WARNING. node-postgres los emite como evento y los tira
+    // si nadie escucha, así que sin esto no te enteras de cuántas filas se
+    // tocaron ni de cuáles quedaron huérfanas.
+    client.on('notice', (n) => {
+        const sev = (n.severity || 'NOTICE').toUpperCase();
+        const prefix = sev === 'WARNING' ? '⚠️ ' : '   ';
+        console.log(`${prefix}${sev}: ${n.message}`);
+    });
+
     await client.connect();
     console.log('✓ Conectado a la DB');
 
