@@ -4,11 +4,11 @@ import Link from "next/link";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
 import {
-    Users, LogOut, BarChart3, Receipt, ShieldCheck, Cog,
+    Users, BarChart3, Receipt, ShieldCheck, Cog,
     Wallet, BookOpen, History, Factory, Truck, ChevronRight,
-    ClipboardList, UserCog, ShieldAlert, Layers
+    ClipboardList, UserCog, ShieldAlert, Layers, ShoppingCart
 } from "lucide-react";
-import { logoutAction } from "@/app/actions/auth";
+import { CATEGORIES, type ModuleCard } from "@/lib/navModules";
 
 function cn(...inputs: (string | undefined | null | false)[]) {
     return twMerge(clsx(inputs));
@@ -23,20 +23,10 @@ type UserInfo = {
     photoUrl: string | null;
 };
 
-type ModuleCard = {
-    href: string;
-    title: string;
-    desc: string;
-    Icon: string;
-    color: "orange" | "emerald" | "amber" | "cyan" | "rose" | "violet" | "sky" | "slate";
-    category: "Operación" | "Comercial" | "Finanzas" | "Calidad" | "Sistema";
-    badge?: string;
-};
-
 const ICONS: Record<string, any> = {
     Users, BarChart3, Receipt, ShieldCheck, Cog,
     Wallet, BookOpen, History, Factory, Truck,
-    ClipboardList, UserCog, ShieldAlert, Layers,
+    ClipboardList, UserCog, ShieldAlert, Layers, ShoppingCart,
 };
 
 const COLOR_CLASSES: Record<string, { border: string; icon: string; hover: string; }> = {
@@ -50,24 +40,11 @@ const COLOR_CLASSES: Record<string, { border: string; icon: string; hover: strin
     slate:   { border: "border-slate-500/20 hover:border-slate-500/60",    icon: "bg-slate-500/15 text-slate-300",     hover: "text-slate-300" },
 };
 
-const CATEGORIES: { name: string; color: string }[] = [
-    { name: "Operación", color: "text-orange-300" },
-    { name: "Comercial", color: "text-cyan-300" },
-    { name: "Calidad",   color: "text-rose-300" },
-    { name: "Finanzas",  color: "text-emerald-300" },
-    { name: "Sistema",   color: "text-violet-300" },
-];
-
 const ROLE_LABEL: Record<string, string> = {
     master: "Master",
     admin: "Administrador",
     operator: "Operador",
 };
-
-function initials(name: string) {
-    const parts = name.trim().split(/\s+/).slice(0, 2);
-    return parts.map((p) => p[0]?.toUpperCase() || "").join("");
-}
 
 export default function DashboardClient({
     user,
@@ -88,54 +65,24 @@ export default function DashboardClient({
     return (
         <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 font-[family-name:var(--font-sans)]">
             <div className="max-w-[1800px] mx-auto p-3 md:p-5 lg:p-6 space-y-4">
-                {/* Header */}
-                <header className="bg-neutral-800/40 p-3.5 md:p-4 rounded-2xl border border-neutral-700/50 flex items-center justify-between flex-wrap gap-3">
-                    <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-gradient-to-br from-orange-500/30 to-amber-500/30 rounded-xl flex items-center justify-center border border-orange-500/30">
-                            <Factory className="w-5 h-5 text-orange-300" />
-                        </div>
-                        <div>
-                            <h1 className="text-xl md:text-2xl font-bold text-white flex items-center gap-2">
-                                SMAA ERP
-                                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 uppercase tracking-wider">
-                                    ISO 9001:2015
-                                </span>
-                            </h1>
-                            <p className="text-[11px] md:text-xs text-neutral-400">
-                                Sistema de Gestión Integral — {visibleModules.length} módulos disponibles para ti
-                            </p>
-                        </div>
+                {/* Cabecera de página. La marca, el usuario y "Salir" ahora
+                    viven en el menú lateral fijo, así que aquí sólo queda
+                    el título de la pantalla. */}
+                <header className="flex items-end justify-between flex-wrap gap-3 pb-1">
+                    <div>
+                        <h1 className="text-xl md:text-2xl font-semibold tracking-tight text-white flex items-center gap-2.5">
+                            Inicio
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 uppercase tracking-wider">
+                                ISO 9001:2015
+                            </span>
+                        </h1>
+                        <p className="text-[11px] md:text-xs text-neutral-400 mt-0.5">
+                            Sistema de Gestión Integral — {visibleModules.length} módulos disponibles para ti
+                        </p>
                     </div>
-
-                    {/* User chip + logout */}
-                    <div className="flex items-center gap-2">
-                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-neutral-800/60 border border-neutral-700/50">
-                            {user.photoUrl ? (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img src={user.photoUrl} alt={user.fullName} className="w-7 h-7 rounded-lg object-cover" />
-                            ) : (
-                                <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-orange-500/30 to-amber-500/30 flex items-center justify-center text-[10px] font-bold text-orange-200">
-                                    {initials(user.fullName)}
-                                </div>
-                            )}
-                            <div className="leading-tight hidden sm:block">
-                                <p className="text-xs font-semibold text-white">{user.fullName}</p>
-                                <p className="text-[10px] text-neutral-400">
-                                    {user.position || ROLE_LABEL[user.role] || user.role}
-                                </p>
-                            </div>
-                        </div>
-                        <button
-                            onClick={async () => {
-                                await logoutAction();
-                                window.location.href = "/login";
-                            }}
-                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-neutral-800/60 hover:bg-rose-500/20 text-neutral-300 hover:text-rose-300 border border-neutral-700/50 hover:border-rose-500/40 transition-colors text-xs font-medium"
-                        >
-                            <LogOut className="w-3.5 h-3.5" />
-                            <span className="hidden md:inline">Salir</span>
-                        </button>
-                    </div>
+                    <p className="text-[11px] text-neutral-500">
+                        {user.fullName} · {user.position || ROLE_LABEL[user.role] || user.role}
+                    </p>
                 </header>
 
                 {/* Quick stats row */}
