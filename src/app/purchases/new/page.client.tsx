@@ -5,6 +5,7 @@ import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { supabase } from "@/lib/supabase";
+import { generateUUID } from "@/lib/uuid";
 import {
     ArrowLeft, Plus, Trash2, ShoppingCart, Save, AlertCircle, RefreshCw,
     Upload, Layers, FileText, ChevronDown, ChevronUp
@@ -173,7 +174,7 @@ function NewPOForm() {
             }
 
             // Modo multicompra: subir cotizaciones por grupo, luego crear N POs.
-            const groupId = (await import('crypto')).randomUUID();
+            const groupId = generateUUID();
             const createdPOs: { id: string; po_number: string }[] = [];
 
             for (let i = 0; i < data.groups.length; i++) {
