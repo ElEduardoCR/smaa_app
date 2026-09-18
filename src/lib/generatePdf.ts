@@ -9,6 +9,7 @@ type QuotationData = {
     total: number;
     seller?: string;
     delivery_time?: string;
+    delivery_date?: string;
     terms_conditions?: string;
     company?: {
         company_name: string;
@@ -28,6 +29,7 @@ type QuotationData = {
     };
     items: {
         description: string;
+        extra_note?: string | null;
         quantity: number;
         unit_price: number;
         line_total: number;
@@ -155,7 +157,7 @@ export const generateQuotationPDF = async (data: QuotationData) => {
         nextClientY += 5;
     }
 
-    // Seller & Delivery Time (right column)
+    // Seller & delivery details (right column)
     let metaRightY = clientStartY + 7;
     if (data.seller) {
         doc.setFont("helvetica", "normal");
@@ -171,6 +173,14 @@ export const generateQuotationPDF = async (data: QuotationData) => {
         doc.text("Tiempo de Entrega:", pageWidth - 80, metaRightY);
         doc.setTextColor(15, 23, 42);
         doc.text(data.delivery_time, pageWidth - 14, metaRightY, { align: "right" });
+        metaRightY += 6;
+    }
+    if (data.delivery_date) {
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(100, 116, 139);
+        doc.text("Fecha de Entrega:", pageWidth - 80, metaRightY);
+        doc.setTextColor(15, 23, 42);
+        doc.text(new Date(`${data.delivery_date}T12:00:00`).toLocaleDateString("es-MX"), pageWidth - 14, metaRightY, { align: "right" });
         metaRightY += 6;
     }
 
@@ -194,7 +204,7 @@ export const generateQuotationPDF = async (data: QuotationData) => {
 
     // --- Items Table ---
     const tableData = data.items.map(item => [
-        item.description,
+        [item.description, item.extra_note].filter(Boolean).join("\n"),
         item.quantity.toString(),
         formatCurrency(item.unit_price),
         formatCurrency(item.line_total)

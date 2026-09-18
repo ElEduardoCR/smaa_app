@@ -19,6 +19,7 @@ function cn(...inputs: (string | undefined | null | false)[]) {
 const supplierSchema = z.object({
     rfc: z.string().min(12, "RFC must be at least 12 characters").max(13, "RFC cannot exceed 13 characters").toUpperCase(),
     business_name: z.string().min(3, "Business Name is required"),
+    name: z.string().optional().or(z.literal("")),
     fiscal_regime: z.string().optional().or(z.literal("")),
     fiscal_zip_code: z.string().optional().or(z.literal("")),
     email: z.string().email("Invalid email address").optional().or(z.literal("")),
@@ -50,7 +51,7 @@ export default function SuppliersPage() {
 
     const { register, handleSubmit, reset, formState: { errors } } = useForm<SupplierFormValues>({
         resolver: zodResolver(supplierSchema),
-        defaultValues: { rfc: "", business_name: "", fiscal_regime: "", fiscal_zip_code: "", email: "", phone: "", address: "" }
+        defaultValues: { rfc: "", business_name: "", name: "", fiscal_regime: "", fiscal_zip_code: "", email: "", phone: "", address: "" }
     });
 
     const fetchSuppliers = async () => {
@@ -81,6 +82,7 @@ export default function SuppliersPage() {
             const q = search.trim().toLowerCase();
             list = list.filter((s) =>
                 (s.rfc || "").toLowerCase().includes(q) ||
+                (s.name || "").toLowerCase().includes(q) ||
                 (s.business_name || "").toLowerCase().includes(q) ||
                 (s.email || "").toLowerCase().includes(q)
             );
@@ -118,7 +120,7 @@ export default function SuppliersPage() {
 
     const handleEditClick = (s: Supplier) => {
         setEditingId(s.id);
-        reset({ rfc: s.rfc, business_name: s.business_name, fiscal_regime: s.fiscal_regime || "", fiscal_zip_code: s.fiscal_zip_code || "", email: s.email || "", phone: s.phone || "", address: s.address || "" });
+        reset({ rfc: s.rfc, business_name: s.business_name, name: s.name || "", fiscal_regime: s.fiscal_regime || "", fiscal_zip_code: s.fiscal_zip_code || "", email: s.email || "", phone: s.phone || "", address: s.address || "" });
         setSelectedFile(null);
         setCsfExtracted(null);
         setIsFormOpen(true);
@@ -130,7 +132,7 @@ export default function SuppliersPage() {
         setEditingId(null);
         setSelectedFile(null);
         setCsfExtracted(null);
-        reset({ rfc: "", business_name: "", fiscal_regime: "", fiscal_zip_code: "", email: "", phone: "", address: "" });
+        reset({ rfc: "", business_name: "", name: "", fiscal_regime: "", fiscal_zip_code: "", email: "", phone: "", address: "" });
     };
 
     /**
@@ -202,6 +204,7 @@ export default function SuppliersPage() {
                     id: editingId,
                     rfc: data.rfc,
                     business_name: data.business_name,
+                    name: data.name || null,
                     fiscal_regime: data.fiscal_regime || null,
                     fiscal_zip_code: data.fiscal_zip_code || null,
                     email: data.email || null,
@@ -214,6 +217,7 @@ export default function SuppliersPage() {
                 await createSupplierAction({
                     rfc: data.rfc,
                     business_name: data.business_name,
+                    name: data.name || null,
                     fiscal_regime: data.fiscal_regime || null,
                     fiscal_zip_code: data.fiscal_zip_code || null,
                     email: data.email || null,
@@ -344,6 +348,14 @@ export default function SuppliersPage() {
                                     {errors.business_name && <p className="text-red-400 text-xs ml-1">{errors.business_name.message}</p>}
                                 </div>
                                 <div className="space-y-2">
+                                    <label className="text-sm font-medium text-neutral-300 ml-1">Alias / nombre comercial</label>
+                                    <div className="relative">
+                                        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none"><Users className="h-4 w-4 text-neutral-500" /></div>
+                                        <input {...register("name")} className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl pl-11 pr-4 py-3 text-white placeholder-neutral-500 focus:outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20 transition-all" placeholder="Sistemas Hidráulicos" />
+                                    </div>
+                                    <p className="text-[11px] text-neutral-500 ml-1">Úsalo cuando sea diferente a la razón social.</p>
+                                </div>
+                                <div className="space-y-2">
                                     <label className="text-sm font-medium text-neutral-300 ml-1">Régimen Fiscal</label>
                                     <input {...register("fiscal_regime")} className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-4 py-3 text-white placeholder-neutral-500 focus:outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20 transition-all" placeholder="601" />
                                 </div>
@@ -396,7 +408,7 @@ export default function SuppliersPage() {
                                 type="text"
                                 value={search}
                                 onChange={(e) => setSearch(e.target.value)}
-                                placeholder="Buscar RFC o razón social..."
+                                placeholder="Buscar nombre, razón social o RFC..."
                                 className="bg-neutral-900/60 border border-neutral-700/50 rounded-lg px-3 py-1.5 text-sm text-neutral-200 placeholder:text-neutral-500 focus:outline-none focus:border-rose-500/50 w-56"
                             />
                             <label className="flex items-center gap-1.5 text-xs text-neutral-300 cursor-pointer select-none">
@@ -413,6 +425,7 @@ export default function SuppliersPage() {
                             <thead className="bg-neutral-900/50 text-neutral-400 uppercase text-xs font-semibold tracking-wider">
                                 <tr>
                                     <th className="px-6 py-4 rounded-tl-xl">RFC</th>
+                                    <th className="px-6 py-4">Alias / nombre comercial</th>
                                     <th className="px-6 py-4">Razón Social</th>
                                     <th className="px-6 py-4">Email</th>
                                     <th className="px-6 py-4">Teléfono</th>
@@ -423,9 +436,9 @@ export default function SuppliersPage() {
                             </thead>
                             <tbody className="divide-y divide-neutral-700/50">
                                 {isLoading ? (
-                                    <tr><td colSpan={7} className="px-6 py-12 text-center text-neutral-400"><RefreshCw className="w-6 h-6 animate-spin mx-auto mb-3 text-rose-500" />Cargando...</td></tr>
+                                    <tr><td colSpan={8} className="px-6 py-12 text-center text-neutral-400"><RefreshCw className="w-6 h-6 animate-spin mx-auto mb-3 text-rose-500" />Cargando...</td></tr>
                                 ) : visibleSuppliers.length === 0 ? (
-                                    <tr><td colSpan={7} className="px-6 py-12 text-center text-neutral-400">
+                                    <tr><td colSpan={8} className="px-6 py-12 text-center text-neutral-400">
                                         <div className="bg-neutral-800/50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 border border-neutral-700"><Truck className="w-8 h-8 text-neutral-500" /></div>
                                         <p className="text-lg text-neutral-300 font-medium">
                                             {search.trim() ? "Sin resultados para esa búsqueda" : showObsolete ? "No hay proveedores obsoletos" : "No hay proveedores"}
@@ -451,6 +464,9 @@ export default function SuppliersPage() {
                                                     )}>
                                                         {s.rfc}
                                                     </span>
+                                                </td>
+                                                <td className={cn("px-6 py-4 font-medium", isObsolete ? "text-neutral-500 line-through" : "text-neutral-200")}>
+                                                    {s.name || <span className="text-neutral-600">—</span>}
                                                 </td>
                                                 <td className={cn("px-6 py-4 font-medium", isObsolete ? "text-neutral-500 line-through" : "text-neutral-200")}>
                                                     {s.business_name}

@@ -3,6 +3,8 @@
 import { useEffect, useState, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { createWorkOrderAction } from "@/app/actions/quotationWorkflow";
+import { matchesSearch, partyLabel } from "@/lib/search";
 import { supabase } from "@/lib/supabase";
 import {
     ArrowLeft, Save, Factory, AlertCircle, RefreshCw, CheckCircle2, Lock,
@@ -22,9 +24,11 @@ type Module = { id: string; code: string; name: string; color: string; icon: str
 type Quotation = {
     id: string;
     quotation_number: string;
+    title?: string | null;
+    items?: { description: string }[];
     status: string;
     total: number | null;
-    client: { business_name: string; rfc?: string };
+    client: { name?: string | null; business_name: string; rfc?: string };
 };
 type WpsProcedure = {
     id: string;
@@ -91,8 +95,8 @@ export default function NewWorkOrderForm({ accessibleSubs }: { accessibleSubs: s
         (async () => {
             const { data, error } = await supabase
                 .from("quotations")
-                .select("id, quotation_number, status, total, client:clients(business_name, rfc)")
-                .in("status", ["Pending", "Approved", "Confirmed"])
+                .select("id, title, quotation_number, status, total, items:quotation_items(description), client:clients(name, business_name, rfc)")
+                .in("status", ["Draft", "Sent", "Pending", "Approved", "Confirmed"])
                 .order("created_at", { ascending: false });
             if (error) { console.error(error); return; }
             const formatted = (data || []).map((q: any) => ({
@@ -117,13 +121,7 @@ export default function NewWorkOrderForm({ accessibleSubs }: { accessibleSubs: s
     }, [moduleCode]);
 
     const filteredQuotations = useMemo(() => {
-        const s = quotationSearch.trim().toLowerCase();
-        if (!s) return quotations;
-        return quotations.filter(q =>
-            (q.quotation_number || "").toLowerCase().includes(s) ||
-            (q.client?.business_name || "").toLowerCase().includes(s) ||
-            (q.client?.rfc || "").toLowerCase().includes(s)
-        );
+        return quotations.filter(q => matchesSearch(quotationSearch, q.quotation_number, q.title, q.client?.name, q.client?.business_name, q.client?.rfc, q.items?.map(i => i.description)));
     }, [quotations, quotationSearch]);
 
     const selectedModule = modules.find(m => m.id === moduleId) || null;
@@ -161,8 +159,8 @@ export default function NewWorkOrderForm({ accessibleSubs }: { accessibleSubs: s
             setErr("No tienes permisos para crear OTs en este módulo."); return;
         }
         if (mode === "quotation" && !selectedQuotationId) { setErr("Selecciona una cotización."); return; }
-        if (mode === "quotation" && selectedQuotation && selectedQuotation.status !== "Approved") {
-            setErr("La cotización seleccionada debe estar aprobada/confirma da. Confírmala primero."); return;
+        if (mode === "quotation" && selectedQuotation && !["Approved", "Confirmed"].includes(selectedQuotation.status)) {
+            setErr("La cotización seleccionada debe estar aprobada/confirmada. Confírmala primero."); return;
         }
         if (mode === "adhoc" && !clientName.trim()) { setErr("Captura el nombre del cliente."); return; }
         if (requiresWps) { setErr("Soldadura requiere al menos un WPS asignado."); return; }
@@ -170,31 +168,7 @@ export default function NewWorkOrderForm({ accessibleSubs }: { accessibleSubs: s
 
         setBusy(true);
         try {
-            // Generate order number: from quotation SMAA00001 -> OT-MAQ-00001, OT-SOLD-00001, OT-AUTO-00001
-            const modulePrefix: Record<string, string> = {
-                maquinado: "MAQ",
-                soldadura: "SOLD",
-                automatizacion: "AUTO",
-            };
-            const prefix = modulePrefix[moduleCode] || "OT";
-
-            // Count existing OTs in this module to generate a sequence
-            const { count } = await supabase
-                .from("work_orders")
-                .select("id", { count: "exact", head: true })
-                .eq("module_id", moduleId);
-            const seq = String((count || 0) + 1).padStart(5, "0");
-
-            let orderNumber: string;
-            if (mode === "quotation" && selectedQuotation) {
-                const qDigits = (selectedQuotation.quotation_number || "").replace(/\D/g, "") || seq;
-                orderNumber = `OT-${prefix}-${qDigits}`;
-            } else {
-                orderNumber = `OT-${prefix}-${seq}`;
-            }
-
-            const { data: wo, error: woErr } = await supabase.from("work_orders").insert([{
-                order_number: orderNumber,
+            const wo = await createWorkOrderAction({
                 module_id: moduleId,
                 quotation_id: mode === "quotation" ? selectedQuotationId : null,
                 client_name: mode === "adhoc" ? clientName : null,
@@ -202,15 +176,7 @@ export default function NewWorkOrderForm({ accessibleSubs }: { accessibleSubs: s
                 work_title: workTitle,
                 priority,
                 notes: notes || null,
-                status: "Open",
-            }]).select().single();
-            if (woErr) throw woErr;
-
-            if (selectedWpsIds.length > 0) {
-                const links = selectedWpsIds.map(wid => ({ work_order_id: wo.id, wps_id: wid }));
-                const { error: wpsErr } = await supabase.from("work_order_wps").insert(links);
-                if (wpsErr) throw wpsErr;
-            }
+            }, selectedWpsIds);
 
             router.push(`/manufacturing/${moduleCode}/${wo.id}`);
         } catch (e: any) {
@@ -303,7 +269,7 @@ export default function NewWorkOrderForm({ accessibleSubs }: { accessibleSubs: s
                                     <Search className="w-4 h-4 absolute left-3 top-3.5 text-neutral-500" />
                                     <input
                                         type="text"
-                                        placeholder="Buscar por folio, cliente o RFC…"
+                                        placeholder="Buscar por nombre, descripción, folio, alias o cliente…"
                                         value={quotationSearch}
                                         onChange={(e) => setQuotationSearch(e.target.value)}
                                         className="w-full pl-9 pr-3 py-2.5 bg-neutral-900/50 border border-neutral-700 rounded-lg text-white text-sm focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20"
@@ -313,13 +279,13 @@ export default function NewWorkOrderForm({ accessibleSubs }: { accessibleSubs: s
                                     {filteredQuotations.length === 0 ? (
                                         <p className="p-4 text-sm text-neutral-500 text-center">No hay cotizaciones pendientes o aprobadas.</p>
                                     ) : filteredQuotations.map(q => {
-                                        const approved = q.status === "Approved";
+                                        const approved = ["Approved", "Confirmed"].includes(q.status);
                                         const isSel = selectedQuotationId === q.id;
                                         return (
                                             <button
                                                 type="button"
                                                 key={q.id}
-                                                onClick={() => setSelectedQuotationId(q.id)}
+                                                onClick={() => { setSelectedQuotationId(q.id); if (!workTitle.trim()) setWorkTitle(q.title || q.items?.[0]?.description || ""); }}
                                                 className={cn(
                                                     "w-full text-left p-3 hover:bg-neutral-800/60 transition-colors flex items-center gap-3",
                                                     isSel && "bg-orange-500/10 ring-1 ring-orange-500/40"
@@ -330,8 +296,9 @@ export default function NewWorkOrderForm({ accessibleSubs }: { accessibleSubs: s
                                                         <span className="font-mono text-emerald-300 text-xs bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
                                                             {q.quotation_number}
                                                         </span>
-                                                        <span className="text-sm text-white truncate">{q.client?.business_name}</span>
+                                                        <span className="text-sm text-white truncate">{partyLabel(q.client)}</span>
                                                     </div>
+                                                    <p className="text-sm text-neutral-200 mt-1">{q.title || q.items?.[0]?.description || "Sin nombre"}</p>
                                                     <p className="text-[11px] text-neutral-500 mt-1">
                                                         {q.client?.rfc ? `RFC ${q.client.rfc} · ` : ""}{q.total ? `Total $${q.total.toLocaleString("es-MX", { minimumFractionDigits: 2 })}` : ""}
                                                     </p>
@@ -350,7 +317,7 @@ export default function NewWorkOrderForm({ accessibleSubs }: { accessibleSubs: s
                                 </div>
 
                                 {/* In-line confirmation */}
-                                {selectedQuotation && selectedQuotation.status !== "Approved" && (
+                                {selectedQuotation && !["Approved", "Confirmed"].includes(selectedQuotation.status) && (
                                     <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-3">
                                         <Lock className="w-5 h-5 text-amber-400 flex-shrink-0" />
                                         <div className="flex-1">

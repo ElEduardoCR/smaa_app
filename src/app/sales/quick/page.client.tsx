@@ -4,8 +4,9 @@ import { useEffect, useState } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
+import PartySearchSelect from "@/components/PartySearchSelect";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, Save, Plus, Trash2, Zap, AlertCircle, RefreshCw } from "lucide-react";
+import { ArrowLeft, Save, Plus, Trash2, Zap, AlertCircle, RefreshCw, CalendarDays } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import clsx from "clsx";
@@ -33,9 +34,11 @@ const commissionerSchema = z.object({
 });
 
 const quickSchema = z.object({
+    title: z.string().optional(),
     client_id: z.string().min(1, "Selecciona un cliente"),
     seller: z.string().optional().or(z.literal("")),
     delivery_time: z.string().optional().or(z.literal("")),
+    delivery_date: z.string().optional().or(z.literal("")),
     items: z.array(quickItemSchema).min(1, "Agrega al menos una partida"),
     commissioners: z.array(commissionerSchema).optional().default([]),
 });
@@ -47,7 +50,7 @@ const emptyItem = { description: "", quantity: 1, unit_price: 0 };
 export default function QuickQuotationPage() {
     const router = useRouter();
 
-    const [clients, setClients] = useState<{ id: string; business_name: string }[]>([]);
+    const [clients, setClients] = useState<{ id: string; name?: string | null; business_name: string; rfc?: string }[]>([]);
     const [isLoadingClients, setIsLoadingClients] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -58,13 +61,16 @@ export default function QuickQuotationPage() {
         control,
         handleSubmit,
         watch,
+        setValue,
         formState: { errors },
     } = useForm<QuickFormValues>({
         resolver: zodResolver(quickSchema) as any,
         defaultValues: {
+            title: "",
             client_id: "",
             seller: "",
             delivery_time: "",
+            delivery_date: "",
             items: [{ ...emptyItem }],
             commissioners: [],
         },
@@ -86,7 +92,7 @@ export default function QuickQuotationPage() {
             try {
                 const { data, error } = await supabase
                     .from("clients")
-                    .select("id, business_name")
+                    .select("id, name, business_name, rfc")
                     .order("business_name", { ascending: true });
                 if (error) throw error;
                 setClients(data || []);
@@ -119,8 +125,10 @@ export default function QuickQuotationPage() {
 
             const quoteData = {
                 client_id: data.client_id,
+                title: data.title?.trim() || null,
                 seller: data.seller || null,
                 delivery_time: data.delivery_time || null,
+                delivery_date: data.delivery_date || null,
                 terms_conditions: defaultTerms || null,
                 commissioners: cleanCommissioners,
                 subtotal,
@@ -196,6 +204,9 @@ export default function QuickQuotationPage() {
                 )}
 
                 <form onSubmit={handleSubmit(onSubmit as any)} className="space-y-8">
+                    <label className="block space-y-2 text-neutral-300">Nombre de la cotización
+                        <input {...register("title")} placeholder="Ej. Fabricación de soporte Tigre Blanco" className="w-full rounded-xl border border-neutral-700 bg-neutral-900 px-4 py-3 text-white" />
+                    </label>
                     {/* Cliente + info básica */}
                     <div className="bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
                         <h2 className="text-lg font-semibold text-white mb-4">Cliente</h2>
@@ -203,22 +214,9 @@ export default function QuickQuotationPage() {
                             <div className="space-y-2 md:col-span-2">
                                 <label className="text-sm font-medium text-neutral-300 ml-1">Seleccionar Cliente *</label>
                                 <div className="relative">
-                                    <select
-                                        {...register("client_id")}
-                                        className={cn(
-                                            "w-full bg-neutral-900/50 border rounded-xl px-4 py-3 text-white appearance-none focus:outline-none focus:ring-2 transition-all",
-                                            errors.client_id ? "border-red-500/50 focus:border-red-500 focus:ring-red-500/20" : "border-neutral-700 focus:border-amber-500 focus:ring-amber-500/20"
-                                        )}
-                                        disabled={isLoadingClients}
-                                    >
-                                        <option value="" disabled>Elige un cliente...</option>
-                                        {clients.map((c) => (
-                                            <option key={c.id} value={c.id}>{c.business_name}</option>
-                                        ))}
-                                    </select>
-                                    <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-neutral-500">
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
-                                    </div>
+                                <PartySearchSelect parties={clients} value={watch("client_id")} disabled={isLoadingClients}
+                                    onChange={id => setValue("client_id", id, { shouldValidate: true, shouldDirty: true })} />
+
                                 </div>
                                 {errors.client_id && <p className="text-red-400 text-xs ml-1">{errors.client_id.message}</p>}
                             </div>
@@ -237,6 +235,17 @@ export default function QuickQuotationPage() {
                                     className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-4 py-3 text-white placeholder-neutral-500 focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 transition-all"
                                     placeholder="Ej: 5 días hábiles"
                                 />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-neutral-300 ml-1">Fecha de Entrega</label>
+                                <div className="relative">
+                                    <CalendarDays className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500 pointer-events-none" />
+                                    <input
+                                        type="date"
+                                        {...register("delivery_date")}
+                                        className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl pl-11 pr-4 py-3 text-white focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 transition-all [color-scheme:dark]"
+                                    />
+                                </div>
                             </div>
                         </div>
                     </div>

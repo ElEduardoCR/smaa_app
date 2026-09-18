@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { matchesSearch, partyLabel } from "@/lib/search";
 import { supabase } from "@/lib/supabase";
 import { FileText, Plus, RefreshCw, ArrowLeft, Download, FileSpreadsheet, Edit3, CheckCircle, Upload, Eye, Link2, Zap, Users } from "lucide-react";
 import Link from "next/link";
@@ -18,6 +19,8 @@ function cn(...inputs: (string | undefined | null | false)[]) {
 type Quotation = {
     id: string;
     quotation_number: string;
+    title?: string | null;
+    items?: { description: string }[];
     client_id: string;
     status: string;
     subtotal: number;
@@ -25,11 +28,13 @@ type Quotation = {
     total: number;
     seller: string | null;
     delivery_time: string | null;
+    delivery_date: string | null;
     terms_conditions: string | null;
     client_po_url: string | null;
     commissioners: Commissioner[] | null;
     created_at: string;
     client?: {
+        name?: string | null;
         business_name: string;
         rfc: string;
         email?: string;
@@ -41,6 +46,7 @@ type Quotation = {
 };
 
 export default function SalesPage() {
+    const [search, setSearch] = useState("");
     const [quotations, setQuotations] = useState<Quotation[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [selectedQuote, setSelectedQuote] = useState<Quotation | null>(null);
@@ -63,6 +69,8 @@ export default function SalesPage() {
                 .select(`
                     id,
                     quotation_number,
+                    title,
+                    items:quotation_items(description),
                     client_id,
                     status,
                     subtotal,
@@ -70,11 +78,12 @@ export default function SalesPage() {
                     total,
                     seller,
                     delivery_time,
+                    delivery_date,
                     terms_conditions,
                     client_po_url,
                     commissioners,
                     created_at,
-                    client:clients(business_name, rfc, email, address, payment_days, requires_advance, advance_pct)
+                    client:clients(name, business_name, rfc, email, address, payment_days, requires_advance, advance_pct)
                 `)
                 .order('created_at', { ascending: false });
 
@@ -98,6 +107,8 @@ export default function SalesPage() {
         fetchQuotations();
         fetchPendingMatches();
     }, []);
+
+    const filteredQuotations = quotations.filter(q => matchesSearch(search, q.title, q.quotation_number, q.client?.name, q.client?.business_name, q.client?.rfc, q.seller, q.items?.map(i => i.description)));
 
     const formatCurrency = (amount: number) => {
         return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
@@ -149,6 +160,7 @@ export default function SalesPage() {
                 total: quote.total,
                 seller: quote.seller || undefined,
                 delivery_time: quote.delivery_time || undefined,
+                delivery_date: quote.delivery_date || undefined,
                 terms_conditions: quote.terms_conditions || undefined,
                 company: companySettings ? {
                     company_name: companySettings.company_name,
@@ -266,6 +278,7 @@ export default function SalesPage() {
                     </div>
                 </header>
 
+                <input aria-label="Buscar cotizaciones" value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar nombre, descripción, cliente, alias, RFC, folio o vendedor…" className="w-full rounded-xl border border-neutral-700 bg-neutral-900 px-4 py-3 text-white" />
                 {/* Quotations Table */}
                 <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-3xl overflow-hidden backdrop-blur-sm">
                     <div className="p-6 border-b border-neutral-700/50 flex justify-between items-center bg-neutral-800/20">
@@ -303,20 +316,20 @@ export default function SalesPage() {
                                             Cargando...
                                         </td>
                                     </tr>
-                                ) : quotations.length === 0 ? (
+                                ) : filteredQuotations.length === 0 ? (
                                     <tr>
                                         <td colSpan={9} className="px-6 py-12 text-center text-neutral-400">
                                             <div className="bg-neutral-800/50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 border border-neutral-700">
                                                 <FileText className="w-8 h-8 text-neutral-500" />
                                             </div>
-                                            <p className="text-lg text-neutral-300 font-medium">No quotations found</p>
-                                            <p className="text-sm mt-1">Create your first quote to see it here.</p>
+                                            <p className="text-lg text-neutral-300 font-medium">No se encontraron cotizaciones</p>
+                                            <p className="text-sm mt-1">Cambia la búsqueda o crea una cotización.</p>
                                         </td>
                                     </tr>
                                 ) : (
-                                    quotations.map((quote) => (
-                                        <tr 
-                                            key={quote.id} 
+                                    filteredQuotations.map((quote) => (
+                                        <tr
+                                            key={quote.id}
                                             className="hover:bg-neutral-800/80 transition-colors group cursor-pointer"
                                             onClick={() => setSelectedQuote(quote)}
                                         >
@@ -324,10 +337,11 @@ export default function SalesPage() {
                                                 <span className="font-mono font-medium text-emerald-300 bg-emerald-500/10 px-2.5 py-1 rounded-md border border-emerald-500/20">
                                                     {quote.quotation_number}
                                                 </span>
+                                                <p className="mt-2 max-w-xs truncate text-neutral-300">{quote.title || quote.items?.[0]?.description}</p>
                                             </td>
                                             <td className="px-6 py-4 font-medium text-neutral-200">
                                                 <div className="flex flex-col gap-1">
-                                                    <span>{quote.client?.business_name || 'Unknown'}</span>
+                                                    <span>{partyLabel(quote.client) || 'Desconocido'}</span>
                                                     {quote.commissioners && quote.commissioners.length > 0 && (
                                                         <span
                                                             className="inline-flex items-center gap-1 w-fit text-[11px] font-medium text-purple-300 bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 rounded-md"
@@ -340,7 +354,10 @@ export default function SalesPage() {
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4 text-neutral-400">{quote.seller || '—'}</td>
-                                            <td className="px-6 py-4 text-neutral-400 text-xs">{quote.delivery_time || '—'}</td>
+                                            <td className="px-6 py-4 text-neutral-400 text-xs">
+                                                {quote.delivery_date && <span className="block text-neutral-200 font-medium">{new Date(`${quote.delivery_date}T12:00:00`).toLocaleDateString()}</span>}
+                                                <span>{quote.delivery_time || (quote.delivery_date ? '' : '—')}</span>
+                                            </td>
                                             <td className="px-6 py-4 text-neutral-400">
                                                 {new Date(quote.created_at).toLocaleDateString()}
                                             </td>
@@ -359,7 +376,7 @@ export default function SalesPage() {
                                                             <Eye className="w-3.5 h-3.5" /> Ver OC
                                                         </a>
                                                     ) : (
-                                                        <label 
+                                                        <label
                                                             className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 px-2.5 py-1.5 rounded-lg border border-amber-500/20 cursor-pointer transition-colors"
                                                             onClick={(e) => e.stopPropagation()}
                                                         >
@@ -410,9 +427,9 @@ export default function SalesPage() {
 
             {/* Modal de Detalle */}
             {selectedQuote && (
-                <QuotationDetailsModal 
-                    quote={selectedQuote} 
-                    onClose={() => setSelectedQuote(null)} 
+                <QuotationDetailsModal
+                    quote={selectedQuote}
+                    onClose={() => { setSelectedQuote(null); fetchQuotations(); }}
                 />
             )}
         </div>

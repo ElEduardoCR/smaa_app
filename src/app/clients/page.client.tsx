@@ -17,6 +17,7 @@ function cn(...inputs: (string | undefined | null | false)[]) {
 
 const clientSchema = z.object({
     rfc: z.string().min(12, "RFC must be at least 12 characters").max(13, "RFC cannot exceed 13 characters").toUpperCase(),
+    name: z.string().optional(),
     business_name: z.string().min(3, "Business Name is required"),
     fiscal_regime: z.string().min(3, "Fiscal Regime is required"),
     fiscal_zip_code: z.string().length(5, "Zip Code must be exactly 5 digits").regex(/^\d+$/, "Must be numbers only"),
@@ -57,7 +58,7 @@ export default function ClientsPage() {
     } = useForm<ClientFormValues>({
         resolver: zodResolver(clientSchema) as any,
         defaultValues: {
-            rfc: "", business_name: "", fiscal_regime: "", fiscal_zip_code: "",
+            rfc: "", name: "", business_name: "", fiscal_regime: "", fiscal_zip_code: "",
             email: "", phone: "", address: "", payment_days: 0,
             requires_advance: false, advance_pct: 50,
         }
@@ -97,6 +98,7 @@ export default function ClientsPage() {
             list = list.filter((c) =>
                 (c.rfc || "").toLowerCase().includes(q) ||
                 (c.business_name || "").toLowerCase().includes(q) ||
+                (c.name || "").toLowerCase().includes(q) ||
                 (c.email || "").toLowerCase().includes(q)
             );
         }
@@ -110,6 +112,7 @@ export default function ClientsPage() {
         reset({
             rfc: client.rfc,
             business_name: client.business_name,
+            name: client.name || "",
             fiscal_regime: client.fiscal_regime,
             fiscal_zip_code: client.fiscal_zip_code,
             email: client.email || "",
@@ -129,7 +132,7 @@ export default function ClientsPage() {
         setEditingClientId(null);
         setSelectedFile(null);
         reset({
-            rfc: "", business_name: "", fiscal_regime: "", fiscal_zip_code: "",
+            rfc: "", name: "", business_name: "", fiscal_regime: "", fiscal_zip_code: "",
             email: "", phone: "", address: "", payment_days: 0,
             requires_advance: false, advance_pct: 50,
         });
@@ -171,6 +174,7 @@ export default function ClientsPage() {
                     id: editingClientId,
                     rfc: data.rfc,
                     business_name: data.business_name,
+                    name: data.name || null,
                     fiscal_regime: data.fiscal_regime,
                     fiscal_zip_code: data.fiscal_zip_code,
                     email: data.email || null,
@@ -179,13 +183,14 @@ export default function ClientsPage() {
                     payment_days: data.payment_days,
                     requires_advance: data.requires_advance ?? false,
                     advance_pct: data.requires_advance ? data.advance_pct : null,
-                    constancia_pdf_url: pdfUrl,
+                    constancia_pdf_url: selectedFile ? pdfUrl : undefined,
                 });
                 setMessage({ type: 'success', text: "Cliente actualizado." });
             } else {
                 await createClientAction({
                     rfc: data.rfc,
                     business_name: data.business_name,
+                    name: data.name || null,
                     fiscal_regime: data.fiscal_regime,
                     fiscal_zip_code: data.fiscal_zip_code,
                     email: data.email || null,
@@ -211,11 +216,11 @@ export default function ClientsPage() {
     };
 
     const handleObsolete = async (client: Client) => {
-        if (!confirm(`¿Obsoletar al cliente "${client.business_name}"?\n\nNo se borrará, solo se ocultará de las listas. Se puede restaurar después.`)) return;
+        if (!confirm(`¿Obsoletar al cliente "${client.name || client.business_name}"?\n\nNo se borrará, solo se ocultará de las listas. Se puede restaurar después.`)) return;
         setMessage(null);
         try {
             await obsoleteClientAction(client.id);
-            setMessage({ type: 'success', text: `Cliente "${client.business_name}" obsoletado.` });
+            setMessage({ type: 'success', text: `Cliente "${client.name || client.business_name}" obsoletado.` });
             fetchClients();
             setTimeout(() => setMessage(null), 3000);
         } catch (e: any) {
@@ -224,11 +229,11 @@ export default function ClientsPage() {
     };
 
     const handleRestore = async (client: Client) => {
-        if (!confirm(`¿Restaurar al cliente "${client.business_name}"?`)) return;
+        if (!confirm(`¿Restaurar al cliente "${client.name || client.business_name}"?`)) return;
         setMessage(null);
         try {
             await restoreClientAction(client.id);
-            setMessage({ type: 'success', text: `Cliente "${client.business_name}" restaurado.` });
+            setMessage({ type: 'success', text: `Cliente "${client.name || client.business_name}" restaurado.` });
             fetchClients();
             setTimeout(() => setMessage(null), 3000);
         } catch (e: any) {
@@ -281,6 +286,10 @@ export default function ClientsPage() {
                                         <input {...register("business_name")} className={cn("w-full bg-neutral-900/50 border rounded-xl pl-11 pr-4 py-3 text-white placeholder-neutral-500 focus:outline-none focus:ring-2 transition-all", errors.business_name ? "border-red-500/50 focus:ring-red-500/20" : "border-neutral-700 focus:border-orange-500 focus:ring-orange-500/20")} placeholder="RAZON SOCIAL S.A. DE C.V." />
                                     </div>
                                     {errors.business_name && <p className="text-red-400 text-xs ml-1">{errors.business_name.message}</p>}
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-sm text-neutral-300">Alias / nombre comercial</label>
+                                    <input {...register("name")} placeholder="Ej. Tigre Blanco" className="w-full rounded-xl border border-neutral-700 bg-neutral-900/50 px-4 py-3 text-white" />
                                 </div>
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium text-neutral-300 ml-1">Régimen Fiscal *</label>
@@ -440,7 +449,7 @@ export default function ClientsPage() {
                                                     </span>
                                                 </td>
                                                 <td className={cn("px-6 py-4 font-medium", isObsolete ? "text-neutral-500 line-through" : "text-neutral-200")}>
-                                                    {client.business_name}
+                                                    {client.name && <span className="block text-orange-300">{client.name}</span>}{client.business_name}
                                                 </td>
                                                 <td className="px-6 py-4 text-neutral-400">{client.fiscal_regime}</td>
                                                 <td className="px-6 py-4 text-neutral-400">{client.fiscal_zip_code}</td>

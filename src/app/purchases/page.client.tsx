@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
+import { matchesSearch } from "@/lib/search";
 import { supabase } from "@/lib/supabase";
 import { generatePurchaseOrderPDF } from "@/lib/generatePoPdf";
 import { receivePurchaseOrderAction, deletePurchaseOrderAction as obsoletePOAction, restorePurchaseOrderAction } from "@/app/actions/purchases";
-import { ShoppingCart, Plus, RefreshCw, ArrowLeft, Download, Eye, CheckCircle, Upload, FileText, Camera, Inbox, Search, X, Filter, Edit2, Archive, ArchiveRestore, Layers, Receipt } from "lucide-react";
+import { ShoppingCart, Plus, RefreshCw, ArrowLeft, Download, Eye, CheckCircle, Upload, FileText, Camera, Inbox, Search, X, Filter, Edit2, Archive, ArchiveRestore, Layers, Receipt, ChevronDown, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -27,7 +28,8 @@ type PO = {
     invoice_date: string | null;
     is_active?: boolean;
     purchase_group_id?: string | null;
-    supplier: { business_name: string; rfc: string; email?: string; address?: string; is_active?: boolean; } | null;
+    supplier: { name?: string | null; business_name: string; rfc: string; email?: string; address?: string; is_active?: boolean; } | null;
+    items: Array<{ id: string; description: string; quantity: number; unit_price: number; line_total: number }>;
 };
 
 export default function PurchasesPage() {
@@ -41,6 +43,7 @@ export default function PurchasesPage() {
     const [uploadingReceive, setUploadingReceive] = useState(false);
     const [pendingInboxCount, setPendingInboxCount] = useState(0);
     const [showObsolete, setShowObsolete] = useState(false);
+    const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
 
     // Filtros
     const [search, setSearch] = useState("");
@@ -53,7 +56,7 @@ export default function PurchasesPage() {
         try {
             const { data, error } = await supabase
                 .from('purchase_orders')
-                .select('*, supplier:suppliers(business_name, rfc, email, address, is_active)')
+                .select('*, supplier:suppliers(name, business_name, rfc, email, address, is_active), items:purchase_order_items(id, description, quantity, unit_price, line_total)')
                 .order('invoice_date', { ascending: false, nullsFirst: false })
                 .order('created_at', { ascending: false });
             if (error) throw error;
@@ -210,14 +213,9 @@ export default function PurchasesPage() {
     const filteredOrders = orders.filter((po) => {
         // Filtro de obsoletos: solo mostrar si el toggle está activo
         if (!showObsolete && po.is_active === false) return false;
-        // Filtro por texto: nombre del proveedor, # de PO o RFC
+        // Filtro por texto: proveedor, # de PO, RFC o descripción de artículo
         if (search.trim()) {
-            const q = search.trim().toLowerCase();
-            const hay = (
-                (po.supplier?.business_name || "").toLowerCase().includes(q) ||
-                (po.po_number || "").toLowerCase().includes(q) ||
-                (po.supplier?.rfc || "").toLowerCase().includes(q)
-            );
+            const hay = matchesSearch(search, po.supplier?.business_name, po.supplier?.name, po.po_number, po.supplier?.rfc, po.items?.map(item => item.description));
             if (!hay) return false;
         }
         // Filtro por valor (total)
@@ -233,6 +231,20 @@ export default function PurchasesPage() {
 
     const clearFilters = () => {
         setSearch(""); setMinValue(""); setMaxValue(""); setStatusFilter("all");
+    };
+
+    const toggleOrder = (id: string) => {
+        setExpandedOrders((current) => {
+            const next = new Set(current);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    };
+
+    const handleRowClick = (event: React.MouseEvent<HTMLTableRowElement>, id: string) => {
+        if ((event.target as HTMLElement).closest('a, button, input, label')) return;
+        toggleOrder(id);
     };
 
     const STATUS_OPTIONS = [
@@ -283,7 +295,7 @@ export default function PurchasesPage() {
                                     type="text"
                                     value={search}
                                     onChange={(e) => setSearch(e.target.value)}
-                                    placeholder="Buscar por proveedor, # PO o RFC..."
+                                placeholder="Buscar proveedor, artículo, # PO o RFC..."
                                     className="w-full bg-neutral-900/60 border border-neutral-700/50 rounded-xl pl-10 pr-9 py-2.5 text-sm text-neutral-200 placeholder:text-neutral-500 focus:outline-none focus:border-orange-500/50 focus:ring-2 focus:ring-orange-500/20"
                                 />
                                 {search && (
@@ -405,21 +417,38 @@ export default function PurchasesPage() {
                                         const isObsolete = po.is_active === false;
                                         const supplierObsolete = po.supplier?.is_active === false;
                                         const grpInfo = po.purchase_group_id ? groupPosition[po.id] : null;
+                                        const isExpanded = expandedOrders.has(po.id);
                                         return (
-                                            <tr key={po.id} className={cn(
-                                                "transition-colors",
+                                            <Fragment key={po.id}>
+                                            <tr
+                                                className={cn(
+                                                "transition-colors cursor-pointer focus:outline-none focus:bg-neutral-800/80",
                                                 isObsolete
                                                     ? "bg-neutral-900/30 text-neutral-500 hover:bg-neutral-800/40"
-                                                    : "hover:bg-neutral-800/80"
-                                            )}>
+                                                    : "hover:bg-neutral-800/80",
+                                                isExpanded && "bg-neutral-800/60"
+                                                )}
+                                                onClick={(event) => handleRowClick(event, po.id)}
+                                                onKeyDown={(event) => {
+                                                    if (event.key === 'Enter' || event.key === ' ') {
+                                                        event.preventDefault();
+                                                        toggleOrder(po.id);
+                                                    }
+                                                }}
+                                                tabIndex={0}
+                                                aria-expanded={isExpanded}
+                                            >
                                                 <td className="px-6 py-4">
                                                     <div className="flex flex-col gap-1 items-start">
-                                                        <span className={cn(
-                                                            "font-mono font-medium px-2.5 py-1 rounded-md border",
-                                                            isObsolete
-                                                                ? "text-neutral-500 line-through bg-neutral-700/20 border-neutral-700/30"
-                                                                : "text-orange-300 bg-orange-500/10 border-orange-500/20"
-                                                        )}>{po.po_number}</span>
+                                                        <div className="flex items-center gap-2">
+                                                            {isExpanded ? <ChevronDown className="w-4 h-4 text-orange-400" /> : <ChevronRight className="w-4 h-4 text-neutral-500" />}
+                                                            <span className={cn(
+                                                                "font-mono font-medium px-2.5 py-1 rounded-md border",
+                                                                isObsolete
+                                                                    ? "text-neutral-500 line-through bg-neutral-700/20 border-neutral-700/30"
+                                                                    : "text-orange-300 bg-orange-500/10 border-orange-500/20"
+                                                            )}>{po.po_number}</span>
+                                                        </div>
                                                         {grpInfo && grpInfo.total > 1 && (
                                                             <span
                                                                 title={`Multicompra: ${grpInfo.total} proveedores en este grupo`}
@@ -434,7 +463,10 @@ export default function PurchasesPage() {
                                                     "px-6 py-4 font-medium",
                                                     isObsolete ? "text-neutral-500" : "text-neutral-200"
                                                 )}>
-                                                    {po.supplier?.business_name}
+                                                    <span>{po.supplier?.name || po.supplier?.business_name || "Sin proveedor"}</span>
+                                                    {po.supplier?.name && (
+                                                        <span className="block text-[11px] text-neutral-500 font-normal mt-0.5">{po.supplier.business_name}</span>
+                                                    )}
                                                     {supplierObsolete && po.supplier && (
                                                         <span className="ml-1.5 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 align-middle">
                                                             prov. obsoleto
@@ -517,6 +549,33 @@ export default function PurchasesPage() {
                                                     )}
                                                 </td>
                                             </tr>
+                                            {isExpanded && (
+                                                <tr className="bg-neutral-950/45">
+                                                    <td colSpan={8} className="px-6 py-4 whitespace-normal">
+                                                        <div className="rounded-xl border border-neutral-700/50 overflow-hidden ml-0 md:ml-6">
+                                                            <div className="px-4 py-2.5 bg-neutral-900/70 border-b border-neutral-700/50 flex items-center justify-between gap-3">
+                                                                <h3 className="text-xs font-semibold uppercase tracking-wider text-neutral-300">Artículos comprados</h3>
+                                                                <span className="text-xs text-neutral-500">{po.items?.length || 0} partida{po.items?.length === 1 ? "" : "s"}</span>
+                                                            </div>
+                                                            {!po.items?.length ? (
+                                                                <p className="px-4 py-4 text-sm text-neutral-500">Esta orden no tiene artículos registrados.</p>
+                                                            ) : (
+                                                                <div className="divide-y divide-neutral-800">
+                                                                    {po.items.map((item) => (
+                                                                        <div key={item.id} className="grid grid-cols-1 sm:grid-cols-12 gap-2 px-4 py-3 text-sm">
+                                                                            <span className="sm:col-span-6 text-neutral-200">{item.description}</span>
+                                                                            <span className="sm:col-span-2 text-neutral-400 sm:text-center">Cant. {Number(item.quantity)}</span>
+                                                                            <span className="sm:col-span-2 text-neutral-400 sm:text-right">{formatCurrency(item.unit_price)}</span>
+                                                                            <span className="sm:col-span-2 text-emerald-400 font-medium sm:text-right">{formatCurrency(item.line_total)}</span>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            )}
+                                            </Fragment>
                                         );
                                         });
                                     })()

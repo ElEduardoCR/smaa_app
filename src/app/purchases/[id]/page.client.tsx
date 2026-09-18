@@ -352,7 +352,7 @@ export default function PurchaseOrderEditClient({
                                         onChange={(e) => setPendingKind(e.target.value as any)}
                                         className="text-xs bg-neutral-900/60 border border-neutral-700 rounded-lg px-2 py-1.5 text-neutral-200 focus:outline-none focus:border-orange-500"
                                     >
-                                        <option value="invoice">Factura</option>
+                                        <option value="invoice">Factura (PDF o foto)</option>
                                         <option value="evidence">Foto del material</option>
                                         <option value="other">Otro documento</option>
                                     </select>
@@ -477,7 +477,7 @@ export default function PurchaseOrderEditClient({
                                 ref={fileInputRef}
                                 type="file"
                                 multiple
-                                accept={pendingKind === 'evidence' ? 'image/*' : '.pdf,image/*,.doc,.docx,.xls,.xlsx'}
+                                accept={pendingKind === 'evidence' ? 'image/*' : pendingKind === 'invoice' ? '.pdf,image/*' : '.pdf,image/*,.doc,.docx,.xls,.xlsx'}
                                 className="hidden"
                                 onChange={(e) => {
                                     if (!e.target.files) return;

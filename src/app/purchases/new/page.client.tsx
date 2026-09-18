@@ -4,10 +4,12 @@ import { useEffect, useState, Suspense, useRef } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
+import { matchesSearch } from "@/lib/search";
 import { supabase } from "@/lib/supabase";
+import { generateUUID } from "@/lib/uuid";
 import {
     ArrowLeft, Plus, Trash2, ShoppingCart, Save, AlertCircle, RefreshCw,
-    Upload, Layers, FileText, ChevronDown, ChevronUp
+    Upload, Layers, FileText, ChevronDown, ChevronUp, Search, X
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -56,6 +58,7 @@ type POFormValues = z.infer<typeof poSchema>;
 
 type Supplier = {
     id: string;
+    name: string | null;
     business_name: string;
     rfc: string;
     is_active?: boolean;
@@ -73,7 +76,7 @@ function NewPOForm() {
     const [collapsedGroups, setCollapsedGroups] = useState<Record<number, boolean>>({});
     const [createdGroup, setCreatedGroup] = useState<{ group_id: string; pos: { id: string; po_number: string }[] } | null>(null);
 
-    const { register, control, handleSubmit, watch, formState: { errors } } = useForm<POFormValues>({
+    const { register, control, handleSubmit, watch, setValue, formState: { errors } } = useForm<POFormValues>({
         resolver: zodResolver(poSchema) as any,
         defaultValues: {
             notes: "",
@@ -93,7 +96,7 @@ function NewPOForm() {
             try {
                 const { data, error } = await supabase
                     .from('suppliers')
-                    .select('id, business_name, rfc, is_active')
+                    .select('id, name, business_name, rfc, is_active')
                     .order('is_active', { ascending: false })
                     .order('business_name', { ascending: true });
                 if (error) throw error;
@@ -173,7 +176,7 @@ function NewPOForm() {
             }
 
             // Modo multicompra: subir cotizaciones por grupo, luego crear N POs.
-            const groupId = (await import('crypto')).randomUUID();
+            const groupId = generateUUID();
             const createdPOs: { id: string; po_number: string }[] = [];
 
             for (let i = 0; i < data.groups.length; i++) {
@@ -369,6 +372,7 @@ function NewPOForm() {
                             gIdx={gIdx}
                             register={register}
                             control={control}
+                            setValue={setValue}
                             errors={errors}
                             suppliers={suppliers}
                             isLoadingSuppliers={isLoadingSuppliers}
@@ -459,6 +463,7 @@ type GroupCardProps = {
     gIdx: number;
     register: any;
     control: any;
+    setValue: any;
     errors: any;
     suppliers: Supplier[];
     isLoadingSuppliers: boolean;
@@ -473,7 +478,7 @@ type GroupCardProps = {
 };
 
 function GroupCard({
-    gIdx, register, control, errors, suppliers, isLoadingSuppliers,
+    gIdx, register, control, setValue, errors, suppliers, isLoadingSuppliers,
     canRemove, onRemove, isCollapsed, onToggleCollapse,
     watchedGroup, groupSubtotal, formatCurrency, calculateLineTotal,
 }: GroupCardProps) {
@@ -495,7 +500,8 @@ function GroupCard({
                     </span>
                     {selectedSupplier && (
                         <span className="text-sm text-neutral-200 truncate">
-                            {selectedSupplier.business_name}
+                            {selectedSupplier.name || selectedSupplier.business_name}
+                            {selectedSupplier.name && <span className="text-neutral-500 ml-1.5">· {selectedSupplier.business_name}</span>}
                             <span className="text-neutral-500 ml-1.5">({selectedSupplier.rfc})</span>
                         </span>
                     )}
@@ -529,23 +535,14 @@ function GroupCard({
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-1.5">
                             <label className="text-sm font-medium text-neutral-300 ml-1">Proveedor *</label>
-                            <select
-                                {...register(`groups.${gIdx}.supplier_id` as const)}
-                                className={cn(
-                                    "w-full bg-neutral-900/50 border rounded-xl px-4 py-3 text-white appearance-none focus:outline-none focus:ring-2 transition-all",
-                                    errors?.groups?.[gIdx]?.supplier_id
-                                        ? "border-red-500 focus:ring-red-500/20"
-                                        : "border-neutral-700 focus:border-orange-500 focus:ring-orange-500/20"
-                                )}
+                            <input type="hidden" {...register(`groups.${gIdx}.supplier_id` as const)} />
+                            <SupplierCombobox
+                                suppliers={suppliers}
+                                selectedId={watchedGroup?.supplier_id || ""}
                                 disabled={isLoadingSuppliers}
-                            >
-                                <option value="" disabled>Elige un proveedor…</option>
-                                {suppliers.map((s) => (
-                                    <option key={s.id} value={s.id} className={cn(s.is_active === false && "text-neutral-500 line-through")}>
-                                        {s.business_name} ({s.rfc}){s.is_active === false ? " — Obsoleto" : ""}
-                                    </option>
-                                ))}
-                            </select>
+                                hasError={!!errors?.groups?.[gIdx]?.supplier_id}
+                                onSelect={(supplierId) => setValue(`groups.${gIdx}.supplier_id`, supplierId, { shouldDirty: true, shouldValidate: true })}
+                            />
                             {errors?.groups?.[gIdx]?.supplier_id && (
                                 <p className="text-red-400 text-xs ml-1">{errors.groups[gIdx].supplier_id.message}</p>
                             )}
@@ -636,6 +633,86 @@ function GroupCard({
                             })}
                         </div>
                     </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+function SupplierCombobox({
+    suppliers, selectedId, disabled, hasError, onSelect,
+}: {
+    suppliers: Supplier[];
+    selectedId: string;
+    disabled: boolean;
+    hasError: boolean;
+    onSelect: (supplierId: string) => void;
+}) {
+    const rootRef = useRef<HTMLDivElement>(null);
+    const selected = suppliers.find((supplier) => supplier.id === selectedId);
+    const [query, setQuery] = useState("");
+    const [open, setOpen] = useState(false);
+
+    useEffect(() => {
+        const closeOnOutsideClick = (event: MouseEvent) => {
+            if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+        };
+        document.addEventListener("mousedown", closeOnOutsideClick);
+        return () => document.removeEventListener("mousedown", closeOnOutsideClick);
+    }, []);
+
+    const matches = suppliers.filter(supplier => matchesSearch(query, supplier.name, supplier.business_name, supplier.rfc));
+
+    return (
+        <div ref={rootRef} className="relative">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500 pointer-events-none" />
+            <input
+                type="text"
+                value={open ? query : (selected ? (selected.name || selected.business_name) : "")}
+                onFocus={() => { setOpen(true); setQuery(""); }}
+                onChange={(event) => { setQuery(event.target.value); setOpen(true); }}
+                disabled={disabled}
+                placeholder={disabled ? "Cargando proveedores…" : "Buscar por nombre, razón social o RFC…"}
+                autoComplete="off"
+                className={cn(
+                    "w-full bg-neutral-900/50 border rounded-xl pl-10 pr-10 py-3 text-white focus:outline-none focus:ring-2 transition-all disabled:opacity-60",
+                    hasError ? "border-red-500 focus:ring-red-500/20" : "border-neutral-700 focus:border-orange-500 focus:ring-orange-500/20"
+                )}
+            />
+            {selectedId && (
+                <button
+                    type="button"
+                    onClick={() => { onSelect(""); setQuery(""); setOpen(true); }}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-neutral-500 hover:text-white rounded-md hover:bg-neutral-700"
+                    aria-label="Quitar proveedor"
+                >
+                    <X className="w-4 h-4" />
+                </button>
+            )}
+            {open && !disabled && (
+                <div className="absolute z-30 mt-2 w-full max-h-64 overflow-y-auto rounded-xl border border-neutral-700 bg-neutral-900 shadow-2xl">
+                    {matches.length === 0 ? (
+                        <p className="px-4 py-4 text-sm text-neutral-500">No hay proveedores que coincidan.</p>
+                    ) : matches.map((supplier) => (
+                        <button
+                            key={supplier.id}
+                            type="button"
+                            onClick={() => { onSelect(supplier.id); setQuery(supplier.name || supplier.business_name); setOpen(false); }}
+                            className={cn(
+                                "w-full px-4 py-3 text-left border-b last:border-b-0 border-neutral-800 hover:bg-orange-500/10 transition-colors",
+                                supplier.id === selectedId && "bg-orange-500/10",
+                                supplier.is_active === false && "opacity-55"
+                            )}
+                        >
+                            <span className="block text-sm font-medium text-neutral-100">
+                                {supplier.name || supplier.business_name}
+                                {supplier.is_active === false && <span className="ml-2 text-[10px] uppercase text-amber-400">Obsoleto</span>}
+                            </span>
+                            <span className="block text-xs text-neutral-500 mt-0.5">
+                                {supplier.name ? `${supplier.business_name} · ` : ""}{supplier.rfc}
+                            </span>
+                        </button>
+                    ))}
                 </div>
             )}
         </div>

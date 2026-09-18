@@ -22,6 +22,7 @@ async function requireCan(action: 'view' | 'create' | 'edit' | 'delete') {
 export type CreateClientInput = {
     rfc: string;
     business_name: string;
+    name?: string | null;
     fiscal_regime: string;
     fiscal_zip_code: string;
     email?: string | null;
@@ -50,6 +51,7 @@ export async function createClientAction(input: CreateClientInput) {
         .insert({
             rfc,
             business_name: input.business_name.trim(),
+            name: input.name?.trim() || null,
             fiscal_regime: input.fiscal_regime?.trim() || null,
             fiscal_zip_code: input.fiscal_zip_code?.trim() || null,
             email: input.email?.trim() || null,
@@ -82,6 +84,7 @@ export async function updateClientAction(input: UpdateClientInput) {
     if (!input.id) throw new Error('Falta el ID del cliente.');
 
     const patch: Record<string, any> = {};
+    if (input.name !== undefined) patch.name = input.name?.trim() || null;
     if (input.rfc !== undefined) {
         if (input.rfc.length < 12 || input.rfc.length > 13) {
             throw new Error('RFC inválido.');

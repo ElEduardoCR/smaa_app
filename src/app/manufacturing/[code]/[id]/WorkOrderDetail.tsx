@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import QuotationWorkflowPanel from "@/components/QuotationWorkflowPanel";
 import { supabase } from "@/lib/supabase";
 import {
     ArrowLeft, Factory, Play, Pause, CheckCircle2, AlertCircle, RefreshCw,
@@ -79,6 +80,7 @@ type WO = {
     quotation_id: string | null;
     quotation?: {
         quotation_number: string;
+        title?: string | null;
         client?: { business_name: string; rfc?: string; address?: string; email?: string };
     } | null;
     module?: Module;
@@ -172,7 +174,7 @@ export default function WorkOrderDetail({ code, woId }: { code: string; woId: st
                     id, order_number, status, notes, work_title, priority, client_name, client_rfc,
                     started_at, paused_at, completed_at, operator_name, operator_signature_url,
                     qc_released_at, qc_released_by, qc_reject_reason, created_at, module_id, quotation_id,
-                    quotation:quotations(quotation_number, client:clients(business_name, rfc, address, email)),
+                    quotation:quotations(quotation_number, title, client:clients(business_name, rfc, address, email)),
                     module:manufacturing_modules(id, code, name, color, icon)
                 `)
                 .eq("id", woId)
@@ -591,7 +593,7 @@ export default function WorkOrderDetail({ code, woId }: { code: string; woId: st
                             {wo.work_title && <p className="text-sm text-neutral-200 mt-0.5 truncate">{wo.work_title}</p>}
                             <p className="text-xs text-neutral-500 mt-0.5">
                                 {wo.quotation?.client?.business_name || wo.client_name || "—"}
-                                {wo.quotation?.quotation_number ? ` · Cot. ${wo.quotation.quotation_number}` : ""}
+                                {wo.quotation?.quotation_number ? ` · Cot. ${wo.quotation.quotation_number}${wo.quotation.title ? ` — ${wo.quotation.title}` : ""}` : ""}
                             </p>
                         </div>
                     </div>
@@ -602,6 +604,7 @@ export default function WorkOrderDetail({ code, woId }: { code: string; woId: st
                     </div>
                 </header>
 
+                {wo.quotation_id && <QuotationWorkflowPanel key={`${wo.quotation_id}-${wo.status}`} quotationId={wo.quotation_id} />}
                 {statusMsg && (
                     <div className={cn(
                         "p-3 rounded-xl border flex items-center gap-3 mb-4",

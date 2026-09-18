@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import QuotationWorkflowPanel from "@/components/QuotationWorkflowPanel";
 import { supabase } from "@/lib/supabase";
 import { X, RefreshCw, Box, Users } from "lucide-react";
 import { commissionersTotal, type Commissioner } from "@/lib/commissioners";
@@ -11,16 +12,20 @@ type Item = {
     quantity: number;
     unit_price: number;
     line_total: number;
+    extra_note?: string | null;
 };
 
 type QuotationDetailsModalProps = {
     quote: {
         id: string;
         quotation_number: string;
+        title?: string | null;
         client?: {
             business_name: string;
         };
         created_at: string;
+        delivery_date?: string | null;
+        delivery_time?: string | null;
         status: string;
         subtotal: number;
         vat_total: number;
@@ -31,6 +36,7 @@ type QuotationDetailsModalProps = {
 };
 
 export default function QuotationDetailsModal({ quote, onClose }: QuotationDetailsModalProps) {
+    const [totals, setTotals] = useState(quote);
     const [items, setItems] = useState<Item[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
@@ -44,6 +50,8 @@ export default function QuotationDetailsModal({ quote, onClose }: QuotationDetai
 
             if (error) throw error;
             setItems(data || []);
+            const { data: fresh } = await supabase.from("quotations").select("subtotal,vat_total,total").eq("id", quote.id).single();
+            if (fresh) setTotals(prev => ({ ...prev, ...fresh }));
         } catch (error) {
             console.error("Error fetching items:", error);
         } finally {
@@ -97,8 +105,10 @@ export default function QuotationDetailsModal({ quote, onClose }: QuotationDetai
                                 {quote.status}
                             </span>
                         </div>
+                        {quote.title && <p className="mt-2 text-white">{quote.title}</p>}
                         <p className="text-neutral-400 mt-1">
                             Cliente: <span className="text-neutral-200 font-medium">{quote.client?.business_name || 'Desconocido'}</span>  |  Fecha: <span className="text-neutral-200">{new Date(quote.created_at).toLocaleDateString()}</span>
+                            {quote.delivery_date && <> | Entrega: <span className="text-neutral-200">{new Date(`${quote.delivery_date}T12:00:00`).toLocaleDateString()}</span></>}
                         </p>
                     </div>
                     
@@ -112,6 +122,7 @@ export default function QuotationDetailsModal({ quote, onClose }: QuotationDetai
 
                 {/* Body (Items Table) */}
                 <div className="flex-1 overflow-y-auto p-6 bg-neutral-900/50">
+                    <QuotationWorkflowPanel quotationId={quote.id} onChanged={fetchItems} />
                     {isLoading ? (
                         <div className="flex flex-col items-center justify-center py-12 text-neutral-400">
                             <RefreshCw className="w-8 h-8 animate-spin mb-4 text-emerald-400" />
@@ -137,6 +148,7 @@ export default function QuotationDetailsModal({ quote, onClose }: QuotationDetai
                                         <tr key={item.id} className="hover:bg-neutral-800/40 transition-colors">
                                             <td className="px-6 py-4 whitespace-normal min-w-[300px] text-neutral-200">
                                                 {item.description}
+                                                {item.extra_note && <p className="text-xs text-amber-300">{item.extra_note}</p>}
                                             </td>
                                             <td className="px-6 py-4 text-center text-neutral-300">
                                                 {item.quantity}
@@ -185,15 +197,15 @@ export default function QuotationDetailsModal({ quote, onClose }: QuotationDetai
                     <div className="w-full max-w-sm space-y-3">
                         <div className="flex justify-between text-neutral-400">
                             <span>Subtotal</span>
-                            <span className="text-neutral-200">{formatCurrency(quote.subtotal)}</span>
+                            <span className="text-neutral-200">{formatCurrency(totals.subtotal)}</span>
                         </div>
                         <div className="flex justify-between text-neutral-400">
                             <span>IVA (16%)</span>
-                            <span className="text-neutral-200">{formatCurrency(quote.vat_total)}</span>
+                            <span className="text-neutral-200">{formatCurrency(totals.vat_total)}</span>
                         </div>
                         <div className="flex justify-between items-center text-lg font-bold border-t border-neutral-700/50 pt-3">
                             <span className="text-neutral-300">Total</span>
-                            <span className="text-emerald-400">{formatCurrency(quote.total)}</span>
+                            <span className="text-emerald-400">{formatCurrency(totals.total)}</span>
                         </div>
                     </div>
                 </div>

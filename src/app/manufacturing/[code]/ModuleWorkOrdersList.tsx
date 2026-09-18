@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { matchesSearch, partyLabel } from "@/lib/search";
 import { supabase } from "@/lib/supabase";
 import {
     ArrowLeft, Plus, RefreshCw, Cog, Flame, Cpu, Eye, Filter, Factory
@@ -48,7 +49,9 @@ type WO = {
     client_name: string | null;
     quotation?: {
         quotation_number: string;
-        client: { business_name: string };
+        title?: string | null;
+        items?: { description: string }[];
+        client: { name?: string | null; business_name: string };
     } | null;
     created_at: string;
 };
@@ -59,6 +62,7 @@ export default function ModuleWorkOrdersList({ code }: { code: string }) {
     const [module, setModule] = useState<Module | null>(null);
     const [workOrders, setWorkOrders] = useState<WO[]>([]);
     const [loading, setLoading] = useState(true);
+    const [search, setSearch] = useState("");
     const [filter, setFilter] = useState<string>("all");
 
     const load = async () => {
@@ -76,7 +80,7 @@ export default function ModuleWorkOrdersList({ code }: { code: string }) {
                 .from("work_orders")
                 .select(`
                     id, order_number, status, work_title, priority, client_name, created_at,
-                    quotation:quotations(quotation_number, client:clients(business_name))
+                    quotation:quotations(quotation_number, title, items:quotation_items(description), client:clients(name, business_name))
                 `)
                 .eq("module_id", mod.id)
                 .order("created_at", { ascending: false });
@@ -103,9 +107,8 @@ export default function ModuleWorkOrdersList({ code }: { code: string }) {
     useEffect(() => { if (code) load(); }, [code]);
 
     const filtered = useMemo(() => {
-        if (filter === "all") return workOrders;
-        return workOrders.filter(w => w.status === filter);
-    }, [workOrders, filter]);
+        return workOrders.filter(w => (filter === "all" || w.status === filter) && matchesSearch(search, w.order_number, w.work_title, w.client_name, w.quotation?.quotation_number, w.quotation?.title, w.quotation?.client?.name, w.quotation?.client?.business_name, w.quotation?.items?.map(i => i.description)));
+    }, [workOrders, filter, search]);
 
     const Icon = module ? (ICONS[module.icon] || Factory) : Factory;
     const colorCls = module ? (COLORS[module.color] || COLORS.orange) : "text-orange-400";
@@ -143,6 +146,7 @@ export default function ModuleWorkOrdersList({ code }: { code: string }) {
                         </Link>
                     </div>
                 </header>
+                <input aria-label="Buscar órdenes de trabajo" value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar OT, nombre de cotización, descripción o cliente…" className="w-full rounded-xl border border-neutral-700 bg-neutral-900 px-4 py-3 text-white" />
 
                 {/* Filter chips */}
                 <div className="flex flex-wrap items-center gap-2">
@@ -205,12 +209,12 @@ export default function ModuleWorkOrdersList({ code }: { code: string }) {
                                                 {wo.work_title || <span className="text-neutral-600">—</span>}
                                             </td>
                                             <td className="px-6 py-4 text-neutral-200">
-                                                {wo.quotation?.client?.business_name || wo.client_name || <span className="text-neutral-500">—</span>}
+                                                {partyLabel(wo.quotation?.client) || wo.client_name || <span className="text-neutral-500">—</span>}
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap">
                                                 {wo.quotation?.quotation_number ? (
                                                     <span className="font-mono text-emerald-300 text-xs bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-                                                        {wo.quotation.quotation_number}
+                                                        {wo.quotation.quotation_number}{(wo.quotation.title || wo.quotation.items?.[0]?.description) && <span className="block text-neutral-300">{wo.quotation.title || wo.quotation.items?.[0]?.description}</span>}
                                                     </span>
                                                 ) : (
                                                     <span className="text-xs text-neutral-500 italic">Sin cotización</span>
@@ -275,13 +279,13 @@ export default function ModuleWorkOrdersList({ code }: { code: string }) {
                                 <div className="space-y-1.5 text-xs text-neutral-300 mb-3">
                                     <p>
                                         <span className="text-neutral-500">Cliente: </span>
-                                        {wo.quotation?.client?.business_name || wo.client_name || <span className="text-neutral-500">—</span>}
+                                        {partyLabel(wo.quotation?.client) || wo.client_name || <span className="text-neutral-500">—</span>}
                                     </p>
                                     <p className="flex items-center gap-2 flex-wrap">
                                         <span className="text-neutral-500">Cot: </span>
                                         {wo.quotation?.quotation_number ? (
                                             <span className="font-mono text-emerald-300 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-                                                {wo.quotation.quotation_number}
+                                                {wo.quotation.quotation_number}{(wo.quotation.title || wo.quotation.items?.[0]?.description) && <span className="block text-neutral-300">{wo.quotation.title || wo.quotation.items?.[0]?.description}</span>}
                                             </span>
                                         ) : (
                                             <span className="text-neutral-500 italic">Sin cotización</span>

@@ -4,8 +4,9 @@ import { useEffect, useState, Suspense } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
+import PartySearchSelect from "@/components/PartySearchSelect";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, Save, Plus, Trash2, Calculator, AlertCircle, RefreshCw, Clock, Package, Wrench } from "lucide-react";
+import { ArrowLeft, Save, Plus, Trash2, Calculator, AlertCircle, RefreshCw, Clock, Package, Wrench, CalendarDays } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import clsx from "clsx";
@@ -59,9 +60,11 @@ const commissionerSchema = z.object({
 });
 
 const quotationSchema = z.object({
+    title: z.string().optional(),
     client_id: z.string().min(1, "Please select a client"),
     seller: z.string().optional().or(z.literal("")),
     delivery_time: z.string().optional().or(z.literal("")),
+    delivery_date: z.string().optional().or(z.literal("")),
     terms_conditions: z.string().optional().or(z.literal("")),
     items: z.array(itemSchema).min(1, "At least one item is required"),
     commissioners: z.array(commissionerSchema).optional().default([]),
@@ -102,7 +105,7 @@ function QuotationForm() {
     const editId = searchParams.get("id");
     const isEditing = !!editId;
 
-    const [clients, setClients] = useState<{ id: string; business_name: string }[]>([]);
+    const [clients, setClients] = useState<{ id: string; name?: string | null; business_name: string; rfc?: string }[]>([]);
     const [isLoadingClients, setIsLoadingClients] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -121,9 +124,11 @@ function QuotationForm() {
     } = useForm<QuotationFormValues>({
         resolver: zodResolver(quotationSchema) as any,
         defaultValues: {
+            title: "",
             client_id: "",
             seller: "",
             delivery_time: "",
+            delivery_date: "",
             terms_conditions: "",
             items: [{ ...emptyProduct }],
             commissioners: [],
@@ -171,7 +176,7 @@ function QuotationForm() {
             try {
                 const { data, error } = await supabase
                     .from("clients")
-                    .select("id, business_name")
+                    .select("id, name, business_name, rfc")
                     .order("business_name", { ascending: true });
 
                 if (error) throw error;
@@ -220,9 +225,11 @@ function QuotationForm() {
                 if (itemsError) throw itemsError;
 
                 reset({
-                    client_id: quote.client_id,
+                    client_id: String(quote.client_id),
+                    title: quote.title || "",
                     seller: quote.seller || "",
                     delivery_time: quote.delivery_time || "",
+                    delivery_date: quote.delivery_date || "",
                     terms_conditions: quote.terms_conditions || "",
                     items: (items || []).map((i: any) => ({
                         item_type: i.item_type === "service" ? "service" : "product",
@@ -260,12 +267,17 @@ function QuotationForm() {
             const cleanCommissioners = normalizeCommissioners(data.commissioners);
 
             if (isEditing) {
+                const { data: linkedOrders, error: linkedError } = await supabase.from("work_orders").select("id").eq("quotation_id", editId!).limit(1);
+                if (linkedError) throw linkedError;
+                if (linkedOrders?.length) throw new Error("Esta cotización ya tiene fabricación. Abre su detalle y usa Agregar extra para conservar las partidas originales.");
                 const { error: quoteError } = await supabase
                     .from("quotations")
                     .update({
                         client_id: data.client_id,
+                        title: data.title?.trim() || null,
                         seller: data.seller || null,
                         delivery_time: data.delivery_time || null,
+                        delivery_date: data.delivery_date || null,
                         terms_conditions: data.terms_conditions || null,
                         commissioners: cleanCommissioners,
                         subtotal,
@@ -286,8 +298,10 @@ function QuotationForm() {
             } else {
                 const quoteData = {
                     client_id: data.client_id,
+                    title: data.title?.trim() || null,
                     seller: data.seller || null,
                     delivery_time: data.delivery_time || null,
+                    delivery_date: data.delivery_date || null,
                     terms_conditions: data.terms_conditions || null,
                     commissioners: cleanCommissioners,
                     subtotal,
@@ -394,28 +408,18 @@ function QuotationForm() {
                 )}
 
                 <form onSubmit={handleSubmit(onSubmit as any)} className="space-y-8">
+                    <label className="block space-y-2 text-neutral-300">Nombre de la cotización
+                        <input {...register("title")} placeholder="Ej. Fabricación de soporte Tigre Blanco" className="w-full rounded-xl border border-neutral-700 bg-neutral-900 px-4 py-3 text-white" />
+                    </label>
                     {/* Client Selection */}
                     <div className="bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
                         <h2 className="text-lg font-semibold text-white mb-4">Client Details</h2>
                         <div className="space-y-2 max-w-xl">
                             <label className="text-sm font-medium text-neutral-300 ml-1">Select Client *</label>
                             <div className="relative">
-                                <select
-                                    {...register("client_id")}
-                                    className={cn(
-                                        "w-full bg-neutral-900/50 border rounded-xl px-4 py-3 text-white appearance-none focus:outline-none focus:ring-2 transition-all",
-                                        errors.client_id ? "border-red-500/50 focus:border-red-500 focus:ring-red-500/20" : "border-neutral-700 focus:border-emerald-500 focus:ring-emerald-500/20"
-                                    )}
-                                    disabled={isLoadingClients}
-                                >
-                                    <option value="" disabled>Choose a client...</option>
-                                    {clients.map((c) => (
-                                        <option key={c.id} value={c.id}>{c.business_name}</option>
-                                    ))}
-                                </select>
-                                <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-neutral-500">
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
-                                </div>
+                                <PartySearchSelect parties={clients} value={watch("client_id")} disabled={isLoadingClients}
+                                    onChange={id => setValue("client_id", id, { shouldValidate: true, shouldDirty: true })} />
+
                             </div>
                             {errors.client_id && <p className="text-red-400 text-xs ml-1">{errors.client_id.message}</p>}
                         </div>
@@ -424,7 +428,7 @@ function QuotationForm() {
                     {/* Seller & Delivery */}
                     <div className="bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
                         <h2 className="text-lg font-semibold text-white mb-4">Información Adicional</h2>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                             <div className="space-y-2">
                                 <label className="text-sm font-medium text-neutral-300 ml-1">Vendedor</label>
                                 <input
@@ -441,7 +445,18 @@ function QuotationForm() {
                                     placeholder="Ej: 5 días hábiles, 2 semanas"
                                 />
                             </div>
-                            <div className="space-y-2 md:col-span-2">
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-neutral-300 ml-1">Fecha de Entrega</label>
+                                <div className="relative">
+                                    <CalendarDays className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500 pointer-events-none" />
+                                    <input
+                                        type="date"
+                                        {...register("delivery_date")}
+                                        className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl pl-11 pr-4 py-3 text-white focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all [color-scheme:dark]"
+                                    />
+                                </div>
+                            </div>
+                            <div className="space-y-2 md:col-span-3">
                                 <label className="text-sm font-medium text-neutral-300 ml-1">Términos y Condiciones</label>
                                 <textarea
                                     {...register("terms_conditions")}

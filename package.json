@@ -11,7 +11,8 @@
     "test:hikvision-direct": "tsx scripts/test-hikvision-direct-events.ts",
     "test:hikvision-bridge": "tsx scripts/test-hikvision-lan-bridge.ts",
     "test:attendance": "tsx scripts/test-attendance-calculation.ts",
-    "test:time-clock": "tsx scripts/test-time-clock-import.ts"
+    "test:time-clock": "tsx scripts/test-time-clock-import.ts",
+    "test:sales-manufacturing": "tsx scripts/test-sales-manufacturing.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

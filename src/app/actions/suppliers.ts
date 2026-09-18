@@ -22,6 +22,7 @@ async function requireCan(action: 'view' | 'create' | 'edit' | 'delete') {
 export type CreateSupplierInput = {
     rfc: string;
     business_name: string;
+    name?: string | null;
     fiscal_regime?: string | null;
     fiscal_zip_code?: string | null;
     email?: string | null;
@@ -46,6 +47,7 @@ export async function createSupplierAction(input: CreateSupplierInput) {
         .insert({
             rfc,
             business_name: input.business_name.trim(),
+            name: input.name?.trim() || null,
             fiscal_regime: input.fiscal_regime?.trim() || null,
             fiscal_zip_code: input.fiscal_zip_code?.trim() || null,
             email: input.email?.trim() || null,
@@ -85,6 +87,7 @@ export async function updateSupplierAction(input: UpdateSupplierInput) {
         }
         patch.business_name = input.business_name.trim();
     }
+    if (input.name !== undefined) patch.name = input.name?.trim() || null;
     if (input.fiscal_regime !== undefined) patch.fiscal_regime = input.fiscal_regime?.trim() || null;
     if (input.fiscal_zip_code !== undefined) patch.fiscal_zip_code = input.fiscal_zip_code?.trim() || null;
     if (input.email !== undefined) patch.email = input.email?.trim() || null;
