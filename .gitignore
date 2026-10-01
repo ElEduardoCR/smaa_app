@@ -43,3 +43,14 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# QA local (qa/README.md): llaves, configuración y salidas de corridas
+/qa/keys.json
+/qa/postgrest.conf
+/qa/storage-data/
+/qa/run-*/
+/qa/*.log
+/qa/*.out
+/qa/e2e/shots/
+/qa/e2e/fixtures/
+/qa/e2e/crawl.json
