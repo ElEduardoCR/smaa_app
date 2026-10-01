@@ -21,7 +21,6 @@ export type RequisitionItemInput = {
 export type RequisitionQuotationInput = {
     url: string;                         // URL pública ya subida al storage
     name: string;                        // nombre original para mostrar
-    size?: number | null;
 };
 
 export type CreateRequisitionInput = {
@@ -165,7 +164,6 @@ export async function createRequisitionAction(input: CreateRequisitionInput) {
             requisition_id: req.id,
             file_url: q.url,
             file_name: q.name?.trim() || q.url.split('/').pop() || 'archivo',
-            file_size: q.size ?? null,
             uploaded_by: session.employeeId,
         }));
         const { error: qErr } = await supabase.from('requisition_quotations').insert(qrows);

@@ -11,7 +11,7 @@ import { supabase } from "@/lib/supabase";
 import { storageErrorMessage } from "@/lib/storageErrors";
 
 type Item = { description: string; quantity: number; unit: string; notes: string };
-type UploadedFile = { name: string; url: string; size: number };
+type UploadedFile = { name: string; url: string };
 type Priority = 'low' | 'normal' | 'high' | 'urgent';
 
 function emptyItem(): Item {
@@ -54,7 +54,7 @@ export default function NewRequisitionClient({ suppliers }: { suppliers: { id: s
                     contentType: f.type || "application/octet-stream",
                 });
             if (error) throw new Error('Error al subir la cotización: ' + storageErrorMessage(error.message));
-            setFiles((prev) => [...prev, { name: f.name, url: upload.publicUrl, size: f.size }]);
+            setFiles((prev) => [...prev, { name: f.name, url: upload.publicUrl }]);
         } catch (error: unknown) {
             setErr(errorMessage(error, "Error al subir archivo."));
         } finally {
@@ -93,7 +93,7 @@ export default function NewRequisitionClient({ suppliers }: { suppliers: { id: s
                 suggested_supplier_text: supplierText,
                 notes,
                 items: cleanItems,
-                quotations: files.map((f) => ({ url: f.url, name: f.name, size: f.size })),
+                quotations: files.map((f) => ({ url: f.url, name: f.name })),
             });
             router.push(`/requisitions/${result.id}`);
         } catch (error: unknown) {

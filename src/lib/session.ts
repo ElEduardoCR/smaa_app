@@ -6,14 +6,21 @@ import type { EmployeePermission, EmployeeRole } from './employees';
 import { computeAccessList } from './moduleCatalog';
 
 // Sin SESSION_SECRET cualquiera podría firmar una cookie de master con el
-// valor por defecto (es público en el repo). En producción se falla cerrado:
-// nadie puede iniciar sesión hasta configurarlo. El default sólo es para dev.
+// valor por defecto (es público en el repo). En producción, si falta, la
+// llave se deriva de la llave de servicio de Supabase (también secreta y
+// sólo del servidor) para no dejar a todos fuera; si tampoco existe, se
+// falla cerrado. El default público sólo se usa en desarrollo.
 function sessionKey(): Uint8Array {
     const secret = process.env.SESSION_SECRET;
-    if (!secret && process.env.NODE_ENV === 'production') {
+    if (secret) return new TextEncoder().encode(secret);
+    if (process.env.NODE_ENV !== 'production') {
+        return new TextEncoder().encode('smaa-default-secret-key-change-me-in-production');
+    }
+    const serviceKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!serviceKey) {
         throw new Error('SESSION_SECRET no está configurado en el servidor.');
     }
-    return new TextEncoder().encode(secret || 'smaa-default-secret-key-change-me-in-production');
+    return new TextEncoder().encode(`smaa-session:${serviceKey}`);
 }
 
 /**

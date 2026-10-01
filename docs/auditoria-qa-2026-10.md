@@ -24,6 +24,10 @@ con pruebas de navegador y datos de ejemplo.
   y un barrido de ~45 pantallas con cada usuario.
 - **Producción**: no se tocó. El acceso directo a la base de producción quedó
   bloqueado por la política de permisos de la sesión de trabajo.
+- **Nombres de tablas y columnas**: todas las que usan las correcciones ya las
+  usaba el código que corre hoy en producción (o sea, existen allá). La única
+  que sólo estaba en las migraciones (`requisition_quotations.file_size`) se
+  dejó de escribir para no depender de ella.
 
 ## Rama del tema (`feat/tema-claro-oscuro`)
 
@@ -80,7 +84,7 @@ producción · 📌 pendiente (recomendación).
 |---|---|---|
 | 20 | Las migraciones no se pueden aplicar en una base limpia: falta el renombrado manual `employees → payroll_employees` (5 migraciones fallan). | ✅ migración idempotente `20260722145900` (en producción no hace nada) |
 | 21 | `docs/TESTING.md` tenía la contraseña de la base de producción. | ✅ redactada · ⚠️ **rotar la contraseña** (sigue en el historial de git) |
-| 22 | Sin `SESSION_SECRET` se usaba un secreto por defecto público: cualquiera podría firmar una sesión de master. | ✅ en producción falla cerrado |
+| 22 | Sin `SESSION_SECRET` se usaba un secreto por defecto público: cualquiera podría firmar una sesión de master. | ✅ en producción, si falta, la llave se deriva de la llave de servicio de Supabase; si faltan ambas, falla cerrado |
 | 23 | El login aceptaba `?redirect=` a sitios externos. | ✅ |
 | 24 | **RLS "Allow all" en todas las tablas** con la llave anon (pública en el navegador): cualquiera con esa llave puede leer y escribir todo, incluidos `employees.password_hash` y `employee_permissions`. Además muchas pantallas escriben directo a la base desde el navegador (ventas, compras nuevas, fabricación, entregas), así que los permisos se pueden saltar. | 📌 mover escrituras a server actions con la llave de servicio y cerrar RLS |
 | 25 | `supabase/apply_all_migrations.sql` está desactualizado (sólo las primeras migraciones). | 📌 |
@@ -90,12 +94,36 @@ producción · 📌 pendiente (recomendación).
 1. Aplicar `supabase/migrations/20261001120000_purchase_files_xml_office.sql`.
 2. Rotar la contraseña de la base (la de `docs/TESTING.md` y la compartida
    durante la auditoría).
-3. **Antes de desplegar estas correcciones**, verificar en Vercel
-   `SESSION_SECRET` (sin él, ahora nadie puede iniciar sesión en producción)
-   y `SUPABASE_SECRET_KEY` (o `SUPABASE_SERVICE_ROLE_KEY`, que usan el
-   expediente y la nómina).
+3. Verificar en Vercel `SESSION_SECRET` y `SUPABASE_SECRET_KEY` (o
+   `SUPABASE_SERVICE_ROLE_KEY`, que usan el expediente y la nómina). Si
+   falta `SESSION_SECRET`, la sesión se firma con una llave derivada de la de
+   servicio; si faltan las dos, nadie puede iniciar sesión.
 4. Quien tenga un permiso nuevo (p. ej. Finanzas general) debe cerrar sesión y
    volver a entrar.
+5. `20260722145900_rename_hr_employees_to_payroll_employees.sql` no hace nada
+   en producción (sólo sirve para bases nuevas). Por su fecha, `supabase db
+   push` pedirá `--include-all`.
+
+## Resultado de la corrida final
+
+Con las correcciones, desde una base limpia (`qa/run-all.sh`):
+
+| Batería | Resultado |
+|---|---|
+| Alta de usuarios con foto y permisos | 8/8 |
+| Proveedores, requisiciones por rol y compras | 21/21 (incluye foto de 4 MB y Excel adjunto) |
+| Clientes → cotización → OT → calidad → entrega | 16/16 |
+| Entregas (fotos, firma, PDF) | 5/5 |
+| Expediente (PDF de 4 MB, bucket privado) y logo | 4/4 |
+| Declaración con acuse con acentos, XML de factura emitida | guardados |
+| Barrido de 46 pantallas × 9 usuarios | 0 errores de render, JS o HTTP; acceso correcto por rol |
+| Enlaces del Inicio y menú lateral | ninguno lleva a "acceso denegado" |
+| Errores de Storage / rechazos por 4.5 MB | 0 / 0 |
+
+Typecheck y build de producción sin errores; lint sin errores nuevos. Los dos
+ajustes posteriores a la corrida (cotizaciones sin `file_size` y la llave de
+sesión) se probaron aparte: requisición con cotización desde el operador, y
+login con/sin `SESSION_SECRET` en un servidor de producción local.
 
 ## Datos de ejemplo
 
