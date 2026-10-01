@@ -343,7 +343,20 @@ body {
     [class~="bg-fuchsia-500"],[class~="bg-pink-500"],
     [class~="bg-rose-500"],[class~="bg-rose-600"],
     [class~="bg-red-500"],[class~="bg-red-600"],
-    [class~="bg-green-500"],[class~="bg-green-600"]
+    [class~="bg-green-500"],[class~="bg-green-600"],
+    /* Botones principales con degradado (bg-gradient-to-r from-orange-500 …) */
+    [class~="from-orange-500"],[class~="from-orange-600"],
+    [class~="from-amber-500"],[class~="from-amber-600"],
+    [class~="from-emerald-500"],[class~="from-emerald-600"],
+    [class~="from-teal-500"],[class~="from-teal-600"],
+    [class~="from-cyan-500"],[class~="from-cyan-600"],
+    [class~="from-sky-500"],[class~="from-sky-600"],
+    [class~="from-blue-500"],[class~="from-blue-600"],
+    [class~="from-indigo-500"],[class~="from-indigo-600"],
+    [class~="from-violet-500"],[class~="from-violet-600"],
+    [class~="from-purple-500"],[class~="from-purple-600"],
+    [class~="from-rose-500"],[class~="from-rose-600"],
+    [class~="from-red-500"],[class~="from-red-600"]
 ):is([class~="text-white"], [class~="text-neutral-200"]) { color: #fff; }
 
 :is(
@@ -378,11 +391,14 @@ input::placeholder, textarea::placeholder { color: var(--ink-3); opacity: 1; }
 
 .app-shell { min-height: 100vh; }
 
+/* Capas: los modales y visores a pantalla completa de las páginas usan
+   z-50, así que todo el chrome queda por debajo (topbar 40 < scrim 44 <
+   menú 45 < 50) para que el fondo del modal también cubra el menú. */
 .app-sidebar {
     position: fixed;
     inset-block: 0;
     left: 0;
-    z-index: 60;
+    z-index: 45;
     width: var(--sidebar-w);
     display: flex;
     flex-direction: column;
@@ -410,7 +426,7 @@ input::placeholder, textarea::placeholder { color: var(--ink-3); opacity: 1; }
 .app-scrim {
     position: fixed;
     inset: 0;
-    z-index: 55;
+    z-index: 44;
     background: rgb(8 11 16 / .5);
     backdrop-filter: blur(2px);
 }
@@ -419,7 +435,7 @@ input::placeholder, textarea::placeholder { color: var(--ink-3); opacity: 1; }
 .app-topbar {
     position: fixed;
     top: 0; left: 0; right: 0;
-    z-index: 50;
+    z-index: 40;
     height: var(--topbar-h);
     display: flex;
     align-items: center;
