@@ -1,8 +1,8 @@
 import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/session';
-import { canViewModule } from '@/lib/permissions';
+import { can, canViewModule, listAccessibleSubCodes } from '@/lib/permissions';
 import { supabase } from '@/lib/supabase';
-import { ALL_MODULES } from '@/lib/navModules';
+import { ALL_MODULES, moduleEntryHref } from '@/lib/navModules';
 import DashboardClient from './DashboardClient';
 
 export default async function HomePage() {
@@ -14,7 +14,14 @@ export default async function HomePage() {
     // tarjeta del módulo padre aparece.
     const visible = ALL_MODULES.filter((m) =>
         canViewModule(session.role, session.permissions, m.moduleCode)
-    );
+    ).map((m) => ({
+        ...m,
+        href: moduleEntryHref(
+            m,
+            session.role === 'master' || can(session.role, session.permissions, m.moduleCode, 'view', null),
+            listAccessibleSubCodes(session.role, session.permissions, m.moduleCode),
+        ),
+    }));
 
     // Stats rápidas
     const [

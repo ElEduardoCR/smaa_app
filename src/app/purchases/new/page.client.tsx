@@ -7,6 +7,8 @@ import * as z from "zod";
 import { matchesSearch } from "@/lib/search";
 import { supabase } from "@/lib/supabase";
 import { generateUUID } from "@/lib/uuid";
+import { fileExtension } from "@/lib/storageNames";
+import { storageErrorMessage } from "@/lib/storageErrors";
 import {
     ArrowLeft, Plus, Trash2, ShoppingCart, Save, AlertCircle, RefreshCw,
     Upload, Layers, FileText, ChevronDown, ChevronUp, Search, X
@@ -38,20 +40,20 @@ function getFirstFile(x: any): File | undefined {
 // Schemas
 // =============================================================================
 const itemSchema = z.object({
-    description: z.string().min(1, "Description required"),
-    quantity: z.coerce.number().min(0.01, "Qty > 0"),
-    unit_price: z.coerce.number().min(0, "Price >= 0"),
+    description: z.string().min(1, "Escribe la descripción"),
+    quantity: z.coerce.number().min(0.01, "La cantidad debe ser mayor a 0"),
+    unit_price: z.coerce.number().min(0, "El precio no puede ser negativo"),
 });
 
 const groupSchema = z.object({
-    supplier_id: z.string().min(1, "Select a supplier"),
+    supplier_id: z.string().min(1, "Selecciona un proveedor"),
     supplier_quote_file: z.any().optional(),
-    items: z.array(itemSchema).min(1, "Add at least one item"),
+    items: z.array(itemSchema).min(1, "Agrega al menos un artículo"),
 });
 
 const poSchema = z.object({
     notes: z.string().optional().nullable(),
-    groups: z.array(groupSchema).min(1, "Add at least one supplier group"),
+    groups: z.array(groupSchema).min(1, "Agrega al menos un proveedor"),
 });
 
 type POFormValues = z.infer<typeof poSchema>;
@@ -78,10 +80,10 @@ function NewPOForm() {
 
     const { register, control, handleSubmit, watch, setValue, formState: { errors } } = useForm<POFormValues>({
         resolver: zodResolver(poSchema) as any,
+        // Abre en compra única; la multicompra se activa con su botón.
         defaultValues: {
             notes: "",
             groups: [
-                { supplier_id: "", items: [{ description: "", quantity: 1, unit_price: 0 }] },
                 { supplier_id: "", items: [{ description: "", quantity: 1, unit_price: 0 }] },
             ],
         }
@@ -135,7 +137,7 @@ function NewPOForm() {
                 let supplierQuoteUrl: string | null = null;
                 const f = getFirstFile((g as any).supplier_quote_file);
                 if (f) {
-                    const fileExt = f.name.split('.').pop() || 'file';
+                    const fileExt = fileExtension(f.name) || 'pdf';
                     const fileName = `quote_${Date.now()}.${fileExt}`;
                     const filePath = `supplier_quotes/${fileName}`;
                     const { error: uploadError } = await supabase.storage
@@ -145,7 +147,7 @@ function NewPOForm() {
                             upsert: false,
                             contentType: f.type,
                         });
-                    if (uploadError) throw uploadError;
+                    if (uploadError) throw new Error(`No se pudo subir la cotización "${f.name}": ${storageErrorMessage(uploadError.message)}`);
                     const { data: publicUrlData } = supabase.storage.from('purchase_files').getPublicUrl(filePath);
                     supplierQuoteUrl = publicUrlData.publicUrl;
                 }
@@ -188,7 +190,7 @@ function NewPOForm() {
                 let supplierQuoteUrl: string | null = null;
                 const f = getFirstFile((g as any).supplier_quote_file);
                 if (f) {
-                    const fileExt = f.name.split('.').pop() || 'file';
+                    const fileExt = fileExtension(f.name) || 'pdf';
                     const fileName = `quote_g${i}_${Date.now()}.${fileExt}`;
                     const filePath = `supplier_quotes/${fileName}`;
                     const { error: uploadError } = await supabase.storage
@@ -198,7 +200,7 @@ function NewPOForm() {
                             upsert: false,
                             contentType: f.type,
                         });
-                    if (uploadError) throw uploadError;
+                    if (uploadError) throw new Error(`No se pudo subir la cotización "${f.name}": ${storageErrorMessage(uploadError.message)}`);
                     const { data: publicUrlData } = supabase.storage.from('purchase_files').getPublicUrl(filePath);
                     supplierQuoteUrl = publicUrlData.publicUrl;
                 }

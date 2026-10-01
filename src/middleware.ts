@@ -70,6 +70,17 @@ export async function middleware(request: NextRequest) {
             accessListIncludes(session.accessList, mapping.moduleCode, sub)
         );
     }
+    // El detalle de una OT (/manufacturing/<sub>/<id>) también lo abre Calidad
+    // desde su cola de revisión; la página valida el permiso fino.
+    if (
+        !hasAccess &&
+        mapping.moduleCode === 'manufacturing' &&
+        mapping.subCode &&
+        pathname.split('/').filter(Boolean).length === 3 &&
+        accessListIncludes(session.accessList, 'quality', null)
+    ) {
+        hasAccess = true;
+    }
 
     if (!hasAccess) {
         const url = request.nextUrl.clone();

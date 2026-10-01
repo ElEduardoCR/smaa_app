@@ -1,6 +1,6 @@
 import 'server-only';
 import type { EmployeePermission, EmployeeRole } from './employees';
-import { hasSubModules, getSubCodes } from './moduleCatalog';
+import { hasSubModules, getSubCodes, type PermFlagKey } from './moduleCatalog';
 
 export type Action =
     | 'view'
@@ -51,6 +51,15 @@ export function can(
 }
 
 /**
+ * Flags que, además de `can_view`, dan entrada a la pantalla principal del
+ * módulo. En Requisiciones un operador con sólo "Solicitar insumos" debe
+ * poder entrar a ver SUS requisiciones.
+ */
+const ENTRY_FLAGS: Partial<Record<string, PermFlagKey[]>> = {
+    requisitions: ['can_create', 'can_request_supplies', 'can_purchase'],
+};
+
+/**
  * ¿El usuario puede ver este módulo? Considera sub-módulos: si el módulo
  * los tiene (ej. manufacturing → maquinado/soldadura/automatizacion),
  * basta con que pueda ver al menos uno para que el módulo padre sea
@@ -63,6 +72,9 @@ export function canViewModule(
 ): boolean {
     if (role === 'master') return true;
     if (can(role, perms, moduleCode, 'view', null)) return true;
+    const entry = ENTRY_FLAGS[moduleCode];
+    const modulePerm = resolvePermission(perms, moduleCode, null);
+    if (entry && modulePerm && entry.some((flag) => modulePerm[flag])) return true;
     if (hasSubModules(moduleCode)) {
         return perms.some(
             (p) => p.module_code === moduleCode && p.sub_code && p.can_view

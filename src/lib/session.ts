@@ -5,8 +5,16 @@ import { supabase } from './supabase';
 import type { EmployeePermission, EmployeeRole } from './employees';
 import { computeAccessList } from './moduleCatalog';
 
-const secretKey = process.env.SESSION_SECRET || 'smaa-default-secret-key-change-me-in-production';
-const encodedKey = new TextEncoder().encode(secretKey);
+// Sin SESSION_SECRET cualquiera podría firmar una cookie de master con el
+// valor por defecto (es público en el repo). En producción se falla cerrado:
+// nadie puede iniciar sesión hasta configurarlo. El default sólo es para dev.
+function sessionKey(): Uint8Array {
+    const secret = process.env.SESSION_SECRET;
+    if (!secret && process.env.NODE_ENV === 'production') {
+        throw new Error('SESSION_SECRET no está configurado en el servidor.');
+    }
+    return new TextEncoder().encode(secret || 'smaa-default-secret-key-change-me-in-production');
+}
 
 /**
  * Payload del JWT (lo que se mete en la cookie).
@@ -37,12 +45,12 @@ export async function encrypt(payload: SessionPayload) {
         .setProtectedHeader({ alg: 'HS256' })
         .setIssuedAt()
         .setExpirationTime('7d')
-        .sign(encodedKey);
+        .sign(sessionKey());
 }
 
 export async function decrypt(session: string | undefined = ''): Promise<SessionPayload | null> {
     try {
-        const { payload } = await jwtVerify(session, encodedKey, {
+        const { payload } = await jwtVerify(session, sessionKey(), {
             algorithms: ['HS256'],
         });
         return payload as unknown as SessionPayload;

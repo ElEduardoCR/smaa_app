@@ -11,10 +11,12 @@ async function requireSession() {
     return s;
 }
 
+const ACTION_LABEL = { view: 'ver', create: 'crear', edit: 'editar', delete: 'eliminar' } as const;
+
 async function requireCan(action: 'view' | 'create' | 'edit' | 'delete') {
     const s = await requireSession();
     if (!can(s.role, s.permissions, 'clients', action) && s.role !== 'master') {
-        throw new Error(`No tienes permisos para ${action} clientes.`);
+        throw new Error(`No tienes permisos para ${ACTION_LABEL[action]} clientes.`);
     }
     return s;
 }

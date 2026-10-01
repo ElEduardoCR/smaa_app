@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { cancelRequisitionAction, completePurchaseAction, createRequisitionUploadAction } from "@/app/actions/requisitions";
 import { supabase } from "@/lib/supabase";
+import { storageErrorMessage } from "@/lib/storageErrors";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -300,6 +301,8 @@ function PurchaseModal({ reqId, onClose }: { reqId: string; onClose: () => void 
     const router = useRouter();
     const [invoiceUrl, setInvoiceUrl] = useState('');
     const [photoUrl, setPhotoUrl] = useState('');
+    const [invoiceName, setInvoiceName] = useState('');
+    const [photoName, setPhotoName] = useState('');
     const [finalNotes, setFinalNotes] = useState('');
     const [saving, setSaving] = useState(false);
     const [uploading, setUploading] = useState<'invoice' | 'photo' | null>(null);
@@ -321,9 +324,9 @@ function PurchaseModal({ reqId, onClose }: { reqId: string; onClose: () => void 
                 .uploadToSignedUrl(upload.path, upload.token, file, {
                     contentType: file.type || "application/octet-stream",
                 });
-            if (error) throw new Error('Error al subir el archivo: ' + error.message);
-            if (kind === 'invoice') setInvoiceUrl(upload.publicUrl);
-            else setPhotoUrl(upload.publicUrl);
+            if (error) throw new Error('Error al subir el archivo: ' + storageErrorMessage(error.message));
+            if (kind === 'invoice') { setInvoiceUrl(upload.publicUrl); setInvoiceName(file.name); }
+            else { setPhotoUrl(upload.publicUrl); setPhotoName(file.name); }
         } catch (error: unknown) {
             setErr(errorMessage(error, "Error al subir."));
         } finally {
@@ -379,6 +382,7 @@ function PurchaseModal({ reqId, onClose }: { reqId: string; onClose: () => void 
                             onFile={(f) => upload(f, 'invoice')}
                             uploading={uploading === 'invoice'}
                             url={invoiceUrl}
+                            name={invoiceName}
                             onClear={() => setInvoiceUrl('')}
                             icon={<Receipt className="w-4 h-4 text-emerald-400" />}
                         />
@@ -389,6 +393,7 @@ function PurchaseModal({ reqId, onClose }: { reqId: string; onClose: () => void 
                             onFile={(f) => upload(f, 'photo')}
                             uploading={uploading === 'photo'}
                             url={photoUrl}
+                            name={photoName}
                             onClear={() => setPhotoUrl('')}
                             icon={<ImageIcon className="w-4 h-4 text-emerald-400" />}
                         />
@@ -459,8 +464,8 @@ function PurchaseModal({ reqId, onClose }: { reqId: string; onClose: () => void 
     );
 }
 
-function FileField({ label, accept, onFile, uploading, url, onClear, icon }: {
-    label: string; accept: string; onFile: (f: File) => void; uploading: boolean; url: string; onClear: () => void; icon: React.ReactNode;
+function FileField({ label, accept, onFile, uploading, url, name, onClear, icon }: {
+    label: string; accept: string; onFile: (f: File) => void; uploading: boolean; url: string; name?: string; onClear: () => void; icon: React.ReactNode;
 }) {
     return (
         <div>
@@ -485,7 +490,7 @@ function FileField({ label, accept, onFile, uploading, url, onClear, icon }: {
                 <div className="flex items-center gap-2 bg-neutral-900/40 border border-emerald-500/30 rounded-xl px-3 py-2 text-sm text-neutral-200">
                     {icon}
                     <a href={url} target="_blank" rel="noreferrer" className="truncate flex-1 hover:text-emerald-300">
-                        {url.split('/').pop()}
+                        {name || url.split('/').pop()}
                     </a>
                     <button type="button" onClick={onClear} className="p-1 text-neutral-500 hover:text-rose-300">
                         <X className="w-3.5 h-3.5" />

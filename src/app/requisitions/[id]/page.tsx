@@ -16,7 +16,13 @@ export default async function RequisitionDetailPage({ params }: { params: Promis
     const session = await getSession();
     if (!session) redirect('/login?redirect=/requisitions');
 
-    if (!can(session.role, session.permissions, 'requisitions', 'view') && session.role !== 'master') {
+    const isMaster = session.role === 'master';
+    const canPurchase = isMaster || can(session.role, session.permissions, 'requisitions', 'purchase');
+    const canViewAll = can(session.role, session.permissions, 'requisitions', 'view') || canPurchase;
+    const canRequest = isMaster ||
+        can(session.role, session.permissions, 'requisitions', 'create') ||
+        can(session.role, session.permissions, 'requisitions', 'request_supplies');
+    if (!canViewAll && !canRequest) {
         redirect('/?denied=1');
     }
 
@@ -43,6 +49,12 @@ export default async function RequisitionDetailPage({ params }: { params: Promis
     if (!req) notFound();
     const typedReq = req as unknown as Requisition;
 
+    // Sin `view`/`purchase` sólo se pueden abrir las requisiciones propias.
+    const isOwner = typedReq.requested_by === session.employeeId;
+    if (!canViewAll && !isOwner) {
+        redirect('/requisitions?denied=1');
+    }
+
     // Joins a employees en queries separados (defensivos ante nombres de FK).
     const employeeIds = Array.from(new Set(
         [typedReq.requested_by, typedReq.purchased_by].filter((employeeId): employeeId is string => Boolean(employeeId))
@@ -62,9 +74,6 @@ export default async function RequisitionDetailPage({ params }: { params: Promis
     const enriched: Requisition = { ...typedReq, requester, purchaser };
 
     // Permisos de acción
-    const isOwner = typedReq.requested_by === session.employeeId;
-    const isMaster = session.role === 'master';
-    const canPurchase = isMaster || can(session.role, session.permissions, 'requisitions', 'purchase');
     const canCancel = isOwner || canPurchase;
 
     return (

@@ -13,6 +13,7 @@ import PhotoCapture from "@/components/manufacturing/PhotoCapture";
 import SignaturePad from "@/components/manufacturing/SignaturePad";
 import { generateDeliveryPDF } from "@/lib/generateDeliveryPdf";
 import { uploadFileToBucket, uploadSignatureDataUrl } from "@/lib/uploadHelpers";
+import { safeStorageName } from "@/lib/storageNames";
 
 function cn(...inputs: (string | undefined | null | false)[]) {
     return twMerge(clsx(inputs));
@@ -166,7 +167,7 @@ export default function DeliveriesPage() {
         d: Delivery, file: File, geo: { lat: number; lng: number; source: string } | null, kind: "invoice" | "packaging" | "other"
     ) => {
         try {
-            const path = `deliveries/${kind}/${d.id}/${Date.now()}_${file.name}`;
+            const path = `deliveries/${kind}/${d.id}/${Date.now()}_${safeStorageName(file.name)}`;
             const url = await uploadFileToBucket(file, "work_order_files", path);
             await supabase.from("delivery_photos").insert([{
                 delivery_id: d.id,

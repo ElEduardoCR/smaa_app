@@ -72,7 +72,7 @@ export default function FinanceIndex() {
                 .eq("declaration_type", "IVA")
                 .order("period", { ascending: false })
                 .limit(1)
-                .single();
+                .maybeSingle();   // sin declaraciones todavía no es un error (antes: 406 en consola)
             if (lastIva) {
                 const ivaData = Array.isArray(lastIva.declaration_iva) ? lastIva.declaration_iva[0] : lastIva.declaration_iva;
                 setStats(s => ({

@@ -8,9 +8,10 @@ import {
 } from "lucide-react";
 import { createRequisitionAction, createRequisitionUploadAction } from "@/app/actions/requisitions";
 import { supabase } from "@/lib/supabase";
+import { storageErrorMessage } from "@/lib/storageErrors";
 
 type Item = { description: string; quantity: number; unit: string; notes: string };
-type UploadedFile = { name: string; url: string };
+type UploadedFile = { name: string; url: string; size: number };
 type Priority = 'low' | 'normal' | 'high' | 'urgent';
 
 function emptyItem(): Item {
@@ -52,8 +53,8 @@ export default function NewRequisitionClient({ suppliers }: { suppliers: { id: s
                 .uploadToSignedUrl(upload.path, upload.token, f, {
                     contentType: f.type || "application/octet-stream",
                 });
-            if (error) throw new Error('Error al subir la cotización: ' + error.message);
-            setFiles((prev) => [...prev, { name: f.name, url: upload.publicUrl }]);
+            if (error) throw new Error('Error al subir la cotización: ' + storageErrorMessage(error.message));
+            setFiles((prev) => [...prev, { name: f.name, url: upload.publicUrl, size: f.size }]);
         } catch (error: unknown) {
             setErr(errorMessage(error, "Error al subir archivo."));
         } finally {
@@ -92,7 +93,7 @@ export default function NewRequisitionClient({ suppliers }: { suppliers: { id: s
                 suggested_supplier_text: supplierText,
                 notes,
                 items: cleanItems,
-                quotation_urls: files.map((f) => f.url),
+                quotations: files.map((f) => ({ url: f.url, name: f.name, size: f.size })),
             });
             router.push(`/requisitions/${result.id}`);
         } catch (error: unknown) {

@@ -9,18 +9,19 @@ export default async function RequisitionsPage({ searchParams }: { searchParams:
     const session = await getSession();
     if (!session) redirect('/login?redirect=/requisitions');
 
-    if (!can(session.role, session.permissions, 'requisitions', 'view') && session.role !== 'master') {
-        redirect('/?denied=1');
-    }
-
     const canCreate = session.role === 'master' ||
         can(session.role, session.permissions, 'requisitions', 'create') ||
         can(session.role, session.permissions, 'requisitions', 'request_supplies');
     const canPurchase = can(session.role, session.permissions, 'requisitions', 'purchase') || session.role === 'master';
     // canViewAll: el permiso para ver requisiciones de OTROS usuarios.
-    // Atado a `view` (no a `purchase`) para que un operador con view pueda
-    // ver todas las requisiciones del taller, no solo las suyas.
-    const canViewAll = can(session.role, session.permissions, 'requisitions', 'view') || session.role === 'master';
+    // `view` (todo el taller) o `purchase` (el comprador necesita ver las
+    // pendientes de todos para comprarlas).
+    const canViewAll = can(session.role, session.permissions, 'requisitions', 'view') || canPurchase;
+
+    // Quien sólo puede solicitar insumos entra igual: ve "Mis requisiciones".
+    if (!canViewAll && !canCreate) {
+        redirect('/?denied=1');
+    }
 
     const sp = await searchParams;
     // Default: si el usuario puede ver requisiciones de todos, abrimos

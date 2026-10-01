@@ -4,6 +4,8 @@ import { revalidatePath } from 'next/cache';
 import { supabase } from '@/lib/supabase';
 import { getSession } from '@/lib/session';
 import { can } from '@/lib/permissions';
+import { fileExtension, safeStorageName } from '@/lib/storageNames';
+import { storageErrorMessage } from '@/lib/storageErrors';
 
 async function requireSession() {
     const s = await getSession();
@@ -11,10 +13,12 @@ async function requireSession() {
     return s;
 }
 
+const ACTION_LABEL = { view: 'ver', create: 'crear', edit: 'editar', delete: 'eliminar' } as const;
+
 async function requireCan(action: 'view' | 'create' | 'edit' | 'delete') {
     const s = await requireSession();
     if (!can(s.role, s.permissions, 'purchases', action) && s.role !== 'master') {
-        throw new Error(`No tienes permisos para ${action} compras.`);
+        throw new Error(`No tienes permisos para ${ACTION_LABEL[action]} compras.`);
     }
     return s;
 }
@@ -284,196 +288,153 @@ export async function restorePurchaseOrderAction(id: string) {
 }
 
 // =============================================================================
-// Recibir PO (subir 1..N archivos de factura, cambiar status a Received)
+// Archivos de la PO (facturas, fotos, otros).
 //
-// Acepta un array de archivos. Antes solo aceptaba uno. Ahora una
-// compra puede traer varias facturas (por ejemplo: una principal +
-// una nota de crédito + un complemento de pago).
+// Los archivos NO pasan por el servidor: en Vercel el cuerpo de una request
+// a una función (y por lo tanto a una server action) topa en 4.5 MB, y una
+// foto de celular en base64 ya lo rebasa. El flujo es:
+//   1) createPurchaseUploadAction → valida permiso/tipo/tamaño y devuelve
+//      una URL firmada de subida para una ruta dentro de la carpeta de la PO.
+//   2) El navegador sube directo a Storage con uploadToSignedUrl.
+//   3) receivePurchaseOrderAction / addPurchaseAttachmentAction registran
+//      las rutas ya subidas (sólo se aceptan rutas de la carpeta de esa PO).
 // =============================================================================
-export type ReceiveFile = {
-    base64: string;
+export type PurchaseFileKind = 'invoice' | 'evidence' | 'other';
+
+export type UploadedPurchaseFile = {
+    path: string;
     fileName: string;
     contentType: string;
 };
 
+const PURCHASE_FILE_LIMIT_BYTES = 50 * 1024 * 1024;
+const OFFICE_EXTENSIONS = ['doc', 'docx', 'xls', 'xlsx'];
+
+function purchaseFolder(poId: string, kind: PurchaseFileKind) {
+    return `${kind === 'invoice' ? 'invoices' : kind}/${poId}/`;
+}
+
+function validatePurchaseFile(fileName: string, contentType: string, fileSize: number, kind: PurchaseFileKind) {
+    if (!fileName?.trim()) throw new Error('El archivo no tiene nombre.');
+    if (!Number.isFinite(fileSize) || fileSize <= 0) throw new Error(`"${fileName}" está vacío.`);
+    if (fileSize > PURCHASE_FILE_LIMIT_BYTES) throw new Error(`"${fileName}" excede el límite de 50 MB.`);
+
+    const type = (contentType || '').toLowerCase();
+    const ext = fileExtension(fileName);
+    const isImage = type.startsWith('image/') || ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'].includes(ext);
+    const isPdf = type === 'application/pdf' || ext === 'pdf';
+    const isXml = type.endsWith('/xml') || ext === 'xml';
+
+    if (kind === 'evidence' && !isImage) throw new Error(`"${fileName}": la evidencia debe ser una imagen.`);
+    if (kind === 'invoice' && !isPdf && !isImage && !isXml) {
+        throw new Error(`"${fileName}": la factura debe ser PDF, XML o imagen.`);
+    }
+    if (kind === 'other' && !isPdf && !isImage && !isXml && !OFFICE_EXTENSIONS.includes(ext)) {
+        throw new Error(`"${fileName}": sólo se aceptan PDF, XML, imágenes, Word o Excel.`);
+    }
+}
+
+export async function createPurchaseUploadAction(
+    poId: string,
+    fileName: string,
+    contentType: string,
+    fileSize: number,
+    kind: PurchaseFileKind,
+): Promise<{ path: string; token: string }> {
+    await requireCan('edit');
+    if (!poId) throw new Error('Falta el ID de la PO.');
+    validatePurchaseFile(fileName, contentType, fileSize, kind);
+
+    const { data: po } = await supabase.from('purchase_orders').select('id').eq('id', poId).maybeSingle();
+    if (!po) throw new Error('La orden de compra no existe.');
+
+    const path = `${purchaseFolder(poId, kind)}${Date.now()}-${safeStorageName(fileName)}`;
+    const { data, error } = await supabase.storage.from('purchase_files').createSignedUploadUrl(path);
+    if (error || !data?.token) {
+        throw new Error('No se pudo preparar la carga: ' + storageErrorMessage(error?.message || 'token no generado.'));
+    }
+    return { path, token: data.token };
+}
+
+function attachmentRows(
+    poId: string,
+    files: UploadedPurchaseFile[],
+    kind: PurchaseFileKind,
+    employeeId: string,
+) {
+    const folder = purchaseFolder(poId, kind);
+    return files.map((f) => {
+        if (!f.path?.startsWith(folder) || f.path.includes('..')) {
+            throw new Error(`Ruta de archivo inválida para esta orden: ${f.fileName}`);
+        }
+        return {
+            purchase_order_id: poId,
+            kind,
+            file_url: supabase.storage.from('purchase_files').getPublicUrl(f.path).data.publicUrl,
+            file_name: f.fileName,
+            content_type: f.contentType,
+            uploaded_by: employeeId,
+        };
+    });
+}
+
+// Recibir PO: registra 1..N facturas (+ fotos opcionales) ya subidas y
+// cambia el status a Received.
 export async function receivePurchaseOrderAction(
     poId: string,
-    files: ReceiveFile[],
-    evidenceFiles: ReceiveFile[] = []
+    invoices: UploadedPurchaseFile[],
+    evidences: UploadedPurchaseFile[] = []
 ) {
     const session = await requireCan('edit');
     if (!poId) throw new Error('Falta el ID de la PO.');
-    if (!files || files.length === 0) {
-        throw new Error('Sube al menos una factura (PDF o imagen) para recibir la compra.');
+    if (!invoices || invoices.length === 0) {
+        throw new Error('Sube al menos una factura (PDF, XML o imagen) para recibir la compra.');
     }
 
-    // Subir todas las facturas y registrar en purchase_order_attachments
-    const uploaded: { url: string; fileName: string; contentType: string }[] = [];
-    for (let i = 0; i < files.length; i++) {
-        const f = files[i];
-        if (!f.base64) throw new Error(`Archivo ${i + 1}: falta el contenido.`);
-        const buf = Buffer.from(f.base64, 'base64');
-        const safeName = f.fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
-        const path = `invoices/${poId}/${Date.now()}-${i}-${safeName}`;
-        const { error: upErr } = await supabase.storage
-            .from('purchase_files')
-            .upload(path, buf, { contentType: f.contentType, upsert: false });
-        if (upErr) throw new Error('Error al subir factura: ' + upErr.message);
-        const { data: pub } = supabase.storage.from('purchase_files').getPublicUrl(path);
-        uploaded.push({ url: pub.publicUrl, fileName: f.fileName, contentType: f.contentType });
-    }
-
-    // Insertar todas las filas de adjuntos (invoices)
-    const attachmentRows = uploaded.map((u) => ({
-        purchase_order_id: poId,
-        kind: 'invoice',
-        file_url: u.url,
-        file_name: u.fileName,
-        content_type: u.contentType,
-        uploaded_by: session.employeeId,
-    }));
+    const invoiceRows = attachmentRows(poId, invoices, 'invoice', session.employeeId);
+    const evidenceRows = attachmentRows(poId, evidences, 'evidence', session.employeeId);
     const { error: attErr } = await supabase
         .from('purchase_order_attachments')
-        .insert(attachmentRows);
-    if (attErr) throw new Error('Error al registrar facturas: ' + attErr.message);
+        .insert([...invoiceRows, ...evidenceRows]);
+    if (attErr) throw new Error('Error al registrar los archivos: ' + attErr.message);
 
-    // Evidencia fotográfica (opcional). No cambia status por sí sola.
-    const evidenceRows: any[] = [];
-    for (let i = 0; i < evidenceFiles.length; i++) {
-        const f = evidenceFiles[i];
-        if (!f.base64) continue;
-        const buf = Buffer.from(f.base64, 'base64');
-        const safeName = f.fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
-        const fileExt = safeName.split('.').pop() || 'jpg';
-        const path = `purchases/evidence_photos/po_${poId}_${Date.now()}_${i}.${fileExt}`;
-        const { error: upErr } = await supabase.storage
-            .from('purchase_files')
-            .upload(path, buf, { contentType: f.contentType, upsert: false });
-        if (upErr) throw new Error('Error al subir evidencia: ' + upErr.message);
-        const { data: pub } = supabase.storage.from('purchase_files').getPublicUrl(path);
-        evidenceRows.push({
-            purchase_order_id: poId,
-            kind: 'evidence',
-            file_url: pub.publicUrl,
-            file_name: f.fileName,
-            content_type: f.contentType,
-            uploaded_by: session.employeeId,
-        });
-    }
-    if (evidenceRows.length > 0) {
-        const { error: eErr } = await supabase
-            .from('purchase_order_attachments')
-            .insert(evidenceRows);
-        if (eErr) throw new Error('Error al registrar evidencia: ' + eErr.message);
-    }
-
-    // Actualizar la PO: status = Received, y mantener invoice_url con
-    // la primera factura (retrocompatibilidad con el resto del sistema).
-    const firstInvoice = uploaded[0]?.url || null;
-    const firstEvidence = evidenceRows[0]?.file_url || null;
+    // invoice_url / evidence_photo_url conservan la primera de cada tipo
+    // (retrocompatibilidad). Si no llegó evidencia nueva, no se borra la previa.
+    const patch: Record<string, string> = {
+        status: 'Received',
+        invoice_url: invoiceRows[0].file_url,
+    };
+    if (evidenceRows.length > 0) patch.evidence_photo_url = evidenceRows[0].file_url;
     const { error: updateErr } = await supabase
         .from('purchase_orders')
-        .update({
-            status: 'Received',
-            invoice_url: firstInvoice,
-            evidence_photo_url: firstEvidence,
-        })
+        .update(patch)
         .eq('id', poId);
     if (updateErr) throw new Error('Error al actualizar status: ' + updateErr.message);
 
     revalidatePath('/purchases');
     revalidatePath(`/purchases/${poId}`);
     return {
-        invoice_url: firstInvoice,
-        attachment_count: uploaded.length,
+        invoice_url: invoiceRows[0].file_url,
+        attachment_count: invoiceRows.length,
         evidence_count: evidenceRows.length,
     };
 }
 
 // =============================================================================
-// Subir foto de evidencia ADICIONAL sin cambiar status
-// (compatibilidad con el botón "Subir Foto" del listado)
-//
-// Antes solo aceptaba un archivo. Ahora se usa internamente por
-// `addPurchaseAttachmentAction` (que es multi-archivo y es la
-// API recomendada). Esta función se conserva para no romper
-// usos existentes en otros lugares.
-// =============================================================================
-export async function uploadPurchaseEvidenceAction(poId: string, photoBase64: string, fileName: string, contentType: string) {
-    const session = await requireCan('edit');
-    if (!poId) throw new Error('Falta el ID de la PO.');
-    if (!photoBase64) throw new Error('Falta la foto.');
-
-    const buf = Buffer.from(photoBase64, 'base64');
-    const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const fileExt = safeName.split('.').pop() || 'jpg';
-    const path = `purchases/evidence_photos/po_${poId}_${Date.now()}.${fileExt}`;
-    const { error: upErr } = await supabase.storage
-        .from('purchase_files')
-        .upload(path, buf, { contentType, upsert: false });
-    if (upErr) throw new Error('Error al subir foto: ' + upErr.message);
-
-    const { data: pub } = supabase.storage.from('purchase_files').getPublicUrl(path);
-    const publicUrl = pub.publicUrl;
-
-    // Guardar también en la nueva tabla de adjuntos
-    await supabase.from('purchase_order_attachments').insert({
-        purchase_order_id: poId,
-        kind: 'evidence',
-        file_url: publicUrl,
-        file_name: fileName,
-        content_type: contentType,
-        uploaded_by: session.employeeId,
-    });
-
-    const { error: updateErr } = await supabase
-        .from('purchase_orders')
-        .update({ evidence_photo_url: publicUrl })
-        .eq('id', poId);
-    if (updateErr) throw new Error('Error al guardar evidencia: ' + updateErr.message);
-
-    revalidatePath('/purchases');
-    revalidatePath(`/purchases/${poId}`);
-    return { evidence_photo_url: publicUrl };
-}
-
-// =============================================================================
-// Agregar N adjuntos a una PO ya existente (sin cambiar status).
+// Agregar N adjuntos (ya subidos) a una PO existente sin cambiar status.
 // Útil para "agregar otra factura" o "subir más evidencia" sin
 // reabrir el flujo de "Recibir".
 // =============================================================================
 export async function addPurchaseAttachmentAction(
     poId: string,
-    files: ReceiveFile[],
-    kind: 'invoice' | 'evidence' | 'other' = 'other'
+    files: UploadedPurchaseFile[],
+    kind: PurchaseFileKind = 'other'
 ) {
     const session = await requireCan('edit');
     if (!poId) throw new Error('Falta el ID de la PO.');
     if (!files || files.length === 0) throw new Error('Selecciona al menos un archivo.');
 
-    const rows: any[] = [];
-    for (let i = 0; i < files.length; i++) {
-        const f = files[i];
-        if (!f.base64) continue;
-        const buf = Buffer.from(f.base64, 'base64');
-        const safeName = f.fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
-        const path = `${kind}/${poId}/${Date.now()}-${i}-${safeName}`;
-        const { error: upErr } = await supabase.storage
-            .from('purchase_files')
-            .upload(path, buf, { contentType: f.contentType, upsert: false });
-        if (upErr) throw new Error(`Error al subir ${f.fileName}: ${upErr.message}`);
-        const { data: pub } = supabase.storage.from('purchase_files').getPublicUrl(path);
-        rows.push({
-            purchase_order_id: poId,
-            kind,
-            file_url: pub.publicUrl,
-            file_name: f.fileName,
-            content_type: f.contentType,
-            uploaded_by: session.employeeId,
-        });
-    }
-    if (rows.length === 0) throw new Error('No se pudo subir ninguno de los archivos.');
-
+    const rows = attachmentRows(poId, files, kind, session.employeeId);
     const { error: insErr } = await supabase
         .from('purchase_order_attachments')
         .insert(rows);
@@ -517,7 +478,7 @@ export async function deletePurchaseAttachmentAction(attachmentId: string) {
     try {
         const path = (att as any).file_url.split('/purchase_files/').pop();
         if (path) {
-            await supabase.storage.from('purchase_files').remove([path]);
+            await supabase.storage.from('purchase_files').remove([decodeURIComponent(path)]);
         }
     } catch (storageErr) {
         console.warn('[deletePurchaseAttachmentAction] storage delete warning:', storageErr);

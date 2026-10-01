@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { cookies } from "next/headers";
 import { decrypt } from "@/lib/session";
-import { ALL_MODULES, isModuleVisible } from "@/lib/navModules";
+import { ALL_MODULES, isModuleVisible, moduleEntryHrefFromAccessList } from "@/lib/navModules";
 import AppShell, { type ShellUser, type ShellModule } from "@/components/AppShell";
 import "./globals.css";
 
@@ -53,12 +53,12 @@ export default async function RootLayout({
   const modules: ShellModule[] = payload
     ? ALL_MODULES.filter((m) =>
         isModuleVisible(payload.role, payload.accessList, m.moduleCode)
-      ).map(({ href, short, Icon, category, badge }) => ({
-        href,
-        short,
-        Icon,
-        category,
-        badge,
+      ).map((m) => ({
+        href: moduleEntryHrefFromAccessList(m, payload.role, payload.accessList),
+        short: m.short,
+        Icon: m.Icon,
+        category: m.category,
+        badge: m.badge,
       }))
     : [];
 

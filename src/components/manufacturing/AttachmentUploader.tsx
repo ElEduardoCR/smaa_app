@@ -4,6 +4,11 @@ import { useRef, useState } from "react";
 import { Upload, FileText, Box, Image as ImageIcon, FileQuestion, RefreshCw, Trash2, Download, X, Loader2 } from "lucide-react";
 import clsx from "clsx";
 import { supabase } from "@/lib/supabase";
+import { safeStorageName } from "@/lib/storageNames";
+
+// Límite del bucket work_order_files (file_size_limit = 100 MB). Supabase
+// además aplica su límite global por archivo (50 MB en el plan Free).
+const MAX_UPLOAD_MB = 100;
 
 export type AttachedFile = {
     id?: string;
@@ -66,16 +71,21 @@ export default function AttachmentUploader({ workOrderId, attachments, onChange,
         try {
             for (let i = 0; i < files.length; i++) {
                 const f = files[i];
-                if (f.size > 200 * 1024 * 1024) {
-                    setErr(`"${f.name}" excede el límite de 200 MB.`);
+                if (f.size > MAX_UPLOAD_MB * 1024 * 1024) {
+                    setErr(`"${f.name}" excede el límite de ${MAX_UPLOAD_MB} MB.`);
                     continue;
                 }
                 const det = detectKind(f);
-                const path = `${workOrderId}/${Date.now()}_${f.name}`;
+                const path = `${workOrderId}/${Date.now()}_${safeStorageName(f.name)}`;
                 const { error: upErr } = await supabase.storage
                     .from("work_order_files")
                     .upload(path, f, { cacheControl: "3600", upsert: false, contentType: det.mime });
-                if (upErr) throw upErr;
+                if (upErr) {
+                    if (/maximum allowed size/i.test(upErr.message)) {
+                        throw new Error(`"${f.name}" excede el tamaño máximo que acepta el almacenamiento.`);
+                    }
+                    throw upErr;
+                }
                 const { data: urlData } = supabase.storage.from("work_order_files").getPublicUrl(path);
                 const { error: insErr } = await supabase.from("work_order_files").insert([{
                     work_order_id: workOrderId,
@@ -148,7 +158,7 @@ export default function AttachmentUploader({ workOrderId, attachments, onChange,
                         disabled={busy}
                     />
                 </label>
-                <span className="text-[11px] text-neutral-500">PDF, STEP, IGES, X_T, imágenes (hasta 200 MB c/u)</span>
+                <span className="text-[11px] text-neutral-500">PDF, STEP, IGES, X_T, imágenes (hasta {MAX_UPLOAD_MB} MB c/u)</span>
             </div>
 
             {err && (

@@ -6,6 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { supabase } from "@/lib/supabase";
 import { extractAndParseCSF, type CsfData } from "@/lib/csfParser";
+import { fileExtension, safeStorageSegment } from "@/lib/storageNames";
 import { createSupplierAction, updateSupplierAction, deleteSupplierAction as obsoleteSupplierAction, restoreSupplierAction } from "@/app/actions/suppliers";
 import { Truck, FileText, Hash, Mail, MapPin, Phone, RefreshCw, Plus, ArrowLeft, Users, Download, FileCheck, Edit2, Sparkles, CheckCircle2, AlertCircle, Loader2, X, Archive, ArchiveRestore } from "lucide-react";
 import Link from "next/link";
@@ -191,8 +192,9 @@ export default function SuppliersPage() {
             let pdfUrl: string | null = null;
 
             if (selectedFile) {
-                const fileExt = selectedFile.name.split('.').pop();
-                const fileName = `${data.rfc}-${Date.now()}.${fileExt}`;
+                // El RFC puede traer Ñ o &: no sirve tal cual como ruta de Storage.
+                const fileExt = fileExtension(selectedFile.name) || 'pdf';
+                const fileName = `${safeStorageSegment(data.rfc)}-${Date.now()}.${fileExt}`;
                 const { error: uploadError } = await supabase.storage.from('purchase_files').upload(`constancias/${fileName}`, selectedFile, { cacheControl: '3600', upsert: true, contentType: selectedFile.type });
                 if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`);
                 const { data: publicUrlData } = supabase.storage.from('purchase_files').getPublicUrl(`constancias/${fileName}`);

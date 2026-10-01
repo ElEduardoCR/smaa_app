@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
+import { safeStorageName } from "@/lib/storageNames";
 import { extractAndParseAcuse, buildComparison, ComparisonRow, ExtractedAcuse } from "@/lib/satAcuseParser";
 
 function cn(...inputs: (string | undefined | null | false)[]) {
@@ -219,7 +220,7 @@ export default function DeclarationDetailPage() {
         setExtractionProgress("Subiendo archivo…");
         try {
             // 1) Upload
-            const path = `declarations/${dec?.declaration_type}/${dec?.period}_${Date.now()}_${f.name}`;
+            const path = `declarations/${dec?.declaration_type}/${dec?.period}_${Date.now()}_${safeStorageName(f.name)}`;
             const { error: upErr } = await supabase.storage.from("finance_files").upload(path, f, { cacheControl: "3600", upsert: false, contentType: f.type });
             if (upErr) throw upErr;
             const { data: urlData } = supabase.storage.from("finance_files").getPublicUrl(path);

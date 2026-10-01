@@ -18,6 +18,12 @@ export type RequisitionItemInput = {
     notes?: string;
 };
 
+export type RequisitionQuotationInput = {
+    url: string;                         // URL pública ya subida al storage
+    name: string;                        // nombre original para mostrar
+    size?: number | null;
+};
+
 export type CreateRequisitionInput = {
     priority: 'low' | 'normal' | 'high' | 'urgent';
     needed_by: string | null;            // ISO date o null
@@ -25,7 +31,9 @@ export type CreateRequisitionInput = {
     suggested_supplier_text: string;
     notes: string;
     items: RequisitionItemInput[];
-    quotation_urls: string[];            // cotizaciones ya subidas al storage
+    quotations?: RequisitionQuotationInput[];
+    /** @deprecated usar `quotations` (conserva el nombre original del archivo). */
+    quotation_urls?: string[];
 };
 
 export type RequisitionUploadPurpose =
@@ -109,6 +117,17 @@ export async function createRequisitionAction(input: CreateRequisitionInput) {
         }
     }
 
+    // Sólo se aceptan cotizaciones subidas a nuestro bucket (se valida antes
+    // de insertar nada para no dejar requisiciones a medias).
+    const quotations: RequisitionQuotationInput[] = input.quotations?.length
+        ? input.quotations
+        : (input.quotation_urls || []).map((url) => ({ url, name: url.split('/').pop() || 'archivo' }));
+    for (const q of quotations) {
+        if (!q.url?.includes('/requisition_files/quotations/')) {
+            throw new Error(`Cotización inválida: ${q.name || q.url}`);
+        }
+    }
+
     // 1. Insertar cabecera
     const { data: code, error: codeErr } = await supabase.rpc('next_requisition_code');
     if (codeErr) throw codeErr;
@@ -141,11 +160,12 @@ export async function createRequisitionAction(input: CreateRequisitionInput) {
     if (itemsErr) throw itemsErr;
 
     // 3. Adjuntar cotizaciones
-    if (input.quotation_urls?.length) {
-        const qrows = input.quotation_urls.map((url) => ({
+    if (quotations.length) {
+        const qrows = quotations.map((q) => ({
             requisition_id: req.id,
-            file_url: url,
-            file_name: url.split('/').pop() || 'archivo',
+            file_url: q.url,
+            file_name: q.name?.trim() || q.url.split('/').pop() || 'archivo',
+            file_size: q.size ?? null,
             uploaded_by: session.employeeId,
         }));
         const { error: qErr } = await supabase.from('requisition_quotations').insert(qrows);
@@ -209,23 +229,28 @@ export async function completePurchaseAction(
         .maybeSingle();
 
     // Resolver el supplier_id: si la requisición lo tiene, usarlo. Si solo
-    // tiene texto libre, intentar matchear por business_name. Si no, null
-    // (el comprador lo asigna después con purchases:edit).
+    // tiene texto libre, intentar matchear por nombre comercial, razón social
+    // o RFC (el operador normalmente escribe el nombre comercial). Si no,
+    // null (el comprador lo asigna después con purchases:edit).
     const typedReq = req as typeof req & RequisitionRecord;
     let supplierId: string | null = typedReq.suggested_supplier_id || null;
-    if (!supplierId && typedReq.suggested_supplier_text) {
-        try {
-            const { data: matched } = await supabase
+    // Coincidencia exacta sin importar mayúsculas: % y _ del texto no son comodines.
+    const supplierText = typedReq.suggested_supplier_text?.trim().replace(/[\\%_]/g, (c: string) => `\\${c}`);
+    if (!supplierId && supplierText) {
+        for (const column of ['name', 'business_name', 'rfc']) {
+            const { data: matched, error: matchErr } = await supabase
                 .from('suppliers')
                 .select('id')
-                .ilike('business_name', typedReq.suggested_supplier_text.trim())
+                .ilike(column, supplierText)
+                .order('is_active', { ascending: false })
                 .limit(1)
                 .maybeSingle();
-            if (matched) supplierId = matched.id;
-        } catch (matchErr) {
-            // No bloqueamos el cierre de compra si falla el match — solo dejamos
-            // supplier_id en null y el comprador lo asigna después.
-            console.warn('[completePurchaseAction] supplier match falló (no crítico):', matchErr);
+            if (matchErr) {
+                // No bloqueamos el cierre de compra si falla el match.
+                console.warn('[completePurchaseAction] supplier match falló (no crítico):', matchErr);
+                break;
+            }
+            if (matched) { supplierId = matched.id; break; }
         }
     }
 
@@ -238,33 +263,55 @@ export async function completePurchaseAction(
     // 1. Auto-crear la PO en Draft (linkeada a la requisición). El comprador
     // con `purchases:edit` completará después precios, supplier (si quedó null),
     // y cambiará a Sent/Approved/Received.
-    const { data: insertedPO, error: poErr } = await supabase
+    //
+    // Si un intento anterior creó la PO pero falló después (la requisición
+    // quedó "pending"), se reutiliza esa PO en lugar de duplicarla.
+    const { data: existingPO } = await supabase
         .from('purchase_orders')
-        .insert({
-            supplier_id: supplierId,
-            status: 'Draft',
-            subtotal: 0,
-            vat_total: 0,
-            total: 0,
-            supplier_quote_url: firstQuotation?.file_url || null,
-            invoice_url: invoiceUrl,
-            evidence_photo_url: invoicePhotoUrl,
-            invoice_date: new Date().toISOString(),
-            requisition_id: id,
-            notes: combinedNotes,
-        })
         .select('id, po_number')
-        .single();
-    if (poErr) {
-        console.error('[completePurchaseAction] no se pudo crear la PO', poErr);
-        throw new Error('No se pudo crear la orden de compra: ' + (poErr.message || 'error desconocido.'));
+        .eq('requisition_id', id)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+    let insertedPO = existingPO as { id: string; po_number: string } | null;
+    let poHasItems = false;
+    if (insertedPO) {
+        const { count } = await supabase
+            .from('purchase_order_items')
+            .select('id', { count: 'exact', head: true })
+            .eq('purchase_order_id', insertedPO.id);
+        poHasItems = (count || 0) > 0;
+    } else {
+        const { data: created, error: poErr } = await supabase
+            .from('purchase_orders')
+            .insert({
+                supplier_id: supplierId,
+                status: 'Draft',
+                subtotal: 0,
+                vat_total: 0,
+                total: 0,
+                supplier_quote_url: firstQuotation?.file_url || null,
+                invoice_url: invoiceUrl,
+                evidence_photo_url: invoicePhotoUrl,
+                invoice_date: new Date().toISOString(),
+                requisition_id: id,
+                notes: combinedNotes,
+            })
+            .select('id, po_number')
+            .single();
+        if (poErr || !created) {
+            console.error('[completePurchaseAction] no se pudo crear la PO', poErr);
+            throw new Error('No se pudo crear la orden de compra: ' + (poErr?.message || 'error desconocido.'));
+        }
+        insertedPO = created;
     }
+    const po = insertedPO;
 
     // 2. Copiar los items de la requisición al PO (con precios 0; el
     // comprador los llena después).
-    if (reqItems && reqItems.length > 0) {
+    if (!poHasItems && reqItems && reqItems.length > 0) {
         const poItems = (reqItems as RequisitionItemRecord[]).map((it) => ({
-            purchase_order_id: insertedPO.id,
+            purchase_order_id: po.id,
             description: it.description,
             quantity: it.quantity,
             unit_price: 0,
@@ -309,8 +356,8 @@ export async function completePurchaseAction(
     }
 
     return {
-        poId: insertedPO.id,
-        poNumber: insertedPO.po_number,
+        poId: po.id,
+        poNumber: po.po_number,
         needsSupplier: !supplierId,
     };
 }

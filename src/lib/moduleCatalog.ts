@@ -44,6 +44,12 @@ export type ModuleDef = {
     routePrefix: string;
     /** Sub-códigos (viven en /<routePrefix>/<sub>/...). */
     subs?: ModuleSub[];
+    /**
+     * Para módulos con sub-módulos: etiqueta del permiso GENERAL del módulo
+     * (sub_code = null). Se usa cuando la pantalla raíz y sus secciones no
+     * son sub-módulos (ej. Finanzas: nómina, IVA, etc. + Cuentas por Cobrar).
+     */
+    rootLabel?: string;
     /** Flags que se pueden asignar para este módulo. */
     actions: ModuleAction[];
     /** Acción mínima que pide la página principal. Default: 'view'. */
@@ -156,6 +162,9 @@ export const MODULE_CATALOG: ModuleDef[] = [
         code: 'finance',
         label: 'Nóminas y Contabilidad',
         routePrefix: 'finance',
+        // Permiso general (sub_code = null): /finance, empleados, nómina,
+        // checador, IVA, declaraciones y movimientos.
+        rootLabel: 'General (nómina, checador, IVA, declaraciones)',
         subs: [
             // Sólo 'receivable' está catalogado en el middleware (gateado a nivel URL).
             // Los otros sub-paths (employees, payroll, etc.) se auto-protegen en su
@@ -261,6 +270,10 @@ export type PathMapping = {
     action: Action;
 };
 
+// Prefijo más largo primero: /documents/requests es de `document_requests`
+// (no de `documents`) y /settings/employees de `employees` (no de `settings`).
+const MODULES_BY_PREFIX = [...MODULE_CATALOG].sort((a, b) => b.routePrefix.length - a.routePrefix.length);
+
 /**
  * Mapea un pathname (sin query) a su módulo/sub/acción. Devuelve null si la
  * ruta no corresponde a ningún módulo conocido (página pública, API, etc.).
@@ -282,7 +295,7 @@ export function getModuleForPath(pathname: string): PathMapping | null {
     const p = pathname.replace(/^\/+/, '').replace(/\/+$/, '');
     if (!p) return null;
 
-    for (const m of MODULE_CATALOG) {
+    for (const m of MODULES_BY_PREFIX) {
         const prefix = m.routePrefix;
         if (p === prefix) {
             return { moduleCode: m.code, subCode: null, action: m.defaultAction ?? 'view' };
@@ -342,13 +355,12 @@ export function computeAccessList(perms: Array<{ module_code: string; sub_code: 
         const def = getModuleDef(moduleCode);
         const hasSub = def && def.subs && def.subs.length > 0;
         if (hasSub) {
-            // Solo emitimos los sub-módulos; el helper canViewModule se encarga
-            // de mostrar la tarjeta padre si al menos uno es accesible.
+            // Emitimos los sub-módulos; el helper canViewModule se encarga
+            // de mostrar la tarjeta padre si al menos uno es accesible. El
+            // permiso general (sub null) sólo cuenta si el módulo lo define.
             for (const sub of subs) {
-                if (sub) {
-                    const k = `${moduleCode}:${sub}`;
-                    if (!seen.has(k)) { seen.add(k); out.push(k); }
-                }
+                const k = sub ? `${moduleCode}:${sub}` : def?.rootLabel ? `${moduleCode}:` : null;
+                if (k && !seen.has(k)) { seen.add(k); out.push(k); }
             }
         } else {
             // Módulo sin sub-módulos: emitimos module: (sub vacío)

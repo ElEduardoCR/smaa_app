@@ -5,6 +5,7 @@ import { matchesSearch } from "@/lib/search";
 import { supabase } from "@/lib/supabase";
 import { generatePurchaseOrderPDF } from "@/lib/generatePoPdf";
 import { receivePurchaseOrderAction, deletePurchaseOrderAction as obsoletePOAction, restorePurchaseOrderAction } from "@/app/actions/purchases";
+import { uploadPurchaseFiles } from "@/lib/purchaseUploads";
 import { ShoppingCart, Plus, RefreshCw, ArrowLeft, Download, Eye, CheckCircle, Upload, FileText, Camera, Inbox, Search, X, Filter, Edit2, Archive, ArchiveRestore, Layers, Receipt, ChevronDown, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import clsx from "clsx";
@@ -32,7 +33,7 @@ type PO = {
     items: Array<{ id: string; description: string; quantity: number; unit_price: number; line_total: number }>;
 };
 
-export default function PurchasesPage() {
+export default function PurchasesPage({ canEdit = true, canDelete = true }: { canEdit?: boolean; canDelete?: boolean }) {
     const [orders, setOrders] = useState<PO[]>([]);
     const [attachmentCounts, setAttachmentCounts] = useState<Record<string, { invoice: number; evidence: number; other: number }>>({});
     const [isLoading, setIsLoading] = useState(true);
@@ -153,36 +154,17 @@ export default function PurchasesPage() {
 
     const handleReceive = async (poId: string) => {
         if (receiveFiles.length === 0) {
-            alert("Adjunta al menos una factura (PDF o imagen).");
+            alert("Adjunta al menos una factura (PDF, XML o imagen).");
             return;
         }
 
         setIsSubmitting(true);
         setUploadingReceive(true);
         try {
-            // Convertir cada archivo a base64 (DataURL → base64) y mandarlo al server action.
-            const toBase64 = (file: File): Promise<string> =>
-                new Promise((res, rej) => {
-                    const reader = new FileReader();
-                    reader.onload = () => res(String(reader.result || "").split(",")[1] || "");
-                    reader.onerror = rej;
-                    reader.readAsDataURL(file);
-                });
-
-            const invoices = await Promise.all(
-                receiveFiles.map(async (f) => ({
-                    base64: await toBase64(f),
-                    fileName: f.name,
-                    contentType: f.type || "application/octet-stream",
-                }))
-            );
-            const evidences = await Promise.all(
-                receiveEvidenceFiles.map(async (f) => ({
-                    base64: await toBase64(f),
-                    fileName: f.name,
-                    contentType: f.type || "application/octet-stream",
-                }))
-            );
+            // Los archivos suben directo a Storage; al servidor sólo van las rutas.
+            const invoices = await uploadPurchaseFiles(poId, receiveFiles, "invoice");
+            const evidences = await uploadPurchaseFiles(poId, receiveEvidenceFiles, "evidence");
+            setUploadingReceive(false);
 
             await receivePurchaseOrderAction(poId, invoices, evidences);
 
@@ -522,15 +504,19 @@ export default function PurchasesPage() {
 
                                                 <td className="px-6 py-4 text-right space-x-2 whitespace-nowrap">
                                                     {isObsolete ? (
-                                                        <button onClick={() => handleRestore(po)} className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-white bg-emerald-500/10 hover:bg-emerald-500 px-3 py-1.5 rounded-lg border border-emerald-500/20 transition-colors" title="Restaurar">
-                                                            <ArchiveRestore className="w-3.5 h-3.5" /> Restaurar
-                                                        </button>
+                                                        canEdit && (
+                                                            <button onClick={() => handleRestore(po)} className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-white bg-emerald-500/10 hover:bg-emerald-500 px-3 py-1.5 rounded-lg border border-emerald-500/20 transition-colors" title="Restaurar">
+                                                                <ArchiveRestore className="w-3.5 h-3.5" /> Restaurar
+                                                            </button>
+                                                        )
                                                     ) : (
                                                         <>
                                                             {po.status !== 'Received' ? (
-                                                                <button onClick={() => openReceiveModal(po.id)} className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-3 py-1.5 rounded-lg border border-emerald-500/20 transition-colors">
-                                                                    <CheckCircle className="w-3.5 h-3.5" /> Recibir
-                                                                </button>
+                                                                canEdit && (
+                                                                    <button onClick={() => openReceiveModal(po.id)} className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-3 py-1.5 rounded-lg border border-emerald-500/20 transition-colors">
+                                                                        <CheckCircle className="w-3.5 h-3.5" /> Recibir
+                                                                    </button>
+                                                                )
                                                             ) : po.invoice_url ? (
                                                                 <a href={po.invoice_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs font-medium text-orange-400 hover:text-orange-300 bg-orange-500/10 hover:bg-orange-500/20 px-3 py-1.5 rounded-lg border border-orange-500/20 transition-colors">
                                                                     <FileText className="w-3.5 h-3.5" /> Factura
@@ -542,9 +528,11 @@ export default function PurchasesPage() {
                                                             <button onClick={() => handleDownloadPDF(po)} className="inline-flex items-center gap-1.5 text-xs font-medium text-orange-400 hover:text-orange-300 bg-orange-500/10 hover:bg-orange-500/20 px-3 py-1.5 rounded-lg border border-orange-500/20 transition-colors">
                                                                 <Download className="w-3.5 h-3.5" /> PDF
                                                             </button>
-                                                            <button onClick={() => handleObsolete(po)} className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-400 hover:text-white bg-amber-500/10 hover:bg-amber-500 px-3 py-1.5 rounded-lg border border-amber-500/20 transition-colors" title="Obsoletar">
-                                                                <Archive className="w-3.5 h-3.5" /> Obsoletar
-                                                            </button>
+                                                            {canDelete && (
+                                                                <button onClick={() => handleObsolete(po)} className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-400 hover:text-white bg-amber-500/10 hover:bg-amber-500 px-3 py-1.5 rounded-lg border border-amber-500/20 transition-colors" title="Obsoletar">
+                                                                    <Archive className="w-3.5 h-3.5" /> Obsoletar
+                                                                </button>
+                                                            )}
                                                         </>
                                                     )}
                                                 </td>
@@ -600,13 +588,13 @@ export default function PurchasesPage() {
                             {/* Facturas (múltiples) */}
                             <div>
                                 <div className="flex items-center justify-between mb-1.5">
-                                    <label className="text-sm font-medium text-neutral-300">Factura(s) (PDF o Imagen) *</label>
+                                    <label className="text-sm font-medium text-neutral-300">Factura(s) (PDF, XML o imagen) *</label>
                                     <span className="text-[10px] text-neutral-500">{receiveFiles.length} archivo{receiveFiles.length === 1 ? "" : "s"}</span>
                                 </div>
                                 <FileMultiPicker
                                     files={receiveFiles}
                                     onChange={setReceiveFiles}
-                                    accept=".pdf,image/*"
+                                    accept=".pdf,.xml,image/*"
                                     disabled={isSubmitting}
                                     primary
                                 />

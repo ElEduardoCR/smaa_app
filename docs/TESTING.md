@@ -27,7 +27,7 @@ npm install pg @types/pg server-only
 Los scripts leen `DB_URL` con la connection string directa a Supabase:
 
 ```powershell
-$env:DB_URL = "postgresql://postgres:para1usodewibn2@db.mvjrqgyrjoawdhpalbix.supabase.co:5432/postgres"
+$env:DB_URL = "postgresql://postgres:TU-PASSWORD@db.TU-PROYECTO.supabase.co:5432/postgres"
 $env:NODE_PATH = "C:\tmp-pg-runner\node_modules"
 ```
 
@@ -390,7 +390,7 @@ npm init -y
 npm install pg @types/pg server-only
 
 # Cada vez que quieras correr tests
-$env:DB_URL = "postgresql://postgres:para1usodewibn2@db.mvjrqgyrjoawdhpalbix.supabase.co:5432/postgres"
+$env:DB_URL = "postgresql://postgres:TU-PASSWORD@db.TU-PROYECTO.supabase.co:5432/postgres"
 $env:NODE_PATH = "C:\tmp-pg-runner\node_modules"
 Set-Location "C:\smaa app\smaa_app"
 

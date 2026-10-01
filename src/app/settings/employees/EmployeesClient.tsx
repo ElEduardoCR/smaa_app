@@ -10,12 +10,14 @@ import {
 import { logoutAction } from "@/app/actions/auth";
 import {
     createEmployeeAction,
+    createEmployeePhotoUploadAction,
     deleteEmployeeAction,
     obsoleteEmployeeAction,
     restoreEmployeeAction,
     updateEmployeeAction,
-    uploadEmployeePhotoAction,
 } from "@/app/actions/employees";
+import { supabase } from "@/lib/supabase";
+import { storageErrorMessage } from "@/lib/storageErrors";
 import {
     MODULE_CATALOG,
     ALL_FLAG_KEYS,
@@ -434,15 +436,15 @@ function EmployeeEditorModal({
         if (!f) return;
         setUploadingPhoto(true);
         try {
-            const reader = new FileReader();
-            const base64: string = await new Promise((res, rej) => {
-                reader.onload = () => res(String(reader.result || ""));
-                reader.onerror = rej;
-                reader.readAsDataURL(f);
-            });
-            const b64 = base64.split(",")[1] || "";
-            const url = await uploadEmployeePhotoAction(b64, f.name);
-            setPhotoUrl(url);
+            // Sube directo al bucket con URL firmada (sin pasar la imagen por
+            // la server action, que en Vercel topa en 4.5 MB).
+            const contentType = f.type || "image/jpeg";
+            const { path, token, publicUrl } = await createEmployeePhotoUploadAction(f.name, contentType, f.size);
+            const { error } = await supabase.storage
+                .from("employee_photos")
+                .uploadToSignedUrl(path, token, f, { contentType });
+            if (error) throw new Error("Error al subir la foto: " + storageErrorMessage(error.message));
+            setPhotoUrl(publicUrl);
         } catch (ex: any) {
             setErr(ex.message || "Error al subir la foto.");
         } finally {
@@ -654,7 +656,7 @@ function EmployeeEditorModal({
                             <div className="flex items-center gap-2 mb-3">
                                 <ShieldCheck className="w-4 h-4 text-orange-400" />
                                 <h3 className="text-sm font-bold text-white">Permisos por módulo</h3>
-                                <span className="text-[10px] text-neutral-500">Marca con palomitas las acciones que el usuario puede realizar.</span>
+                                <span className="text-[10px] text-neutral-500">Marca con palomitas las acciones que el usuario puede realizar. Los cambios aplican cuando el usuario vuelva a iniciar sesión.</span>
                             </div>
                             <div className="space-y-3">
                                 {MODULE_CATALOG.map((m) => {
@@ -665,11 +667,12 @@ function EmployeeEditorModal({
                                                     <div className="text-sm font-bold text-white">{m.label}</div>
                                                 </div>
                                                 <div className="space-y-2.5">
-                                                    {m.subs.map((s) => {
+                                                    {/* rootLabel = permiso general del módulo (sub_code null) */}
+                                                    {[...(m.rootLabel ? [{ code: null as string | null, label: m.rootLabel }] : []), ...m.subs].map((s) => {
                                                         const p = getPerm(m.code, s.code);
-                                                        const enabled = perms.some((x) => x.module_code === m.code && x.sub_code === s.code);
+                                                        const enabled = perms.some((x) => x.module_code === m.code && (x.sub_code || null) === s.code);
                                                         return (
-                                                            <div key={s.code} className="border-t border-neutral-800/60 pt-2.5 first:border-t-0 first:pt-0">
+                                                            <div key={s.code ?? "__general"} className="border-t border-neutral-800/60 pt-2.5 first:border-t-0 first:pt-0">
                                                                 <label className="flex items-center gap-2 mb-1.5">
                                                                     <input
                                                                         type="checkbox"

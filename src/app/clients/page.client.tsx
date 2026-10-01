@@ -5,6 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { supabase } from "@/lib/supabase";
+import { fileExtension, safeStorageSegment } from "@/lib/storageNames";
 import { createClientAction, updateClientAction, deleteClientAction as obsoleteClientAction, restoreClientAction } from "@/app/actions/clients";
 import { Building2, FileText, Hash, Mail, MapPin, Phone, RefreshCw, Plus, ArrowLeft, Users, Download, FileCheck, Edit2, Eye, EyeOff, Archive, ArchiveRestore } from "lucide-react";
 import Link from "next/link";
@@ -147,8 +148,9 @@ export default function ClientsPage() {
 
             // 1. Upload File if selected
             if (selectedFile) {
-                const fileExt = selectedFile.name.split('.').pop();
-                const fileName = `${data.rfc}-${Date.now()}.${fileExt}`;
+                // El RFC puede traer Ñ o &: no sirve tal cual como ruta de Storage.
+                const fileExt = fileExtension(selectedFile.name) || 'pdf';
+                const fileName = `${safeStorageSegment(data.rfc)}-${Date.now()}.${fileExt}`;
                 const filePath = `${fileName}`;
 
                 const { error: uploadError, data: uploadData } = await supabase.storage

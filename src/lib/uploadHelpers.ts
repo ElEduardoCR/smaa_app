@@ -1,6 +1,7 @@
 "use client";
 
 import { supabase } from "@/lib/supabase";
+import { storageErrorMessage } from "@/lib/storageErrors";
 
 /**
  * Upload a base64 dataURL (typically a signature PNG) to the 'signatures' bucket.
@@ -13,7 +14,7 @@ export async function uploadSignatureDataUrl(dataUrl: string, prefix = "sig"): P
     const { error } = await supabase.storage
         .from("signatures")
         .upload(path, blob, { cacheControl: "3600", upsert: false, contentType: "image/png" });
-    if (error) throw error;
+    if (error) throw new Error("No se pudo guardar la firma: " + storageErrorMessage(error.message));
     const { data } = supabase.storage.from("signatures").getPublicUrl(path);
     return data.publicUrl;
 }
@@ -31,7 +32,7 @@ export async function uploadFileToBucket(
         upsert: false,
         contentType: (file as File).type || "application/octet-stream",
     });
-    if (error) throw error;
+    if (error) throw new Error("No se pudo subir el archivo: " + storageErrorMessage(error.message));
     const { data } = supabase.storage.from(bucket).getPublicUrl(path);
     return data.publicUrl;
 }

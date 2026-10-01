@@ -21,7 +21,10 @@ export async function POST(req: Request) {
 
     const username = String(body?.username || '').trim();
     const password = String(body?.password || '');
-    const redirectTo = body?.redirectTo ? String(body.redirectTo) : '/';
+    // Sólo rutas internas: evita que /login?redirect=https://otro-sitio
+    // mande al usuario fuera del sistema después de autenticarse.
+    const requested = body?.redirectTo ? String(body.redirectTo) : '/';
+    const redirectTo = /^\/(?![/\\])/.test(requested) ? requested : '/';
 
     if (!username || !password) {
         return NextResponse.json(

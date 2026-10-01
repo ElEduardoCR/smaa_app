@@ -8,10 +8,12 @@ import {
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
 import { extractAndParseCSF } from "@/lib/csfParser";
+import { supabase } from "@/lib/supabase";
+import { storageErrorMessage } from "@/lib/storageErrors";
 import {
     applyCsfToEmployeeAction, deleteEmployeeDocumentAction,
-    getDocumentLinkAction, getEmployeeExpedienteAction, uploadEmployeeDocumentAction,
-    type ExpedienteResult,
+    getDocumentLinkAction, getEmployeeExpedienteAction, prepareEmployeeDocumentUploadAction,
+    uploadEmployeeDocumentAction, type ExpedienteResult,
 } from "@/app/actions/employeeDocuments";
 
 function cn(...inputs: (string | undefined | null | false)[]) {
@@ -29,18 +31,6 @@ const STATUS_STYLE: Record<string, { label: string; cls: string; Icon: any }> = 
     vencido:    { label: "Vencido",    cls: "text-rose-300 bg-rose-500/10 border-rose-500/30",          Icon: XCircle },
     faltante:   { label: "Faltante",   cls: "text-neutral-400 bg-neutral-700/30 border-neutral-600/40", Icon: FileText },
 };
-
-function fileToBase64(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-            const result = String(reader.result);
-            resolve(result.slice(result.indexOf(",") + 1));   // quitar "data:...;base64,"
-        };
-        reader.onerror = () => reject(new Error("No se pudo leer el archivo."));
-        reader.readAsDataURL(file);
-    });
-}
 
 type Props = {
     employeeId: string;
@@ -96,13 +86,28 @@ export default function ExpedienteTab({ employeeId, onFiscalDataApplied }: Props
                 }
             }
 
-            const base64 = await fileToBase64(file);
-            const res = await uploadEmployeeDocumentAction({
+            // El archivo sube directo al bucket privado con una URL firmada:
+            // por la server action no cabe (Vercel topa el cuerpo en 4.5 MB).
+            const contentType = file.type || "application/octet-stream";
+            const prep = await prepareEmployeeDocumentUploadAction({
                 employeeId,
                 typeCode: pending.code,
                 fileName: file.name,
-                contentType: file.type || "application/octet-stream",
-                base64,
+                contentType,
+                size: file.size,
+            });
+            if (!prep.ok) { flash("error", prep.error); return; }
+            const { error: upErr } = await supabase.storage
+                .from("employee_files")
+                .uploadToSignedUrl(prep.path, prep.token, file, { contentType });
+            if (upErr) { flash("error", `No se pudo subir el archivo: ${storageErrorMessage(upErr.message)}`); return; }
+
+            const res = await uploadEmployeeDocumentAction({
+                employeeId,
+                typeCode: pending.code,
+                path: prep.path,
+                fileName: file.name,
+                contentType,
                 expiresAt,
             });
             if (!res.ok) { flash("error", res.error); return; }

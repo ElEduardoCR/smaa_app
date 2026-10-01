@@ -20,6 +20,7 @@ import SignaturePad from "@/components/manufacturing/SignaturePad";
 import PhotoCapture from "@/components/manufacturing/PhotoCapture";
 import AttachmentUploader, { AttachedFile, fileTypeFromName } from "@/components/manufacturing/AttachmentUploader";
 import { uploadSignatureDataUrl, uploadFileToBucket } from "@/lib/uploadHelpers";
+import { safeStorageName } from "@/lib/storageNames";
 
 function cn(...inputs: (string | undefined | null | false)[]) {
     return twMerge(clsx(inputs));
@@ -117,14 +118,26 @@ export default function WorkOrderDetail({ code, woId }: { code: string; woId: st
 
     // Permisos del usuario para este módulo/sub-módulo
     const [perms, setPerms] = useState<{ can_view: boolean; can_create: boolean; can_edit: boolean; can_delete: boolean; can_start: boolean; can_pause: boolean; can_complete: boolean; can_request_supplies: boolean; can_purchase: boolean } | null>(null);
+    // Liberar / rechazar en Calidad exige el permiso del módulo Calidad
+    // ("Liberar/Rechazar" = can_edit), no el de Fabricación: el operador que
+    // terminó la pieza no debe poder liberar su propio trabajo.
+    const [canQcRelease, setCanQcRelease] = useState(false);
     useEffect(() => {
         let aborted = false;
         (async () => {
             try {
-                const res = await fetch(`/api/me/permissions?module=manufacturing&sub=${encodeURIComponent(code)}`);
-                if (!res.ok) return;
-                const j = await res.json();
-                if (!aborted) setPerms(j.permissions);
+                const [res, qcRes] = await Promise.all([
+                    fetch(`/api/me/permissions?module=manufacturing&sub=${encodeURIComponent(code)}`),
+                    fetch(`/api/me/permissions?module=quality`),
+                ]);
+                if (res.ok) {
+                    const j = await res.json();
+                    if (!aborted) setPerms(j.permissions);
+                }
+                if (qcRes.ok) {
+                    const q = await qcRes.json();
+                    if (!aborted) setCanQcRelease(!!q.permissions?.can_edit);
+                }
             } catch (e) { /* ignore */ }
         })();
         return () => { aborted = true; };
@@ -407,7 +420,7 @@ export default function WorkOrderDetail({ code, woId }: { code: string; woId: st
     const handleAddCompletionPhoto = async (file: File, geo: { lat: number; lng: number; source: string } | null) => {
         if (!wo) return;
         try {
-            const path = `completion/${wo.id}/${Date.now()}_${file.name}`;
+            const path = `completion/${wo.id}/${Date.now()}_${safeStorageName(file.name)}`;
             const url = await uploadFileToBucket(file, "work_order_files", path);
             await supabase.from("work_order_completion_photos").insert([{
                 work_order_id: wo.id,
@@ -434,6 +447,10 @@ export default function WorkOrderDetail({ code, woId }: { code: string; woId: st
     // --- QC actions (when status = QC and not yet released) ---
     const handleQCRelease = async (signatureDataUrl: string) => {
         if (!wo) return;
+        if (!canQcRelease) {
+            flash("error", "Solo Calidad puede liberar esta OT.");
+            return;
+        }
         setFinishing(true);
         try {
             const sigUrl = await uploadSignatureDataUrl(signatureDataUrl, `qc_${wo.order_number}`);
@@ -456,6 +473,10 @@ export default function WorkOrderDetail({ code, woId }: { code: string; woId: st
 
     const handleQCReject = async () => {
         if (!wo) return;
+        if (!canQcRelease) {
+            flash("error", "Solo Calidad puede rechazar esta OT.");
+            return;
+        }
         const reason = prompt("Motivo de rechazo:");
         if (!reason) return;
         try {
@@ -983,7 +1004,12 @@ export default function WorkOrderDetail({ code, woId }: { code: string; woId: st
                         )}
 
                         {/* QC release (calidad) */}
-                        {wo.status === "QC" && (
+                        {wo.status === "QC" && !canQcRelease && (
+                            <div className="bg-neutral-800/40 border border-neutral-700/50 p-4 rounded-2xl text-sm text-neutral-400 flex items-center gap-2">
+                                <Lock className="w-4 h-4 flex-shrink-0" /> Pendiente de revisión: solo personal de Calidad puede liberarla o rechazarla.
+                            </div>
+                        )}
+                        {wo.status === "QC" && canQcRelease && (
                             <div className="bg-sky-500/5 border border-sky-500/30 p-5 rounded-2xl space-y-4">
                                 <h3 className="text-base font-bold text-sky-200 flex items-center gap-2">
                                     <ShieldCheck className="w-5 h-5" /> Revisión de Calidad

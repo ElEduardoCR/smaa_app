@@ -5,7 +5,8 @@ import { getSession } from '@/lib/session';
 import { can } from '@/lib/permissions';
 import { getServerSupabase } from '@/lib/supabaseServer';
 import {
-    removeEmployeeFile, signEmployeeFile, uploadEmployeeFile,
+    createEmployeeUploadUrl, normalizeContentType, removeEmployeeFile, sanitizeFileName,
+    signEmployeeFile, statEmployeeFile,
 } from '@/lib/expediente/storage';
 
 // ===========================================================================
@@ -100,17 +101,45 @@ export async function getEmployeeExpedienteAction(employeeId: string): Promise<E
     };
 }
 
-export type UploadDocumentInput = {
+export type PrepareUploadInput = {
     employeeId: string;
     typeCode: string;
     fileName: string;
     contentType: string;
-    base64: string;
+    size: number;
+};
+
+/** Paso 1: valida y devuelve una URL firmada para subir directo al bucket. */
+export async function prepareEmployeeDocumentUploadAction(
+    input: PrepareUploadInput,
+): Promise<{ ok: true; path: string; token: string } | { ok: false; error: string }> {
+    await requireWrite();
+    try {
+        const db = getServerSupabase();
+        const { data: type } = await db
+            .from('employee_document_types')
+            .select('code').eq('code', input.typeCode).single();
+        if (!type) return { ok: false, error: `Tipo de documento desconocido: ${input.typeCode}` };
+        const { path, token } = await createEmployeeUploadUrl(input);
+        return { ok: true, path, token };
+    } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : 'No se pudo preparar la carga.' };
+    }
+}
+
+export type UploadDocumentInput = {
+    employeeId: string;
+    typeCode: string;
+    /** Ruta devuelta por prepareEmployeeDocumentUploadAction, ya subida. */
+    path: string;
+    fileName: string;
+    contentType: string;
     issuedAt?: string | null;
     expiresAt?: string | null;
     notes?: string | null;
 };
 
+/** Paso 2: registra en el expediente el archivo que el navegador ya subió. */
 export async function uploadEmployeeDocumentAction(
     input: UploadDocumentInput,
 ): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
@@ -123,21 +152,20 @@ export async function uploadEmployeeDocumentAction(
             .select('code, has_expiry').eq('code', input.typeCode).single();
         if (!type) return { ok: false, error: `Tipo de documento desconocido: ${input.typeCode}` };
 
-        const file = await uploadEmployeeFile({
-            employeeId: input.employeeId,
-            typeCode: input.typeCode,
-            fileName: input.fileName,
-            contentType: input.contentType,
-            base64: input.base64,
-        });
+        const prefix = `employees/${input.employeeId}/${input.typeCode}/`;
+        if (!input.path?.startsWith(prefix) || input.path.includes('..')) {
+            return { ok: false, error: 'Ruta de archivo inválida.' };
+        }
+        const stat = await statEmployeeFile(input.path);
+        if (!stat) return { ok: false, error: 'El archivo no se subió completo. Inténtalo de nuevo.' };
 
         const { data, error } = await db.from('employee_documents').insert({
             employee_id: input.employeeId,
             type_code: input.typeCode,
-            file_path: file.path,
-            file_name: file.fileName,
-            content_type: file.contentType,
-            file_size: file.size,
+            file_path: input.path,
+            file_name: sanitizeFileName(input.fileName),
+            content_type: normalizeContentType(input.contentType),
+            file_size: stat.size,
             issued_at: input.issuedAt || null,
             expires_at: type.has_expiry ? (input.expiresAt || null) : null,
             notes: input.notes || null,
@@ -147,7 +175,7 @@ export async function uploadEmployeeDocumentAction(
 
         if (error) {
             // El archivo ya subió pero la fila no: no dejar basura en el bucket.
-            await removeEmployeeFile(file.path).catch(() => undefined);
+            await removeEmployeeFile(input.path).catch(() => undefined);
             throw error;
         }
 

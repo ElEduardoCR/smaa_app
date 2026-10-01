@@ -110,3 +110,38 @@ export function isModuleVisible(
         accessListIncludes(accessList, moduleCode, sub)
     );
 }
+
+/**
+ * Pantallas de sub-módulo a las que se manda al usuario cuando NO tiene el
+ * permiso general del módulo (la pantalla raíz lo exige). Ej.: alguien con
+ * sólo "Cuentas por Cobrar" no puede abrir /finance, pero sí /finance/receivable.
+ */
+const SUB_ENTRY_HREF: Record<string, Record<string, string>> = {
+    finance: { receivable: '/finance/receivable' },
+};
+
+/** href efectivo del módulo según si el usuario tiene acceso a la raíz o sólo a sub-módulos. */
+export function moduleEntryHref(
+    module: { moduleCode: string; href: string },
+    hasRootAccess: boolean,
+    accessibleSubs: string[],
+): string {
+    if (hasRootAccess) return module.href;
+    const map = SUB_ENTRY_HREF[module.moduleCode];
+    const sub = map && accessibleSubs.find((s) => map[s]);
+    return sub ? map[sub] : module.href;
+}
+
+/** Igual que moduleEntryHref pero a partir del accessList del JWT. */
+export function moduleEntryHrefFromAccessList(
+    module: { moduleCode: string; href: string },
+    role: string | undefined,
+    accessList: string | undefined,
+): string {
+    if (role === 'master') return module.href;
+    return moduleEntryHref(
+        module,
+        accessListIncludes(accessList, module.moduleCode, null),
+        getSubCodes(module.moduleCode).filter((sub) => accessListIncludes(accessList, module.moduleCode, sub)),
+    );
+}

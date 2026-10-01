@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { updatePurchaseOrderAction, deletePurchaseOrderAction, addPurchaseAttachmentAction, deletePurchaseAttachmentAction } from "@/app/actions/purchases";
+import { uploadPurchaseFiles } from "@/lib/purchaseUploads";
 import { ArrowLeft, Save, Trash2, Loader2, AlertCircle, CheckCircle2, ExternalLink, Plus, ShoppingCart, Truck, Calendar, FileText, Receipt, FileCheck, Paperclip, X, Upload, Layers, Camera, FilePlus } from "lucide-react";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -105,18 +106,8 @@ export default function PurchaseOrderEditClient({
         if (pendingFiles.length === 0) return;
         setUploadingAtt(true);
         try {
-            const toBase64 = (file: File): Promise<string> =>
-                new Promise((res, rej) => {
-                    const reader = new FileReader();
-                    reader.onload = () => res(String(reader.result || "").split(",")[1] || "");
-                    reader.onerror = rej;
-                    reader.readAsDataURL(file);
-                });
-            const files = await Promise.all(pendingFiles.map(async (f) => ({
-                base64: await toBase64(f),
-                fileName: f.name,
-                contentType: f.type || "application/octet-stream",
-            })));
+            // Suben directo a Storage; al servidor sólo van las rutas.
+            const files = await uploadPurchaseFiles(po.id, pendingFiles, pendingKind);
             await addPurchaseAttachmentAction(po.id, files, pendingKind);
             setPendingFiles([]);
             await loadAttachments();
@@ -352,7 +343,7 @@ export default function PurchaseOrderEditClient({
                                         onChange={(e) => setPendingKind(e.target.value as any)}
                                         className="text-xs bg-neutral-900/60 border border-neutral-700 rounded-lg px-2 py-1.5 text-neutral-200 focus:outline-none focus:border-orange-500"
                                     >
-                                        <option value="invoice">Factura (PDF o foto)</option>
+                                        <option value="invoice">Factura (PDF, XML o foto)</option>
                                         <option value="evidence">Foto del material</option>
                                         <option value="other">Otro documento</option>
                                     </select>
@@ -477,7 +468,7 @@ export default function PurchaseOrderEditClient({
                                 ref={fileInputRef}
                                 type="file"
                                 multiple
-                                accept={pendingKind === 'evidence' ? 'image/*' : pendingKind === 'invoice' ? '.pdf,image/*' : '.pdf,image/*,.doc,.docx,.xls,.xlsx'}
+                                accept={pendingKind === 'evidence' ? 'image/*' : pendingKind === 'invoice' ? '.pdf,.xml,image/*' : '.pdf,.xml,image/*,.doc,.docx,.xls,.xlsx'}
                                 className="hidden"
                                 onChange={(e) => {
                                     if (!e.target.files) return;

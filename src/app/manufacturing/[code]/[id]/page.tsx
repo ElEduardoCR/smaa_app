@@ -15,7 +15,12 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
         redirect('/manufacturing?denied=1');
     }
 
-    if (!can(session.role, session.permissions, 'manufacturing', 'view', code)) {
+    // Calidad abre las OTs desde su cola (/quality) para liberarlas, aunque
+    // no tenga permisos de Fabricación en ese sub-módulo.
+    if (
+        !can(session.role, session.permissions, 'manufacturing', 'view', code) &&
+        !can(session.role, session.permissions, 'quality', 'view')
+    ) {
         redirect('/manufacturing?denied=1');
     }
 

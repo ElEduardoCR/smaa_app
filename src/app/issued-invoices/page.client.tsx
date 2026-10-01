@@ -141,7 +141,7 @@ export default function IssuedInvoicesPage() {
         setMsg(null);
         setProgress({ done: 0, total: xmlFiles.length });
 
-        let inserted = 0, duplicates = 0, invalid = 0, errors = 0, done = 0;
+        let inserted = 0, duplicates = 0, invalid = 0, errors = 0, done = 0, xmlNotSaved = 0;
         const seen = new Set<string>();
         const existing = await fetchExistingUuids();
 
@@ -173,6 +173,10 @@ export default function IssuedInvoicesPage() {
                         .upload(path, file, { upsert: true, contentType: "application/xml" });
                     if (!upErr) {
                         xml_url = supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
+                    } else {
+                        // La factura se registra igual, pero sin el XML: se avisa al final.
+                        xmlNotSaved++;
+                        console.warn("[issued-invoices] XML no guardado:", file.name, upErr.message);
                     }
 
                     batchRows.push({
@@ -215,8 +219,9 @@ export default function IssuedInvoicesPage() {
         setProgress(null);
         setReport({ total: xmlFiles.length, inserted, duplicates, invalid, errors });
         setMsg({
-            type: errors > 0 ? "error" : "success",
-            text: `Importación terminada: ${inserted} nueva(s), ${duplicates} duplicada(s), ${invalid} no válida(s)${errors > 0 ? `, ${errors} con error` : ""}.`,
+            type: errors > 0 || xmlNotSaved > 0 ? "error" : "success",
+            text: `Importación terminada: ${inserted} nueva(s), ${duplicates} duplicada(s), ${invalid} no válida(s)${errors > 0 ? `, ${errors} con error` : ""}.`
+                + (xmlNotSaved > 0 ? ` ${xmlNotSaved} XML no se pudieron guardar en el almacenamiento (la factura quedó registrada sin archivo).` : ""),
         });
         fetchInvoices();
     };
