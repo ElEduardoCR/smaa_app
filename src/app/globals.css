@@ -1,15 +1,222 @@
 @import "tailwindcss";
 
+/* ==========================================================================
+   SMAA ERP — Sistema de diseño
+   --------------------------------------------------------------------------
+   Tema CLARO / OSCURO con naranja como color primario.
+
+   Las páginas siguen usando exactamente las mismas clases de Tailwind que
+   ya tenían (bg-neutral-800/40, border-neutral-700/50, text-white, ...).
+   Este archivo re-mapea esas clases a tokens de tema, así que el cambio de
+   apariencia es 100% CSS: no hay que tocar el markup de los 100+ archivos.
+
+   Cómo funciona:
+     1) @theme          → tipografía y radios (más sobrios / formales)
+     2) :root           → tokens semánticos + paleta Tailwind en CLARO
+     3) [data-theme=dark] → misma paleta en OSCURO
+     4) Overrides       → superficies clave afinadas a mano
+     5) App shell       → menú fijo izquierdo + contenido a la derecha
+
+   NOTA sobre la cascada: todo lo que está fuera de `@layer` gana contra las
+   utilidades de Tailwind (que viven en @layer utilities), sin importar la
+   especificidad. Por eso los overrides de aquí abajo funcionan.
+   ========================================================================== */
+
 @theme {
-    --font-sans: var(--font-geist-sans);
-    --font-mono: var(--font-geist-mono);
+    --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system,
+                 "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo,
+                 Consolas, monospace;
+
+    /* Radios más cerrados: el look "pill" de 16px se sentía informal. */
+    --radius-md:  0.3125rem;   /*  5px  (antes 6) */
+    --radius-lg:  0.375rem;    /*  6px  (antes 8) */
+    --radius-xl:  0.5rem;      /*  8px  (antes 12) */
+    --radius-2xl: 0.625rem;    /* 10px  (antes 16) */
+    --radius-3xl: 0.875rem;    /* 14px  (antes 24) */
+
+    --sidebar-w: 264px;
+    --topbar-h: 52px;
 }
 
+/* ==========================================================================
+   1. TEMA CLARO (default)
+   ========================================================================== */
+
 :root {
-    --background: #0a0a0a;
-    --foreground: #f8fafc;
-    --accent: #f97316;
+    color-scheme: light;
+
+    /* --- Marca --- */
+    --brand:          #ea580c;   /* naranja principal */
+    --brand-hover:    #c2410c;
+    --brand-ink:      #ffffff;   /* texto sobre naranja sólido */
+    --brand-soft:     #fff2e8;   /* fondo naranja muy tenue */
+    --brand-soft-2:   #ffe6d5;
+    --brand-line:     #fbc9a4;
+    --brand-ink-soft: #9a3412;   /* texto sobre naranja tenue */
+
+    /* --- Superficies --- */
+    --app-bg:     #eef1f6;   /* fondo de página */
+    --surface-1:  #ffffff;   /* tarjetas */
+    --surface-2:  #f6f8fb;   /* paneles internos, inputs, thead */
+    --surface-3:  #e9edf3;   /* hover / botones gris */
+    --surface-4:  #dfe5ed;   /* hover fuerte */
+
+    /* --- Líneas --- */
+    --line:       #dde3ea;
+    --line-soft:  #e7ebf1;
+    --line-strong:#cbd3de;
+
+    /* --- Tinta --- */
+    --ink-1: #101620;   /* títulos */
+    --ink-2: #46505f;   /* texto secundario */
+    --ink-3: #6b7684;   /* apagado / placeholders */
+    --ink-4: #838d9b;   /* muy apagado */
+
+    --ring: color-mix(in oklab, var(--brand) 28%, transparent);
+    --shadow-sm: 0 1px 2px rgb(15 23 42 / .05);
+    --shadow-md: 0 1px 3px rgb(15 23 42 / .07), 0 1px 2px rgb(15 23 42 / .04);
+    --shadow-lg: 0 4px 12px rgb(15 23 42 / .07), 0 2px 4px rgb(15 23 42 / .04);
+
+    /* --- Paleta neutra de Tailwind, invertida ---------------------------
+       En la app `neutral` se usaba como escala oscura: 800/900 = superficie,
+       700 = borde, 200/300/400 = texto. Aquí se invierte el significado
+       manteniendo el mismo orden de "elevación". */
+    --color-neutral-950: #ffffff;
+    --color-neutral-900: #f6f8fb;
+    --color-neutral-800: #ffffff;
+    --color-neutral-700: #d6dde5;
+    --color-neutral-600: #b8c1cd;
+    --color-neutral-500: #6b7684;
+    --color-neutral-400: #55606e;
+    --color-neutral-300: #3b4552;
+    --color-neutral-200: #232b36;
+    --color-neutral-100: #161d26;
+    --color-neutral-50:  #0d1219;
+
+    --color-slate-950: #ffffff;
+    --color-slate-900: #f6f8fb;
+    --color-slate-800: #ffffff;
+    --color-slate-700: #d6dde5;
+    --color-slate-600: #b8c1cd;
+    --color-slate-500: #6b7684;
+    --color-slate-400: #55606e;
+    --color-slate-300: #3b4552;
+    --color-slate-200: #232b36;
+
+    /* `text-white` era el color de los títulos sobre fondo oscuro →
+       en claro pasa a ser la tinta principal. Los usos con alpha
+       (bg-white/5, border-white/10) se convierten en velos oscuros,
+       que es justo lo correcto sobre fondo claro. */
+    --color-white: #101620;
+    /* `black` NO se invierte: sombras y overlays de modal siguen siendo
+       oscuros en ambos temas. */
+
+    /* --- Acentos: los tonos 200/300/400 se usan como TEXTO sobre oscuro.
+       Sobre fondo claro son ilegibles, así que se oscurecen. Los tonos
+       500/600 se quedan intactos porque son fondos y bordes. ------------ */
+    --color-orange-200: #9a3412;  --color-orange-300: #c2410c;  --color-orange-400: #c2410c;
+    --color-amber-200:  #92400e;  --color-amber-300:  #b45309;  --color-amber-400:  #b45309;
+    --color-yellow-200: #854d0e;  --color-yellow-300: #a16207;  --color-yellow-400: #a16207;
+    --color-emerald-200:#065f46;  --color-emerald-300:#047857;  --color-emerald-400:#047857;
+    --color-green-200:  #166534;  --color-green-300:  #15803d;  --color-green-400:  #15803d;
+    --color-teal-200:   #115e59;  --color-teal-300:   #0f766e;  --color-teal-400:   #0f766e;
+    --color-cyan-200:   #155e75;  --color-cyan-300:   #0e7490;  --color-cyan-400:   #0e7490;
+    --color-sky-200:    #075985;  --color-sky-300:    #0369a1;  --color-sky-400:    #0369a1;
+    --color-lime-200:   #3f6212;  --color-lime-300:   #4d7c0f;  --color-lime-400:   #4d7c0f;
+    --color-blue-200:   #1e40af;  --color-blue-300:   #1d4ed8;  --color-blue-400:   #2563eb;
+    --color-indigo-200: #3730a3;  --color-indigo-300: #4338ca;  --color-indigo-400: #4f46e5;
+    --color-violet-200: #5b21b6;  --color-violet-300: #6d28d9;  --color-violet-400: #7c3aed;
+    --color-purple-200: #6b21a8;  --color-purple-300: #7e22ce;  --color-purple-400: #9333ea;
+    --color-fuchsia-200:#86198f;  --color-fuchsia-300:#a21caf;  --color-fuchsia-400:#c026d3;
+    --color-pink-200:   #9d174d;  --color-pink-300:   #be185d;  --color-pink-400:   #db2777;
+    --color-rose-200:   #9f1239;  --color-rose-300:   #be123c;  --color-rose-400:   #e11d48;
+    --color-red-200:    #991b1b;  --color-red-300:    #b91c1c;  --color-red-400:    #dc2626;
 }
+
+/* ==========================================================================
+   2. TEMA OSCURO
+   ========================================================================== */
+
+:root[data-theme="dark"] {
+    color-scheme: dark;
+
+    --brand:          #f97316;
+    --brand-hover:    #fb923c;
+    --brand-ink:      #17130f;
+    --brand-soft:     #23150a;
+    --brand-soft-2:   #2e1a0b;
+    --brand-line:     #7c3d12;
+    --brand-ink-soft: #fdba74;
+
+    --app-bg:     #0a0c10;
+    --surface-1:  #14181f;
+    --surface-2:  #171c24;
+    --surface-3:  #1f2530;
+    --surface-4:  #29303c;
+
+    --line:       #2b313c;
+    --line-soft:  #232833;
+    --line-strong:#3a4250;
+
+    --ink-1: #f3f6fa;
+    --ink-2: #99a3b2;
+    --ink-3: #6d7787;
+    --ink-4: #545d6b;
+
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / .4);
+    --shadow-md: 0 2px 6px rgb(0 0 0 / .45);
+    --shadow-lg: 0 8px 24px rgb(0 0 0 / .5);
+
+    /* Escala neutra oscura, ligeramente enfriada (más corporativa que el
+       gris puro de Tailwind). */
+    --color-neutral-950: #0a0c10;
+    --color-neutral-900: #12161c;
+    --color-neutral-800: #1b202a;
+    --color-neutral-700: #2f3641;
+    --color-neutral-600: #59626f;
+    --color-neutral-500: #6d7787;
+    --color-neutral-400: #98a2b3;
+    --color-neutral-300: #c3cad6;
+    --color-neutral-200: #dde2ea;
+    --color-neutral-100: #eef1f6;
+    --color-neutral-50:  #f8fafc;
+
+    --color-slate-950: #0a0c10;
+    --color-slate-900: #12161c;
+    --color-slate-800: #1b202a;
+    --color-slate-700: #2f3641;
+    --color-slate-600: #59626f;
+    --color-slate-500: #6d7787;
+    --color-slate-400: #98a2b3;
+    --color-slate-300: #c3cad6;
+    --color-slate-200: #dde2ea;
+
+    --color-white: #ffffff;
+
+    /* Acentos: valores originales de Tailwind. */
+    --color-orange-200: #ffedd5;  --color-orange-300: #fdba74;  --color-orange-400: #fb923c;
+    --color-amber-200:  #fde68a;  --color-amber-300:  #fcd34d;  --color-amber-400:  #fbbf24;
+    --color-yellow-200: #fef08a;  --color-yellow-300: #fde047;  --color-yellow-400: #facc15;
+    --color-emerald-200:#a7f3d0;  --color-emerald-300:#6ee7b7;  --color-emerald-400:#34d399;
+    --color-green-200:  #bbf7d0;  --color-green-300:  #86efac;  --color-green-400:  #4ade80;
+    --color-teal-200:   #99f6e4;  --color-teal-300:   #5eead4;  --color-teal-400:   #2dd4bf;
+    --color-cyan-200:   #a5f3fc;  --color-cyan-300:   #67e8f9;  --color-cyan-400:   #22d3ee;
+    --color-sky-200:    #bae6fd;  --color-sky-300:    #7dd3fc;  --color-sky-400:    #38bdf8;
+    --color-lime-200:   #d9f99d;  --color-lime-300:   #bef264;  --color-lime-400:   #a3e635;
+    --color-blue-200:   #bfdbfe;  --color-blue-300:   #93c5fd;  --color-blue-400:   #60a5fa;
+    --color-indigo-200: #c7d2fe;  --color-indigo-300: #a5b4fc;  --color-indigo-400: #818cf8;
+    --color-violet-200: #ddd6fe;  --color-violet-300: #c4b5fd;  --color-violet-400: #a78bfa;
+    --color-purple-200: #e9d5ff;  --color-purple-300: #d8b4fe;  --color-purple-400: #c084fc;
+    --color-fuchsia-200:#f5d0fe;  --color-fuchsia-300:#f0abfc;  --color-fuchsia-400:#e879f9;
+    --color-pink-200:   #fbcfe8;  --color-pink-300:   #f9a8d4;  --color-pink-400:   #f472b6;
+    --color-rose-200:   #fecdd3;  --color-rose-300:   #fda4af;  --color-rose-400:   #fb7185;
+    --color-red-200:    #fecaca;  --color-red-300:    #fca5a5;  --color-red-400:    #f87171;
+}
+
+/* ==========================================================================
+   3. BASE
+   ========================================================================== */
 
 html, body {
     overflow-x: hidden;
@@ -17,7 +224,381 @@ html, body {
 }
 
 body {
-    background: var(--background);
-    color: var(--foreground);
-    font-family: Arial, Helvetica, sans-serif;
+    background: var(--app-bg);
+    color: var(--ink-2);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "cv11", "ss01";
+}
+
+::selection {
+    background: color-mix(in oklab, var(--brand) 26%, transparent);
+    color: var(--ink-1);
+}
+
+/* Scrollbars discretas */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-strong) transparent;
+}
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+    background: var(--line-strong);
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover { background: var(--ink-4); background-clip: content-box; }
+
+/* Foco visible y consistente */
+:focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+}
+
+/* ==========================================================================
+   4. RE-MAPEO DE SUPERFICIES
+   --------------------------------------------------------------------------
+   Las utilidades con alpha (bg-neutral-800/40) sobre un fondo claro dan
+   contrastes muy pobres, así que las superficies más usadas se fijan a mano.
+   Se usa [class~="..."] porque matchea el token exacto de la clase.
+   ========================================================================== */
+
+/* --- Fondos de página escritos como valor arbitrario --- */
+[class~="bg-[#0a0a0a]"],
+[class~="bg-[#080b10]"] { background-color: var(--app-bg); }
+[class~="bg-[#101318]"],
+[class~="bg-[#0F172A]"] { background-color: var(--surface-1); }
+[class~="bg-[#171a1f]"] { background-color: var(--surface-2); }
+
+/* --- Tarjetas (neutral-800) --- */
+[class~="bg-neutral-800"],
+[class~="bg-neutral-800/60"],
+[class~="bg-neutral-800/50"],
+[class~="bg-neutral-800/40"]  { background-color: var(--surface-1); }
+[class~="bg-neutral-800/20"]  { background-color: color-mix(in oklab, var(--surface-1) 60%, var(--app-bg)); }
+
+[class~="hover:bg-neutral-800"]:hover,
+[class~="hover:bg-neutral-800/80"]:hover,
+[class~="hover:bg-neutral-800/60"]:hover,
+[class~="hover:bg-neutral-800/40"]:hover { background-color: var(--surface-2); }
+
+/* --- Paneles internos / inputs / thead (neutral-900) --- */
+[class~="bg-neutral-900"],
+[class~="bg-neutral-900/80"],
+[class~="bg-neutral-900/70"],
+[class~="bg-neutral-900/60"],
+[class~="bg-neutral-900/50"],
+[class~="bg-neutral-900/40"],
+[class~="bg-neutral-900/30"] { background-color: var(--surface-2); }
+
+[class~="hover:bg-neutral-900"]:hover,
+[class~="hover:bg-neutral-900/60"]:hover,
+[class~="hover:bg-neutral-900/50"]:hover { background-color: var(--surface-3); }
+
+/* --- Botones/chips gris (neutral-700) --- */
+[class~="bg-neutral-700"],
+[class~="bg-neutral-700/40"],
+[class~="bg-neutral-700/30"] { background-color: var(--surface-3); }
+[class~="hover:bg-neutral-700"]:hover,
+[class~="hover:bg-neutral-700/50"]:hover { background-color: var(--surface-4); }
+
+/* --- Bordes --- */
+[class~="border-neutral-700"],
+[class~="border-neutral-800"]     { border-color: var(--line); }
+[class~="border-neutral-700/60"],
+[class~="border-neutral-700/50"],
+[class~="border-neutral-800/60"]  { border-color: var(--line); }
+[class~="border-neutral-700/40"],
+[class~="border-neutral-700/30"]  { border-color: var(--line-soft); }
+[class~="hover:border-neutral-600"]:hover { border-color: var(--line-strong); }
+
+[class~="divide-neutral-700/50"] > :not([hidden]) ~ :not([hidden]),
+[class~="divide-neutral-700"]    > :not([hidden]) ~ :not([hidden]),
+[class~="divide-neutral-800"]    > :not([hidden]) ~ :not([hidden]) { border-color: var(--line); }
+
+/* --- Tinta --- */
+[class~="text-white"]        { color: var(--ink-1); }
+[class~="hover:text-white"]:hover,
+[class~="group-hover:text-white"] { color: var(--ink-1); }
+[class~="text-neutral-200"]  { color: var(--ink-1); }
+[class~="text-neutral-300"]  { color: var(--ink-2); }
+[class~="text-neutral-400"]  { color: var(--ink-2); }
+[class~="text-neutral-500"]  { color: var(--ink-3); }
+[class~="text-neutral-600"]  { color: var(--ink-4); }
+
+/* Excepción: sobre un fondo de acento sólido el texto sí va en blanco. */
+:is(
+    [class~="bg-orange-400"],[class~="bg-orange-500"],[class~="bg-orange-600"],[class~="bg-orange-700"],
+    [class~="bg-amber-500"],[class~="bg-amber-600"],[class~="bg-amber-700"],
+    [class~="bg-emerald-400"],[class~="bg-emerald-500"],[class~="bg-emerald-600"],[class~="bg-emerald-700"],
+    [class~="bg-teal-500"],[class~="bg-teal-600"],
+    [class~="bg-cyan-400"],[class~="bg-cyan-500"],[class~="bg-cyan-600"],
+    [class~="bg-sky-500"],[class~="bg-sky-600"],[class~="bg-sky-700"],
+    [class~="bg-blue-500"],[class~="bg-blue-600"],
+    [class~="bg-indigo-500"],[class~="bg-indigo-600"],
+    [class~="bg-violet-500"],[class~="bg-violet-600"],[class~="bg-violet-700"],
+    [class~="bg-purple-500"],[class~="bg-purple-600"],
+    [class~="bg-fuchsia-500"],[class~="bg-pink-500"],
+    [class~="bg-rose-500"],[class~="bg-rose-600"],
+    [class~="bg-red-500"],[class~="bg-red-600"],
+    [class~="bg-green-500"],[class~="bg-green-600"]
+):is([class~="text-white"], [class~="text-neutral-200"]) { color: #fff; }
+
+:is(
+    [class~="hover:bg-orange-500"],[class~="hover:bg-orange-600"],
+    [class~="hover:bg-amber-500"],[class~="hover:bg-amber-600"],
+    [class~="hover:bg-emerald-400"],[class~="hover:bg-emerald-500"],[class~="hover:bg-emerald-600"],
+    [class~="hover:bg-teal-600"],[class~="hover:bg-cyan-400"],[class~="hover:bg-cyan-600"],
+    [class~="hover:bg-sky-600"],[class~="hover:bg-violet-600"],
+    [class~="hover:bg-rose-500"],[class~="hover:bg-rose-600"],[class~="hover:bg-red-600"]
+):hover { color: #fff; }
+
+:root[data-theme="dark"] :is([class~="text-white"], [class~="hover:text-white"]:hover) { color: #fff; }
+:root[data-theme="dark"] [class~="text-neutral-200"] { color: var(--color-neutral-200); }
+:root[data-theme="dark"] [class~="text-neutral-300"] { color: var(--color-neutral-300); }
+:root[data-theme="dark"] [class~="text-neutral-400"] { color: var(--color-neutral-400); }
+:root[data-theme="dark"] [class~="text-neutral-500"] { color: var(--color-neutral-500); }
+:root[data-theme="dark"] [class~="text-neutral-600"] { color: var(--color-neutral-600); }
+
+/* Los degradados decorativos con mix-blend-screen se "queman" en claro. */
+:root:not([data-theme="dark"]) [class~="mix-blend-screen"] { mix-blend-mode: multiply; opacity: .55; }
+
+/* Sombras: en claro las sombras negras duras se ven sucias. */
+:root:not([data-theme="dark"]) [class*="shadow-black/"] { --tw-shadow-color: rgb(15 23 42 / .07); }
+
+/* Campos de formulario */
+input, select, textarea { font-family: inherit; }
+input::placeholder, textarea::placeholder { color: var(--ink-3); opacity: 1; }
+
+/* ==========================================================================
+   5. APP SHELL — menú fijo a la izquierda, contenido a la derecha
+   ========================================================================== */
+
+.app-shell { min-height: 100vh; }
+
+.app-sidebar {
+    position: fixed;
+    inset-block: 0;
+    left: 0;
+    z-index: 60;
+    width: var(--sidebar-w);
+    display: flex;
+    flex-direction: column;
+    background: var(--surface-1);
+    border-right: 1px solid var(--line);
+    transition: transform .22s ease;
+}
+
+.app-main {
+    min-height: 100vh;
+    background: var(--app-bg);
+}
+
+@media (min-width: 1024px) {
+    .app-main { margin-left: var(--sidebar-w); }
+}
+
+/* --- Móvil: cajón deslizable --- */
+@media (max-width: 1023.98px) {
+    .app-sidebar { transform: translateX(-100%); box-shadow: var(--shadow-lg); }
+    .app-sidebar[data-open="true"] { transform: translateX(0); }
+    .app-main { padding-top: var(--topbar-h); }
+}
+
+.app-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    background: rgb(8 11 16 / .5);
+    backdrop-filter: blur(2px);
+}
+@media (min-width: 1024px) { .app-scrim { display: none; } }
+
+.app-topbar {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 50;
+    height: var(--topbar-h);
+    display: flex;
+    align-items: center;
+    gap: .625rem;
+    padding: 0 .75rem;
+    background: var(--surface-1);
+    border-bottom: 1px solid var(--line);
+}
+@media (min-width: 1024px) { .app-topbar { display: none; } }
+
+/* --- Cabecera de la barra --- */
+.app-brand {
+    display: flex;
+    align-items: center;
+    gap: .625rem;
+    padding: 0 .875rem;
+    height: 60px;
+    border-bottom: 1px solid var(--line);
+    flex-shrink: 0;
+}
+.app-brand-mark {
+    width: 32px; height: 32px;
+    flex-shrink: 0;
+    border-radius: 7px;
+    display: grid;
+    place-items: center;
+    background: var(--brand);
+    color: #fff;
+}
+.app-brand-name {
+    font-size: .9375rem;
+    font-weight: 700;
+    letter-spacing: -.01em;
+    color: var(--ink-1);
+    line-height: 1.1;
+}
+.app-brand-sub {
+    font-size: .625rem;
+    font-weight: 600;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+}
+
+/* --- Navegación --- */
+.app-nav {
+    flex: 1;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: .75rem .625rem 1rem;
+}
+.app-nav-group + .app-nav-group { margin-top: .875rem; }
+.app-nav-label {
+    padding: 0 .5rem .375rem;
+    font-size: .625rem;
+    font-weight: 700;
+    letter-spacing: .11em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+}
+.app-nav-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: .625rem;
+    padding: .4375rem .5625rem;
+    border-radius: 6px;
+    font-size: .8125rem;
+    font-weight: 500;
+    line-height: 1.25;
+    color: var(--ink-2);
+    text-decoration: none;
+    transition: background-color .12s ease, color .12s ease;
+}
+.app-nav-item:hover { background: var(--surface-3); color: var(--ink-1); }
+.app-nav-item svg { width: 16px; height: 16px; flex-shrink: 0; color: var(--ink-3); }
+.app-nav-item:hover svg { color: var(--ink-2); }
+
+.app-nav-item[data-active="true"] {
+    background: var(--brand-soft);
+    color: var(--brand-hover);
+    font-weight: 600;
+}
+.app-nav-item[data-active="true"] svg { color: var(--brand); }
+.app-nav-item[data-active="true"]::before {
+    content: "";
+    position: absolute;
+    left: -.625rem;
+    top: 50%;
+    translate: 0 -50%;
+    width: 3px;
+    height: 18px;
+    border-radius: 0 3px 3px 0;
+    background: var(--brand);
+}
+
+.app-nav-badge {
+    margin-left: auto;
+    font-size: .5625rem;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    padding: .0625rem .3125rem;
+    border-radius: 4px;
+    background: var(--brand-soft-2);
+    color: var(--brand-ink-soft);
+    border: 1px solid var(--brand-line);
+}
+
+/* --- Pie: usuario --- */
+.app-user {
+    flex-shrink: 0;
+    border-top: 1px solid var(--line);
+    padding: .625rem;
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+}
+.app-avatar {
+    width: 32px; height: 32px;
+    border-radius: 6px;
+    object-fit: cover;
+    flex-shrink: 0;
+    display: grid;
+    place-items: center;
+    background: var(--brand-soft-2);
+    color: var(--brand-ink-soft);
+    font-size: .6875rem;
+    font-weight: 700;
+    border: 1px solid var(--brand-line);
+}
+.app-user-name {
+    font-size: .75rem;
+    font-weight: 600;
+    color: var(--ink-1);
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.app-user-role {
+    font-size: .625rem;
+    color: var(--ink-3);
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.app-icon-btn {
+    display: grid;
+    place-items: center;
+    width: 30px; height: 30px;
+    flex-shrink: 0;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+    background: var(--surface-2);
+    color: var(--ink-2);
+    cursor: pointer;
+    transition: background-color .12s ease, color .12s ease, border-color .12s ease;
+}
+.app-icon-btn:hover { background: var(--surface-3); color: var(--ink-1); border-color: var(--line-strong); }
+.app-icon-btn svg { width: 15px; height: 15px; }
+/* `lg:hidden` no gana contra estas reglas (viven fuera de @layer), así que
+   el "sólo móvil" se resuelve aquí. */
+.app-only-mobile { display: grid; }
+@media (min-width: 1024px) { .app-only-mobile { display: none; } }
+
+.app-theme-toggle .app-theme-sun,
+.app-theme-toggle .app-theme-moon { display: none; }
+:root[data-theme="dark"] .app-theme-toggle .app-theme-sun { display: block; }
+:root:not([data-theme="dark"]) .app-theme-toggle .app-theme-moon { display: block; }
+.app-icon-btn[data-danger="true"]:hover {
+    background: color-mix(in oklab, #e11d48 12%, transparent);
+    border-color: color-mix(in oklab, #e11d48 40%, transparent);
+    color: #e11d48;
+}
+
+@media print {
+    .app-sidebar, .app-topbar, .app-scrim { display: none !important; }
+    .app-main { margin-left: 0 !important; padding-top: 0 !important; }
 }
