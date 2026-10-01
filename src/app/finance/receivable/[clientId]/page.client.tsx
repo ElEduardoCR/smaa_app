@@ -16,6 +16,8 @@ import {
     markPromiseStatusAction,
 } from "@/app/actions/ar";
 import { generateARStatementPDF } from "@/lib/generateArStatementPdf";
+import { amountSearchTerms, dateSearchTerms, matchesSearch, parseLocalDate } from "@/lib/search";
+import SearchBox from "@/components/SearchBox";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -28,15 +30,38 @@ const fmtMoney = (n: number | null | undefined) =>
 
 const fmtDate = (iso: string | null) => {
     if (!iso) return "—";
-    try { return new Date(iso).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" }); }
+    try { return parseLocalDate(iso).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" }); }
     catch { return iso; }
 };
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 const STATUS_LABELS: Record<string, { label: string; chip: string; Icon: any }> = {
     pending:   { label: "Pendiente", chip: "bg-amber-500/15 text-amber-300 border-amber-500/30",  Icon: Clock },
     partial:   { label: "Parcial",   chip: "bg-cyan-500/15 text-cyan-300 border-cyan-500/30",      Icon: Receipt },
     paid:      { label: "Pagada",    chip: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30", Icon: CheckCircle },
     cancelled: { label: "Cancelada", chip: "bg-neutral-500/15 text-neutral-400 border-neutral-500/30", Icon: XCircle },
+};
+
+const METHOD_LABELS: Record<string, string> = {
+    transfer: "Transferencia",
+    cash: "Efectivo",
+    check: "Cheque",
+    card: "Tarjeta",
+    other: "Otro",
+};
+
+const PROMISE_STATUS_LABELS: Record<string, { label: string; chip: string }> = {
+    pending:   { label: "Pendiente", chip: "bg-amber-500/15 text-amber-300 border-amber-500/30" },
+    fulfilled: { label: "Cumplida",  chip: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30" },
+    expired:   { label: "Vencida",   chip: "bg-neutral-500/15 text-neutral-400 border-neutral-500/30" },
+    cancelled: { label: "Cancelada", chip: "bg-neutral-500/15 text-neutral-400 border-neutral-500/30" },
+};
+
+const LINK_STATUS_LABELS: Record<string, { label: string; chip: string }> = {
+    active:  { label: "Activo",   chip: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30" },
+    revoked: { label: "Revocado", chip: "bg-rose-500/15 text-rose-300 border-rose-500/30" },
+    expired: { label: "Expirado", chip: "bg-neutral-500/15 text-neutral-400 border-neutral-500/30" },
 };
 
 type Invoice = {
@@ -69,6 +94,7 @@ type Payment = {
     notes: string | null;
     registered_by: string | null;
     created_at: string;
+    promise_id?: string | null;  // promesa que este pago cumplió
     allocations: Array<{ invoice_id: string; amount_applied: number; invoice?: Invoice }>;
 };
 
@@ -94,6 +120,42 @@ type PromiseRow = {
     items: Array<{ id: string; invoice_id: string; amount_committed: number; invoice?: Invoice }>;
 };
 
+// Campos por los que se busca en cada lista (lo visible + montos y fechas en varios formatos)
+const invoiceSearchFields = (i: Invoice) => [
+    i.invoice_number, i.concept, i.notes, STATUS_LABELS[i.status]?.label,
+    i.source_type === 'issued_cfdi' ? 'CFDI' : null,
+    dateSearchTerms(i.invoice_date), dateSearchTerms(i.due_date), dateSearchTerms(i.work_date),
+    amountSearchTerms(i.gross_amount), amountSearchTerms(i.vat_amount), amountSearchTerms(i.net_amount),
+    amountSearchTerms(i.paid_amount), amountSearchTerms(i.balance),
+];
+
+const paymentSearchFields = (p: Payment) => [
+    p.payment_method, METHOD_LABELS[p.payment_method], p.reference, p.notes,
+    p.promise_id ? 'promesa' : null,
+    dateSearchTerms(p.payment_date), amountSearchTerms(p.amount),
+    p.allocations.map((a) => [a.invoice?.invoice_number, a.invoice?.concept, amountSearchTerms(a.amount_applied)]),
+];
+
+const linkSearchFields = (l: ShareLink) => [
+    l.label, l.status, LINK_STATUS_LABELS[l.status]?.label, String(l.access_count),
+    dateSearchTerms(l.created_at), dateSearchTerms(l.expires_at), dateSearchTerms(l.last_accessed_at),
+];
+
+const promiseSearchFields = (p: PromiseRow) => [
+    p.client_notes, p.status, PROMISE_STATUS_LABELS[p.status]?.label,
+    dateSearchTerms(p.promise_date), dateSearchTerms(p.expected_payment_date), amountSearchTerms(p.total_committed),
+    p.items.map((it) => [it.invoice?.invoice_number, it.invoice?.concept, amountSearchTerms(it.amount_committed)]),
+];
+
+/** Fila "sin resultados" para tablas filtradas por el buscador. */
+function NoMatchesRow({ colSpan, query }: { colSpan: number; query: string }) {
+    return (
+        <tr><td colSpan={colSpan} className="p-8 text-center text-sm text-neutral-500">
+            Sin resultados para “{query.trim()}”.
+        </td></tr>
+    );
+}
+
 export default function ClientDetailPage({ clientId }: { clientId: string }) {
     const router = useRouter();
     const [loading, setLoading] = useState(true);
@@ -109,8 +171,15 @@ export default function ClientDetailPage({ clientId }: { clientId: string }) {
     // Modales
     const [newInvoiceOpen, setNewInvoiceOpen] = useState(false);
     const [payOpen, setPayOpen] = useState(false);
+    const [payingPromise, setPayingPromise] = useState<PromiseRow | null>(null);
     const [linkOpen, setLinkOpen] = useState(false);
     const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
+
+    // Buscadores de cada lista
+    const [invoiceSearch, setInvoiceSearch] = useState("");
+    const [paymentSearch, setPaymentSearch] = useState("");
+    const [linkSearch, setLinkSearch] = useState("");
+    const [promiseSearch, setPromiseSearch] = useState("");
 
     const load = async () => {
         setLoading(true);
@@ -187,19 +256,56 @@ export default function ClientDetailPage({ clientId }: { clientId: string }) {
         );
     }, [activeInvoices]);
 
-    // IDs de facturas que ya están cubiertas por una promesa CUMPLIDA
-    // (el operador marcó la promesa como "Cumplida" pero el pago real aún
-    // no se ha registrado — el status de la factura sigue siendo pending/partial).
+    // Pago registrado al cumplir cada promesa
+    const paymentByPromise = useMemo(() => {
+        const map = new Map<string, Payment>();
+        for (const p of payments) if (p.promise_id) map.set(p.promise_id, p);
+        return map;
+    }, [payments]);
+
+    // IDs de facturas cubiertas por una promesa CUMPLIDA sin pago ligado
+    // (promesas marcadas como "Cumplida" sin registrar el pago desde la promesa:
+    // el status de la factura sigue siendo pending/partial).
     // Se usan para tachar visualmente las facturas en la tabla de partidas.
     const fulfilledInvoiceIds = useMemo(() => {
         const set = new Set<string>();
         for (const p of promises) {
-            if (p.status === 'fulfilled') {
+            if (p.status === 'fulfilled' && !paymentByPromise.has(p.id)) {
                 for (const it of p.items) set.add(it.invoice_id);
             }
         }
         return set;
-    }, [promises]);
+    }, [promises, paymentByPromise]);
+
+    const openInvoiceIds = useMemo(() => new Set(openInvoices.map((i) => i.id)), [openInvoices]);
+
+    // Listas filtradas por su buscador
+    const filteredInvoices = useMemo(
+        () => activeInvoices.filter((i) => matchesSearch(invoiceSearch, invoiceSearchFields(i))),
+        [activeInvoices, invoiceSearch]
+    );
+    const filteredTotals = useMemo(() => filteredInvoices.reduce(
+        (acc, i) => ({
+            gross: acc.gross + Number(i.gross_amount),
+            vat: acc.vat + Number(i.vat_amount),
+            net: acc.net + Number(i.net_amount),
+            paid: acc.paid + Number(i.paid_amount),
+            balance: acc.balance + Number(i.balance),
+        }),
+        { gross: 0, vat: 0, net: 0, paid: 0, balance: 0 }
+    ), [filteredInvoices]);
+    const filteredPayments = useMemo(
+        () => payments.filter((p) => matchesSearch(paymentSearch, paymentSearchFields(p))),
+        [payments, paymentSearch]
+    );
+    const filteredLinks = useMemo(
+        () => shareLinks.filter((l) => matchesSearch(linkSearch, linkSearchFields(l))),
+        [shareLinks, linkSearch]
+    );
+    const filteredPromises = useMemo(
+        () => promises.filter((p) => matchesSearch(promiseSearch, promiseSearchFields(p))),
+        [promises, promiseSearch]
+    );
 
     // Estado para expandir/colapsar las filas de promesas y ver el detalle
     const [expandedPromises, setExpandedPromises] = useState<Set<string>>(new Set());
@@ -357,8 +463,19 @@ export default function ClientDetailPage({ clientId }: { clientId: string }) {
 
                 {/* Tabla de partidas */}
                 <section className="bg-neutral-800/40 border border-neutral-700/50 rounded-3xl overflow-hidden backdrop-blur-sm">
-                    <div className="p-5 border-b border-neutral-700/50 bg-neutral-800/20">
-                        <h2 className="text-lg font-semibold text-white">Partidas</h2>
+                    <div className="p-5 border-b border-neutral-700/50 bg-neutral-800/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <h2 className="text-lg font-semibold text-white">
+                            Partidas
+                            {invoiceSearch.trim() && (
+                                <span className="ml-2 text-xs font-normal text-neutral-400">{filteredInvoices.length} de {activeInvoices.length}</span>
+                            )}
+                        </h2>
+                        <SearchBox
+                            value={invoiceSearch}
+                            onChange={setInvoiceSearch}
+                            placeholder="Buscar concepto, factura, monto, fecha"
+                            className="w-full sm:w-96"
+                        />
                     </div>
                     <div className="overflow-x-auto">
                         <table className="w-full text-sm">
@@ -382,7 +499,9 @@ export default function ClientDetailPage({ clientId }: { clientId: string }) {
                                         <FileBarChart className="w-12 h-12 mx-auto mb-3 text-neutral-700" />
                                         <p>Sin partidas. Agrega la primera.</p>
                                     </td></tr>
-                                ) : activeInvoices.map((inv) => {
+                                ) : filteredInvoices.length === 0 ? (
+                                    <NoMatchesRow colSpan={10} query={invoiceSearch} />
+                                ) : filteredInvoices.map((inv) => {
                                     const st = STATUS_LABELS[inv.status];
                                     const isFulfilled = fulfilledInvoiceIds.has(inv.id);
                                     return (
@@ -448,15 +567,17 @@ export default function ClientDetailPage({ clientId }: { clientId: string }) {
                                     );
                                 })}
                             </tbody>
-                            {activeInvoices.length > 0 && (
+                            {filteredInvoices.length > 0 && (
                                 <tfoot className="bg-neutral-900/50 border-t-2 border-neutral-700/50 text-xs font-semibold">
                                     <tr>
-                                        <td colSpan={3} className="p-3 text-right text-neutral-400 uppercase tracking-wider">Totales:</td>
-                                        <td className="p-3 text-right text-neutral-200 font-mono">{fmtMoney(totals.gross)}</td>
-                                        <td className="p-3 text-right text-neutral-200 font-mono">{fmtMoney(totals.vat)}</td>
-                                        <td className="p-3 text-right text-white font-mono">{fmtMoney(totals.net)}</td>
-                                        <td className="p-3 text-right text-emerald-300 font-mono">{fmtMoney(totals.paid)}</td>
-                                        <td className="p-3 text-right text-rose-300 font-mono">{fmtMoney(totals.balance)}</td>
+                                        <td colSpan={3} className="p-3 text-right text-neutral-400 uppercase tracking-wider">
+                                            {invoiceSearch.trim() ? "Totales (filtrados):" : "Totales:"}
+                                        </td>
+                                        <td className="p-3 text-right text-neutral-200 font-mono">{fmtMoney(filteredTotals.gross)}</td>
+                                        <td className="p-3 text-right text-neutral-200 font-mono">{fmtMoney(filteredTotals.vat)}</td>
+                                        <td className="p-3 text-right text-white font-mono">{fmtMoney(filteredTotals.net)}</td>
+                                        <td className="p-3 text-right text-emerald-300 font-mono">{fmtMoney(filteredTotals.paid)}</td>
+                                        <td className="p-3 text-right text-rose-300 font-mono">{fmtMoney(filteredTotals.balance)}</td>
                                         <td colSpan={2}></td>
                                     </tr>
                                 </tfoot>
@@ -468,10 +589,19 @@ export default function ClientDetailPage({ clientId }: { clientId: string }) {
                 {/* Pagos registrados */}
                 {payments.length > 0 && (
                     <section className="bg-neutral-800/40 border border-neutral-700/50 rounded-3xl overflow-hidden">
-                        <div className="p-5 border-b border-neutral-700/50 bg-neutral-800/20">
+                        <div className="p-5 border-b border-neutral-700/50 bg-neutral-800/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                             <h2 className="text-lg font-semibold text-white flex items-center gap-2">
                                 <CreditCard className="w-5 h-5 text-emerald-400" /> Pagos registrados
+                                {paymentSearch.trim() && (
+                                    <span className="text-xs font-normal text-neutral-400">{filteredPayments.length} de {payments.length}</span>
+                                )}
                             </h2>
+                            <SearchBox
+                                value={paymentSearch}
+                                onChange={setPaymentSearch}
+                                placeholder="Buscar monto, fecha, método, referencia"
+                                className="w-full sm:w-96"
+                            />
                         </div>
                         <div className="overflow-x-auto">
                             <table className="w-full text-sm">
@@ -485,17 +615,29 @@ export default function ClientDetailPage({ clientId }: { clientId: string }) {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {payments.map((p) => (
+                                    {filteredPayments.length === 0 ? (
+                                        <NoMatchesRow colSpan={5} query={paymentSearch} />
+                                    ) : filteredPayments.map((p) => (
                                         <tr key={p.id} className="border-t border-neutral-800/60">
                                             <td className="p-3 text-neutral-300 text-xs">{fmtDate(p.payment_date)}</td>
                                             <td className="p-3">
-                                                <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-neutral-700/40 text-neutral-300 border border-neutral-700">
-                                                    {p.payment_method}
-                                                </span>
+                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                    <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-neutral-700/40 text-neutral-300 border border-neutral-700">
+                                                        {METHOD_LABELS[p.payment_method] || p.payment_method}
+                                                    </span>
+                                                    {p.promise_id && (
+                                                        <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/30">
+                                                            Promesa
+                                                        </span>
+                                                    )}
+                                                </div>
                                             </td>
-                                            <td className="p-3 text-neutral-400 text-xs font-mono">{p.reference || "—"}</td>
+                                            <td className="p-3 text-xs">
+                                                <p className="text-neutral-400 font-mono">{p.reference || "—"}</p>
+                                                {p.notes && <p className="text-[10px] text-neutral-500 italic line-clamp-1" title={p.notes}>{p.notes}</p>}
+                                            </td>
                                             <td className="p-3 text-right text-emerald-300 font-mono font-semibold">{fmtMoney(p.amount)}</td>
-                                            <td className="p-3 text-xs text-neutral-400">
+                                            <td className="p-3 text-xs text-neutral-400" title={p.allocations.map((a) => `${a.invoice?.invoice_number || a.invoice?.concept || a.invoice_id.slice(0, 8)}: ${fmtMoney(a.amount_applied)}`).join("\n")}>
                                                 {p.allocations.map((a) => a.invoice?.invoice_number || a.invoice_id.slice(0, 8)).join(", ") || "—"}
                                             </td>
                                         </tr>
@@ -509,13 +651,24 @@ export default function ClientDetailPage({ clientId }: { clientId: string }) {
                 {/* Links públicos generados */}
                 {shareLinks.length > 0 && (
                     <section className="bg-neutral-800/40 border border-neutral-700/50 rounded-3xl overflow-hidden">
-                        <div className="p-5 border-b border-neutral-700/50 bg-neutral-800/20 flex items-center justify-between">
+                        <div className="p-5 border-b border-neutral-700/50 bg-neutral-800/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                             <h2 className="text-lg font-semibold text-white flex items-center gap-2">
                                 <Link2 className="w-5 h-5 text-violet-400" /> Links públicos generados
+                                {linkSearch.trim() && (
+                                    <span className="text-xs font-normal text-neutral-400">{filteredLinks.length} de {shareLinks.length}</span>
+                                )}
                             </h2>
-                            <button onClick={() => setLinkOpen(true)} className="text-xs text-violet-300 hover:text-white bg-violet-500/10 hover:bg-violet-500/20 px-3 py-1.5 rounded-lg border border-violet-500/20 inline-flex items-center gap-1.5">
-                                <Plus className="w-3.5 h-3.5" /> Nuevo
-                            </button>
+                            <div className="flex items-center gap-2 w-full sm:w-auto">
+                                <SearchBox
+                                    value={linkSearch}
+                                    onChange={setLinkSearch}
+                                    placeholder="Buscar etiqueta, fecha, estado"
+                                    className="flex-1 sm:w-80"
+                                />
+                                <button onClick={() => setLinkOpen(true)} className="shrink-0 text-xs text-violet-300 hover:text-white bg-violet-500/10 hover:bg-violet-500/20 px-3 py-2 rounded-lg border border-violet-500/20 inline-flex items-center gap-1.5">
+                                    <Plus className="w-3.5 h-3.5" /> Nuevo
+                                </button>
+                            </div>
                         </div>
                         <div className="overflow-x-auto">
                             <table className="w-full text-sm">
@@ -530,7 +683,9 @@ export default function ClientDetailPage({ clientId }: { clientId: string }) {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {shareLinks.map((l) => {
+                                    {filteredLinks.length === 0 ? (
+                                        <NoMatchesRow colSpan={6} query={linkSearch} />
+                                    ) : filteredLinks.map((l) => {
                                         const expired = new Date(l.expires_at) < new Date();
                                         return (
                                             <tr key={l.id} className="border-t border-neutral-800/60">
@@ -540,10 +695,8 @@ export default function ClientDetailPage({ clientId }: { clientId: string }) {
                                                 <td className="p-3 text-center text-neutral-300 text-xs">{l.access_count}</td>
                                                 <td className="p-3 text-center">
                                                     <span className={cn("text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border",
-                                                        l.status === 'active' ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30" :
-                                                        l.status === 'revoked' ? "bg-rose-500/15 text-rose-300 border-rose-500/30" :
-                                                        "bg-neutral-500/15 text-neutral-400 border-neutral-500/30"
-                                                    )}>{l.status}</span>
+                                                        LINK_STATUS_LABELS[l.status]?.chip || LINK_STATUS_LABELS.expired.chip
+                                                    )}>{LINK_STATUS_LABELS[l.status]?.label || l.status}</span>
                                                 </td>
                                                 <td className="p-3 text-right">
                                                     {l.status === 'active' && (
@@ -570,11 +723,22 @@ export default function ClientDetailPage({ clientId }: { clientId: string }) {
                 {/* Promesas del cliente */}
                 {promises.length > 0 && (
                     <section className="bg-neutral-800/40 border border-neutral-700/50 rounded-3xl overflow-hidden">
-                        <div className="p-5 border-b border-neutral-700/50 bg-neutral-800/20">
-                            <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-                                <Send className="w-5 h-5 text-amber-400" /> Promesas de pago del cliente
-                            </h2>
-                            <p className="text-[11px] text-neutral-500 mt-1">Haz click en una fila para ver el detalle de facturas y el desglose.</p>
+                        <div className="p-5 border-b border-neutral-700/50 bg-neutral-800/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div>
+                                <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                                    <Send className="w-5 h-5 text-amber-400" /> Promesas de pago del cliente
+                                    {promiseSearch.trim() && (
+                                        <span className="text-xs font-normal text-neutral-400">{filteredPromises.length} de {promises.length}</span>
+                                    )}
+                                </h2>
+                                <p className="text-[11px] text-neutral-500 mt-1">Haz click en una fila para ver el detalle de facturas y el desglose.</p>
+                            </div>
+                            <SearchBox
+                                value={promiseSearch}
+                                onChange={setPromiseSearch}
+                                placeholder="Buscar monto, fecha, factura, nota"
+                                className="w-full sm:w-96"
+                            />
                         </div>
                         <div className="overflow-x-auto">
                             <table className="w-full text-sm">
@@ -590,8 +754,15 @@ export default function ClientDetailPage({ clientId }: { clientId: string }) {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {promises.map((p) => {
+                                    {filteredPromises.length === 0 ? (
+                                        <NoMatchesRow colSpan={7} query={promiseSearch} />
+                                    ) : filteredPromises.map((p) => {
                                         const isExpanded = expandedPromises.has(p.id);
+                                        const promisePayment = paymentByPromise.get(p.id);
+                                        const promiseStatus = PROMISE_STATUS_LABELS[p.status] || PROMISE_STATUS_LABELS.cancelled;
+                                        // Cumplida sin pago ligado y con facturas aún abiertas → se puede registrar el pago
+                                        const canRegisterLater = p.status === 'fulfilled' && !promisePayment
+                                            && p.items.some((it) => openInvoiceIds.has(it.invoice_id));
                                         // Desglose agregado: prorrateo gross/vat por item según
                                         // su participación en el net de la factura.
                                         let aggGross = 0, aggVat = 0, aggNet = 0;
@@ -631,22 +802,33 @@ export default function ClientDetailPage({ clientId }: { clientId: string }) {
                                                         )}
                                                     </td>
                                                     <td className="p-3 text-center">
-                                                        <span className={cn("text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border",
-                                                            p.status === 'pending' ? "bg-amber-500/15 text-amber-300 border-amber-500/30" :
-                                                            p.status === 'fulfilled' ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30" :
-                                                            "bg-neutral-500/15 text-neutral-400 border-neutral-500/30"
-                                                        )}>{p.status}</span>
+                                                        <span className={cn("text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border", promiseStatus.chip)}>
+                                                            {promiseStatus.label}
+                                                        </span>
+                                                        {promisePayment && (
+                                                            <p className="text-[10px] text-emerald-300 font-mono mt-1" title="Pago registrado">
+                                                                Pagó {fmtMoney(promisePayment.amount)}
+                                                            </p>
+                                                        )}
                                                     </td>
                                                     <td className="p-3 text-right" onClick={(e) => e.stopPropagation()}>
                                                         {p.status === 'pending' && (
-                                                            <button onClick={async () => {
-                                                                if (!confirm('¿Marcar promesa como cumplida?\n\nEsto NO registra el pago. Las facturas se marcarán como cubiertas pero su status de pago no cambiará hasta que registres el pago real.')) return;
-                                                                setBusy(true);
-                                                                try { await markPromiseStatusAction(p.id, 'fulfilled'); flash('success', 'Promesa marcada como cumplida. Registra el pago cuando el dinero llegue.'); await load(); }
-                                                                catch (e: any) { flash('error', e.message); }
-                                                                finally { setBusy(false); }
-                                                            }} disabled={busy} className="text-xs text-emerald-300 hover:text-white bg-emerald-500/10 hover:bg-emerald-500/20 px-2.5 py-1 rounded-lg border border-emerald-500/20">
-                                                                Cumplida
+                                                            <button
+                                                                onClick={() => setPayingPromise(p)}
+                                                                disabled={busy}
+                                                                title="Registrar el pago de esta promesa"
+                                                                className="text-xs text-emerald-300 hover:text-white bg-emerald-500/10 hover:bg-emerald-500/20 px-2.5 py-1 rounded-lg border border-emerald-500/20 inline-flex items-center gap-1"
+                                                            >
+                                                                <CheckCircle className="w-3 h-3" /> Cumplida
+                                                            </button>
+                                                        )}
+                                                        {canRegisterLater && (
+                                                            <button
+                                                                onClick={() => setPayingPromise(p)}
+                                                                disabled={busy}
+                                                                className="text-xs text-cyan-300 hover:text-white bg-cyan-500/10 hover:bg-cyan-500/20 px-2.5 py-1 rounded-lg border border-cyan-500/20 inline-flex items-center gap-1"
+                                                            >
+                                                                <CreditCard className="w-3 h-3" /> Registrar pago
                                                             </button>
                                                         )}
                                                     </td>
@@ -712,13 +894,35 @@ export default function ClientDetailPage({ clientId }: { clientId: string }) {
                                                                     </table>
                                                                 </div>
 
-                                                                {/* Recordatorio si está cumplida pero sin pago real */}
-                                                                {p.status === 'fulfilled' && (
+                                                                {/* Pago con el que se cumplió la promesa */}
+                                                                {promisePayment && (
+                                                                    <div className="mt-3 bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3 text-[11px] text-emerald-200 flex items-start gap-2">
+                                                                        <CheckCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                                                                        <span>
+                                                                            Pago registrado el <strong>{fmtDate(promisePayment.payment_date)}</strong> por <strong className="font-mono">{fmtMoney(promisePayment.amount)}</strong>
+                                                                            {' '}({METHOD_LABELS[promisePayment.payment_method] || promisePayment.payment_method}{promisePayment.reference ? ` · ${promisePayment.reference}` : ''})
+                                                                            {Math.abs(Number(promisePayment.amount) - Number(p.total_committed)) >= 0.01 && (
+                                                                                <> — distinto a lo prometido ({fmtMoney(p.total_committed)}).</>
+                                                                            )}
+                                                                        </span>
+                                                                    </div>
+                                                                )}
+
+                                                                {/* Cumplida sin pago ligado (marcada antes de que se registrara el pago desde la promesa) */}
+                                                                {p.status === 'fulfilled' && !promisePayment && (
                                                                     <div className="mt-3 bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3 text-[11px] text-emerald-200 flex items-start gap-2">
                                                                         <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                                                                        <span>
-                                                                            Esta promesa está marcada como <strong>cumplida</strong>, pero el pago real aún no se ha registrado. Las facturas se ven tachadas en la tabla de arriba, pero su status de pago (<em>pending / partial / paid</em>) no cambiará hasta que uses el botón <strong>"Registrar pago"</strong>.
+                                                                        <span className="flex-1">
+                                                                            Esta promesa está marcada como <strong>cumplida</strong> sin un pago registrado desde la promesa. Si el dinero aún no está capturado, regístralo para que el saldo de las facturas se actualice.
                                                                         </span>
+                                                                        {canRegisterLater && (
+                                                                            <button
+                                                                                onClick={() => setPayingPromise(p)}
+                                                                                className="shrink-0 text-xs text-cyan-300 hover:text-white bg-cyan-500/10 hover:bg-cyan-500/20 px-2.5 py-1 rounded-lg border border-cyan-500/20"
+                                                                            >
+                                                                                Registrar pago
+                                                                            </button>
+                                                                        )}
                                                                     </div>
                                                                 )}
                                                             </div>
@@ -751,13 +955,19 @@ export default function ClientDetailPage({ clientId }: { clientId: string }) {
                         setErr={(t) => flash('error', t)}
                     />
                 )}
-                {payOpen && (
+                {(payOpen || payingPromise) && (
                     <PaymentModal
+                        key={payingPromise?.id || 'manual'}
                         clientId={Number(clientId)}
                         openInvoices={openInvoices}
-                        onClose={() => setPayOpen(false)}
-                        onSaved={async () => { setPayOpen(false); flash('success', 'Pago registrado.'); await load(); }}
-                        setErr={(t) => flash('error', t)}
+                        promise={payingPromise}
+                        onClose={() => { setPayOpen(false); setPayingPromise(null); }}
+                        onSaved={async (message, warning) => {
+                            setPayOpen(false);
+                            setPayingPromise(null);
+                            flash(warning ? 'error' : 'success', warning || message);
+                            await load();
+                        }}
                     />
                 )}
                 {linkOpen && (
@@ -808,6 +1018,14 @@ function NewInvoiceModal({ clientId, onClose, onSaved, setErr }: { clientId: num
     const [busy, setBusy] = useState(false);
     const [availableCfdis, setAvailableCfdis] = useState<any[]>([]);
     const [selectedCfdi, setSelectedCfdi] = useState<string>("");
+    const [cfdiSearch, setCfdiSearch] = useState("");
+
+    // El CFDI seleccionado se queda en la lista aunque no coincida con la búsqueda
+    const filteredCfdis = useMemo(() => availableCfdis.filter((c: any) =>
+        c.id === selectedCfdi || matchesSearch(cfdiSearch,
+            c.serie, c.folio, [c.serie, c.folio].filter(Boolean).join("-"), c.uuid, c.receptor_nombre,
+            amountSearchTerms(c.total), amountSearchTerms(c.subtotal), dateSearchTerms(c.invoice_date?.slice(0, 10)))
+    ), [availableCfdis, cfdiSearch, selectedCfdi]);
 
     useEffect(() => {
         // Cargar CFDIs del cliente que aún no están en AR
@@ -870,9 +1088,19 @@ function NewInvoiceModal({ clientId, onClose, onSaved, setErr }: { clientId: num
                 {availableCfdis.length > 0 && (
                     <div>
                         <label className="text-xs font-medium text-neutral-300">Vincular CFDI emitido (opcional)</label>
-                        <select value={selectedCfdi} onChange={(e) => handleCfdiChange(e.target.value)} className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-3 py-2 text-sm text-white mt-1 focus:outline-none focus:border-cyan-500">
-                            <option value="">— Crear manual (sin CFDI) —</option>
-                            {availableCfdis.map((c: any) => (
+                        <SearchBox
+                            value={cfdiSearch}
+                            onChange={setCfdiSearch}
+                            placeholder="Buscar CFDI por folio, UUID, monto, fecha..."
+                            className="mt-1"
+                        />
+                        <select value={selectedCfdi} onChange={(e) => handleCfdiChange(e.target.value)} className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-3 py-2 text-sm text-white mt-2 focus:outline-none focus:border-cyan-500">
+                            <option value="">
+                                {cfdiSearch.trim()
+                                    ? `— ${filteredCfdis.length} de ${availableCfdis.length} CFDIs coinciden · Crear manual (sin CFDI) —`
+                                    : "— Crear manual (sin CFDI) —"}
+                            </option>
+                            {filteredCfdis.map((c: any) => (
                                 <option key={c.id} value={c.id}>
                                     {[c.serie, c.folio].filter(Boolean).join("-") || c.uuid?.slice(0, 8) || "—"} · {c.receptor_nombre} · ${Number(c.total || 0).toFixed(2)} · {c.invoice_date?.slice(0, 10)}
                                 </option>
@@ -1069,31 +1297,127 @@ function EditInvoiceModal({ invoice, onClose, onSaved, setErr }: { invoice: Invo
     );
 }
 
-function PaymentModal({ clientId, openInvoices, onClose, onSaved, setErr }: { clientId: number; openInvoices: Invoice[]; onClose: () => void; onSaved: () => void | Promise<void>; setErr: (t: string) => void }) {
+type PayMode = 'exact' | 'other';
+
+function PaymentModal({ clientId, openInvoices, promise, onClose, onSaved }: {
+    clientId: number;
+    openInvoices: Invoice[];
+    /** Si viene, el pago cumple esta promesa: se pregunta si fue el monto exacto u otra cantidad. */
+    promise?: PromiseRow | null;
+    onClose: () => void;
+    onSaved: (message: string, warning?: string | null) => void | Promise<void>;
+}) {
     const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10));
     const [amount, setAmount] = useState("");
     const [method, setMethod] = useState<"transfer" | "cash" | "check" | "card" | "other">("transfer");
     const [reference, setReference] = useState("");
-    const [notes, setNotes] = useState("");
+    const [notes, setNotes] = useState(promise ? `Pago de la promesa del ${fmtDate(promise.promise_date)}` : "");
     const [allocations, setAllocations] = useState<Record<string, string>>({});
+    // Con promesa, primero se elige si pagó exactamente lo prometido u otra cantidad
+    const [mode, setMode] = useState<PayMode | null>(promise ? null : 'other');
+    const [search, setSearch] = useState("");
+    const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
 
-    const totalAlloc = Object.values(allocations).reduce((s, v) => s + (Number(v) || 0), 0);
+    const openById = useMemo(() => new Map(openInvoices.map((i) => [i.id, i])), [openInvoices]);
+
+    // Lo que la promesa cubre de cada factura, topado al saldo actual
+    // (si hubo otros pagos después de la promesa, solo se aplica lo que falta).
+    const promiseTargets = useMemo(() => (promise?.items || []).map((it) => {
+        const open = openById.get(it.invoice_id);
+        const committed = round2(Number(it.amount_committed));
+        return {
+            invoice_id: it.invoice_id,
+            invoice: open || it.invoice,
+            committed,
+            applicable: open ? round2(Math.min(committed, Number(open.balance))) : 0,
+        };
+    }), [promise, openById]);
+    const promiseCommitted = useMemo(() => new Map(promiseTargets.map((t) => [t.invoice_id, t.committed])), [promiseTargets]);
+    const committedTotal = round2(promiseTargets.reduce((s, t) => s + t.committed, 0));
+    const exactTotal = round2(promiseTargets.reduce((s, t) => s + t.applicable, 0));
+
+    const totalAlloc = round2(Object.values(allocations).reduce((s, v) => s + (Number(v) || 0), 0));
     const amountNum = Number(amount) || 0;
+    const diff = round2(amountNum - totalAlloc);
+
+    // Reparte un monto entre las facturas de la promesa: primero hasta lo
+    // comprometido en cada una y, si sobra, hasta su saldo completo.
+    const distribute = (total: number) => {
+        let left = round2(total);
+        const applied: Record<string, number> = {};
+        for (const t of promiseTargets) {
+            const take = round2(Math.min(left, t.applicable));
+            if (take > 0) { applied[t.invoice_id] = take; left = round2(left - take); }
+        }
+        for (const t of promiseTargets) {
+            const open = openById.get(t.invoice_id);
+            if (!open) continue;
+            const take = round2(Math.min(left, Number(open.balance) - (applied[t.invoice_id] || 0)));
+            if (take > 0) { applied[t.invoice_id] = round2((applied[t.invoice_id] || 0) + take); left = round2(left - take); }
+        }
+        return Object.fromEntries(Object.entries(applied).map(([id, v]) => [id, v.toFixed(2)]));
+    };
+
+    const chooseMode = (m: PayMode) => {
+        setMode(m);
+        setError(null);
+        if (m === 'exact') {
+            setAmount(exactTotal.toFixed(2));
+            setAllocations(distribute(exactTotal));
+        } else {
+            setAmount("");
+            setAllocations({});
+        }
+    };
+
+    const onAmountChange = (value: string) => {
+        setAmount(value);
+        // Con promesa, el monto se reparte solo entre sus facturas; después se puede ajustar a mano
+        if (promise && mode === 'other') setAllocations(distribute(Number(value) || 0));
+    };
+
+    // Pone (o quita) el saldo completo de la factura como monto aplicado
+    const toggleFull = (inv: Invoice) => {
+        const balance = round2(Number(inv.balance));
+        setAllocations((prev) => {
+            const isFull = Math.abs((Number(prev[inv.id]) || 0) - balance) < 0.005;
+            return { ...prev, [inv.id]: isFull ? "" : balance.toFixed(2) };
+        });
+    };
+
+    // Facturas de la promesa primero; el buscador filtra sin perder lo ya asignado
+    const rows = useMemo(() => {
+        const list = promise
+            ? [...openInvoices].sort((a, b) => Number(promiseCommitted.has(b.id)) - Number(promiseCommitted.has(a.id)))
+            : openInvoices;
+        return list.filter((inv) => matchesSearch(search, invoiceSearchFields(inv)));
+    }, [openInvoices, promise, promiseCommitted, search]);
+    const visibleIds = new Set(rows.map((r) => r.id));
+    const hiddenAssigned = Object.entries(allocations).filter(([id, v]) => Number(v) > 0 && !visibleIds.has(id)).length;
 
     const submit = async () => {
-        if (amountNum <= 0) { setErr("Monto del pago debe ser mayor a 0."); return; }
+        setError(null);
+        if (promise && !mode) { setError("Indica si el cliente pagó exactamente lo prometido u otra cantidad."); return; }
+        if (amountNum <= 0) { setError("El monto del pago debe ser mayor a 0."); return; }
         const allocs = Object.entries(allocations)
-            .filter(([_, v]) => Number(v) > 0)
-            .map(([id, v]) => ({ invoice_id: id, amount_applied: Number(v) }));
-        if (allocs.length === 0) { setErr("Asigna el pago a al menos una factura."); return; }
+            .filter(([, v]) => Number(v) > 0)
+            .map(([id, v]) => ({ invoice_id: id, amount_applied: round2(Number(v)) }));
+        if (allocs.length === 0) { setError("Asigna el pago a al menos una factura."); return; }
+        for (const a of allocs) {
+            const inv = openById.get(a.invoice_id);
+            if (inv && a.amount_applied - Number(inv.balance) > 0.005) {
+                setError(`A "${inv.invoice_number || inv.concept}" se le asignan ${fmtMoney(a.amount_applied)} pero su saldo es ${fmtMoney(inv.balance)}.`);
+                return;
+            }
+        }
         if (Math.abs(totalAlloc - amountNum) > 0.01) {
-            setErr(`La suma asignada ($${totalAlloc.toFixed(2)}) no coincide con el monto ($${amountNum.toFixed(2)}).`);
+            setError(`La suma asignada (${fmtMoney(totalAlloc)}) no coincide con el monto (${fmtMoney(amountNum)}).`);
             return;
         }
         setBusy(true);
         try {
-            await registerARPaymentAction({
+            const res = await registerARPaymentAction({
                 client_id: clientId,
                 payment_date: paymentDate,
                 amount: amountNum,
@@ -1101,15 +1425,79 @@ function PaymentModal({ clientId, openInvoices, onClose, onSaved, setErr }: { cl
                 reference: reference.trim() || null,
                 notes: notes.trim() || null,
                 allocations: allocs,
+                promise_id: promise?.id ?? null,
             });
-            onSaved();
-        } catch (e: any) { setErr(e.message); }
+            await onSaved(promise ? 'Pago registrado y promesa cumplida.' : 'Pago registrado.', res.warning);
+        } catch (e: any) { setError(e.message); }
+        finally { setBusy(false); }
+    };
+
+    // Para cuando el pago ya se capturó por separado con "Registrar pago"
+    const markFulfilledOnly = async () => {
+        if (!promise) return;
+        if (!confirm('¿Marcar la promesa como cumplida SIN registrar un pago?\n\nÚsalo solo si el pago ya se capturó por separado con "Registrar pago".')) return;
+        setError(null);
+        setBusy(true);
+        try {
+            await markPromiseStatusAction(promise.id, 'fulfilled');
+            await onSaved('Promesa marcada como cumplida (sin registrar pago).');
+        } catch (e: any) { setError(e.message); }
         finally { setBusy(false); }
     };
 
     return (
-        <ModalShell title="Registrar pago" onClose={onClose}>
+        <ModalShell title={promise ? "Promesa cumplida — registrar pago" : "Registrar pago"} onClose={onClose}>
             <div className="space-y-4">
+                {promise && (
+                    <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-4">
+                        <p className="text-sm font-semibold text-white">¿El cliente pagó exactamente lo prometido?</p>
+                        <p className="text-[11px] text-neutral-400 mt-0.5">
+                            Promesa del {fmtDate(promise.promise_date)}
+                            {promise.expected_payment_date ? ` · pago esperado ${fmtDate(promise.expected_payment_date)}` : ""}
+                            {" · "}{promise.items.length} {promise.items.length === 1 ? "factura" : "facturas"}
+                            {" · comprometido "}<span className="font-mono">{fmtMoney(committedTotal)}</span>
+                        </p>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3">
+                            <button
+                                type="button"
+                                onClick={() => chooseMode('exact')}
+                                disabled={busy || exactTotal <= 0}
+                                className={cn(
+                                    "text-left rounded-xl border px-3 py-2.5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed",
+                                    mode === 'exact' ? "border-emerald-500/60 bg-emerald-500/15" : "border-neutral-700 hover:border-emerald-500/40 hover:bg-emerald-500/5"
+                                )}
+                            >
+                                <span className="flex items-center gap-1.5 text-sm font-semibold text-emerald-300">
+                                    <CheckCircle className="w-4 h-4" /> Sí, exactamente
+                                </span>
+                                <span className="block text-xs text-neutral-300 font-mono mt-0.5">{fmtMoney(exactTotal)}</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => chooseMode('other')}
+                                disabled={busy}
+                                className={cn(
+                                    "text-left rounded-xl border px-3 py-2.5 transition-colors",
+                                    mode === 'other' ? "border-cyan-500/60 bg-cyan-500/15" : "border-neutral-700 hover:border-cyan-500/40 hover:bg-cyan-500/5"
+                                )}
+                            >
+                                <span className="flex items-center gap-1.5 text-sm font-semibold text-cyan-300">
+                                    <Pencil className="w-4 h-4" /> No, otra cantidad
+                                </span>
+                                <span className="block text-xs text-neutral-400 mt-0.5">Capturo el monto que llegó</span>
+                            </button>
+                        </div>
+                        {exactTotal < committedTotal - 0.005 && (
+                            <p className="mt-2 text-[11px] text-amber-200 flex items-start gap-1.5">
+                                <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                                {exactTotal > 0
+                                    ? `Algunas facturas de la promesa ya recibieron pagos: solo quedan ${fmtMoney(exactTotal)} por aplicar de lo prometido.`
+                                    : "Las facturas de esta promesa ya no tienen saldo pendiente."}
+                            </p>
+                        )}
+                    </div>
+                )}
+
                 <div className="grid grid-cols-2 gap-3">
                     <div>
                         <label className="text-xs font-medium text-neutral-300">Fecha</label>
@@ -1129,7 +1517,21 @@ function PaymentModal({ clientId, openInvoices, onClose, onSaved, setErr }: { cl
                 <div className="grid grid-cols-2 gap-3">
                     <div>
                         <label className="text-xs font-medium text-neutral-300">Monto *</label>
-                        <input type="number" inputMode="decimal" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-3 py-2 text-sm text-white mt-1 focus:outline-none focus:border-emerald-500" />
+                        <input
+                            type="number"
+                            inputMode="decimal"
+                            step="0.01"
+                            value={amount}
+                            onChange={(e) => onAmountChange(e.target.value)}
+                            disabled={mode !== 'other'}
+                            placeholder={mode ? "0.00" : "Elige una opción arriba"}
+                            className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-3 py-2 text-sm text-white mt-1 focus:outline-none focus:border-emerald-500 disabled:opacity-60 disabled:cursor-not-allowed"
+                        />
+                        {mode === 'other' && totalAlloc > 0 && Math.abs(diff) >= 0.01 && (
+                            <button type="button" onClick={() => setAmount(totalAlloc.toFixed(2))} className="text-[10px] text-emerald-300 hover:text-white hover:underline underline-offset-2 mt-1">
+                                Usar lo asignado ({fmtMoney(totalAlloc)})
+                            </button>
+                        )}
                     </div>
                     <div>
                         <label className="text-xs font-medium text-neutral-300">Referencia</label>
@@ -1141,43 +1543,165 @@ function PaymentModal({ clientId, openInvoices, onClose, onSaved, setErr }: { cl
                     <input value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-3 py-2 text-sm text-white mt-1 focus:outline-none focus:border-emerald-500" />
                 </div>
 
-                {openInvoices.length > 0 && (
+                {/* Monto exacto: se aplica lo prometido a cada factura de la promesa */}
+                {mode === 'exact' && (
                     <div>
-                        <label className="text-xs font-medium text-neutral-300">Aplicar a facturas</label>
-                        <div className="mt-1 max-h-64 overflow-y-auto bg-neutral-900/40 border border-neutral-700/50 rounded-xl">
-                            {openInvoices.map((inv: Invoice) => (
-                                <div key={inv.id} className="flex items-center gap-3 p-3 border-b border-neutral-800/60 last:border-0">
-                                    <div className="flex-1 min-w-0">
-                                        <p className="text-white text-sm truncate">{inv.invoice_number || inv.concept}</p>
-                                        <p className="text-[10px] text-neutral-500">Saldo: {fmtMoney(inv.balance)}</p>
-                                    </div>
-                                    <input
-                                        type="number"
-                                        inputMode="decimal"
-                                        step="0.01"
-                                        max={inv.balance}
-                                        value={allocations[inv.id] || ""}
-                                        onChange={(e) => setAllocations({ ...allocations, [inv.id]: e.target.value })}
-                                        placeholder="0.00"
-                                        className="w-28 bg-neutral-800/60 border border-neutral-700 rounded-lg px-2 py-1 text-sm text-white text-right focus:outline-none focus:border-emerald-500"
-                                    />
-                                </div>
-                            ))}
+                        <label className="text-xs font-medium text-neutral-300">Se aplicará a</label>
+                        <div className="mt-1 rounded-xl border border-neutral-700/50 overflow-hidden">
+                            <table className="w-full text-xs">
+                                <thead className="bg-neutral-900/60 text-[9px] uppercase tracking-wider text-neutral-400">
+                                    <tr>
+                                        <th className="text-left p-2"># Factura / Concepto</th>
+                                        <th className="text-right p-2">Saldo</th>
+                                        <th className="text-right p-2">Prometido</th>
+                                        <th className="text-right p-2">Se aplica</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {promiseTargets.map((t) => {
+                                        const open = openById.get(t.invoice_id);
+                                        return (
+                                            <tr key={t.invoice_id} className={cn("border-t border-neutral-800/40", t.applicable <= 0 && "opacity-50")}>
+                                                <td className="p-2">
+                                                    <p className="text-white font-mono">{t.invoice?.invoice_number || t.invoice_id.slice(0, 8)}</p>
+                                                    <p className="text-[10px] text-neutral-400 truncate max-w-[240px]" title={t.invoice?.concept}>{t.invoice?.concept || "—"}</p>
+                                                </td>
+                                                <td className="p-2 text-right text-rose-300 font-mono">{open ? fmtMoney(open.balance) : "Sin saldo"}</td>
+                                                <td className="p-2 text-right text-amber-300 font-mono">{fmtMoney(t.committed)}</td>
+                                                <td className="p-2 text-right text-emerald-300 font-mono font-semibold">{fmtMoney(t.applicable)}</td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                                <tfoot className="bg-neutral-900/60 border-t-2 border-emerald-500/30 text-[11px] font-semibold">
+                                    <tr>
+                                        <td colSpan={2} className="p-2 text-right text-neutral-400 uppercase tracking-wider">Total:</td>
+                                        <td className="p-2 text-right text-amber-300 font-mono">{fmtMoney(committedTotal)}</td>
+                                        <td className="p-2 text-right text-emerald-300 font-mono">{fmtMoney(exactTotal)}</td>
+                                    </tr>
+                                </tfoot>
+                            </table>
                         </div>
-                        <div className="mt-2 flex justify-between text-xs">
-                            <span className="text-neutral-400">Asignado:</span>
-                            <span className={cn("font-mono font-semibold", Math.abs(totalAlloc - amountNum) < 0.01 ? "text-emerald-300" : "text-amber-300")}>
-                                {fmtMoney(totalAlloc)} / {fmtMoney(amountNum)}
-                            </span>
+                        <p className="text-[10px] text-neutral-500 mt-1">¿Llegó otro monto o hay que repartirlo distinto? Elige “No, otra cantidad”.</p>
+                    </div>
+                )}
+
+                {/* Distribución manual entre facturas abiertas */}
+                {mode === 'other' && (
+                    openInvoices.length === 0 ? (
+                        <p className="text-xs text-neutral-500 bg-neutral-900/40 border border-neutral-700/50 rounded-xl p-4 text-center">
+                            El cliente no tiene facturas con saldo pendiente.
+                        </p>
+                    ) : (
+                        <div>
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                <label className="text-xs font-medium text-neutral-300">Aplicar a facturas</label>
+                                <SearchBox
+                                    value={search}
+                                    onChange={setSearch}
+                                    placeholder="Buscar concepto, factura, monto, fecha"
+                                    className="sm:w-96"
+                                />
+                            </div>
+                            <p className="text-[10px] text-neutral-500 mt-1">
+                                {promise
+                                    ? "El monto se reparte primero entre las facturas de la promesa; puedes ajustarlo a mano. “Liquidar” pone el saldo completo de la factura."
+                                    : "“Liquidar” pone el saldo completo de la factura; si el pago no alcanza, escribe el monto a mano."}
+                            </p>
+                            <div className="mt-2 max-h-72 overflow-y-auto bg-neutral-900/40 border border-neutral-700/50 rounded-xl">
+                                {rows.length === 0 ? (
+                                    <p className="p-4 text-center text-xs text-neutral-500">Sin resultados para “{search.trim()}”.</p>
+                                ) : rows.map((inv) => {
+                                    const balance = round2(Number(inv.balance));
+                                    const current = Number(allocations[inv.id]) || 0;
+                                    const isFull = balance > 0 && Math.abs(current - balance) < 0.005;
+                                    const committed = promiseCommitted.get(inv.id);
+                                    return (
+                                        <div key={inv.id} className={cn("flex items-center gap-2 sm:gap-3 p-3 border-b border-neutral-800/60 last:border-0", current > 0 && "bg-emerald-500/[0.04]")}>
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-1.5">
+                                                    <p className="text-white text-sm font-medium truncate">{inv.invoice_number || "—"}</p>
+                                                    {committed !== undefined && (
+                                                        <span className="shrink-0 text-[9px] uppercase tracking-wider text-amber-300 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/30 font-bold">Promesa</span>
+                                                    )}
+                                                </div>
+                                                <p className="text-[11px] text-neutral-400 truncate" title={inv.concept}>{inv.concept}</p>
+                                                <p className="text-[10px] text-neutral-500">
+                                                    Saldo: <span className="font-mono text-rose-300">{fmtMoney(balance)}</span> · {fmtDate(inv.invoice_date)}
+                                                    {committed !== undefined && <> · Prometido: <span className="font-mono text-amber-300">{fmtMoney(committed)}</span></>}
+                                                </p>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => toggleFull(inv)}
+                                                title={isFull ? "Quitar el monto" : `Aplicar el saldo completo (${fmtMoney(balance)})`}
+                                                className={cn(
+                                                    "shrink-0 inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-lg border transition-colors",
+                                                    isFull
+                                                        ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
+                                                        : "text-neutral-300 border-neutral-700 hover:text-white hover:border-emerald-500/40 hover:bg-emerald-500/10"
+                                                )}
+                                            >
+                                                {isFull ? <CheckCircle className="w-3 h-3" /> : <Wallet className="w-3 h-3" />}
+                                                {isFull ? "Liquidada" : "Liquidar"}
+                                            </button>
+                                            <input
+                                                type="number"
+                                                inputMode="decimal"
+                                                step="0.01"
+                                                min={0}
+                                                max={balance}
+                                                aria-label={`Monto a aplicar a ${inv.invoice_number || inv.concept}`}
+                                                value={allocations[inv.id] || ""}
+                                                onChange={(e) => setAllocations((prev) => ({ ...prev, [inv.id]: e.target.value }))}
+                                                placeholder="0.00"
+                                                className="w-24 sm:w-28 bg-neutral-800/60 border border-neutral-700 rounded-lg px-2 py-1 text-sm text-white text-right focus:outline-none focus:border-emerald-500"
+                                            />
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                            {hiddenAssigned > 0 && (
+                                <p className="text-[10px] text-amber-300 mt-1">
+                                    {hiddenAssigned} {hiddenAssigned === 1 ? "factura con monto asignado no se muestra" : "facturas con monto asignado no se muestran"} por la búsqueda.
+                                </p>
+                            )}
+                            <div className="mt-2 flex justify-between text-xs">
+                                <span className="text-neutral-400">Asignado:</span>
+                                <span className={cn("font-mono font-semibold", Math.abs(diff) < 0.01 ? "text-emerald-300" : "text-amber-300")}>
+                                    {fmtMoney(totalAlloc)} / {fmtMoney(amountNum)}
+                                </span>
+                            </div>
+                            {Math.abs(diff) >= 0.01 && amountNum > 0 && (
+                                <p className="text-[10px] text-right text-amber-300">
+                                    {diff > 0 ? `Falta asignar ${fmtMoney(diff)}` : `Asignado de más: ${fmtMoney(-diff)}`}
+                                </p>
+                            )}
                         </div>
+                    )
+                )}
+
+                {error && (
+                    <div className="bg-rose-500/10 border border-rose-500/30 rounded-xl p-3 text-xs text-rose-200 flex items-start gap-2">
+                        <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                        <span>{error}</span>
                     </div>
                 )}
             </div>
-            <div className="mt-6 flex justify-end gap-3">
-                <button onClick={onClose} className="px-4 py-2 text-sm text-neutral-300 hover:text-white bg-neutral-800 hover:bg-neutral-700 rounded-xl">Cancelar</button>
-                <button onClick={submit} disabled={busy} className="px-5 py-2 text-sm font-semibold text-white bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 rounded-xl disabled:opacity-50">
-                    {busy ? "Registrando..." : "Registrar pago"}
-                </button>
+            <div className="mt-6 flex flex-col-reverse sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                    {promise?.status === 'pending' && (
+                        <button type="button" onClick={markFulfilledOnly} disabled={busy} className="text-[11px] text-neutral-400 hover:text-white hover:underline underline-offset-2 disabled:opacity-50">
+                            El pago ya estaba registrado: solo marcar cumplida
+                        </button>
+                    )}
+                </div>
+                <div className="flex justify-end gap-3">
+                    <button onClick={onClose} className="px-4 py-2 text-sm text-neutral-300 hover:text-white bg-neutral-800 hover:bg-neutral-700 rounded-xl">Cancelar</button>
+                    <button onClick={submit} disabled={busy || !mode} className="px-5 py-2 text-sm font-semibold text-white bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed">
+                        {busy ? "Registrando..." : "Registrar pago"}
+                    </button>
+                </div>
             </div>
         </ModalShell>
     );

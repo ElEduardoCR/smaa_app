@@ -201,6 +201,8 @@ export type ARPaymentInput = {
         invoice_id: string;
         amount_applied: number;
     }>;
+    /** Promesa que este pago cumple: se liga al pago y se marca como cumplida. */
+    promise_id?: string | null;
 };
 
 export async function registerARPaymentAction(input: ARPaymentInput) {
@@ -211,9 +213,57 @@ export async function registerARPaymentAction(input: ARPaymentInput) {
     if (!Array.isArray(input.allocations) || input.allocations.length === 0) {
         throw new Error('Asigna el pago a al menos una factura.');
     }
+    if (input.allocations.some((a) => !(Number(a.amount_applied) > 0))) {
+        throw new Error('Cada monto aplicado debe ser mayor a 0.');
+    }
     const totalAlloc = input.allocations.reduce((s, a) => s + Number(a.amount_applied || 0), 0);
     if (Math.abs(totalAlloc - amount) > 0.01) {
         throw new Error(`La suma aplicada ($${totalAlloc.toFixed(2)}) no coincide con el monto del pago ($${amount.toFixed(2)}).`);
+    }
+
+    // Lo aplicado a cada factura no puede exceder su saldo actual
+    const invoiceIds = input.allocations.map((a) => a.invoice_id);
+    const { data: invs, error: eInv } = await supabase
+        .from('ar_invoices')
+        .select('id, client_id, invoice_number, concept, balance, status, is_active')
+        .in('id', invoiceIds);
+    if (eInv) throw new Error('Error al validar las facturas: ' + eInv.message);
+    const invById = new Map((invs || []).map((i) => [i.id, i]));
+    for (const a of input.allocations) {
+        const inv = invById.get(a.invoice_id);
+        if (!inv || Number(inv.client_id) !== Number(input.client_id)) {
+            throw new Error('Una de las facturas no pertenece a este cliente.');
+        }
+        const name = inv.invoice_number || inv.concept;
+        if (!inv.is_active || inv.status === 'cancelled') throw new Error(`La factura "${name}" no está activa.`);
+        if (Number(a.amount_applied) - Number(inv.balance) > 0.01) {
+            throw new Error(`A "${name}" se le aplican $${Number(a.amount_applied).toFixed(2)} pero su saldo es $${Number(inv.balance).toFixed(2)}.`);
+        }
+    }
+
+    // La promesa debe ser de este cliente y no tener ya un pago registrado
+    const promiseId = input.promise_id || null;
+    if (promiseId) {
+        const { data: promise } = await supabase
+            .from('ar_payment_promises')
+            .select('id, client_id, status')
+            .eq('id', promiseId)
+            .single();
+        if (!promise || Number(promise.client_id) !== Number(input.client_id)) {
+            throw new Error('La promesa no pertenece a este cliente.');
+        }
+        if (promise.status !== 'pending' && promise.status !== 'fulfilled') {
+            throw new Error('La promesa está cancelada o vencida.');
+        }
+        const { data: linked, error: eLinked } = await supabase
+            .from('ar_payments')
+            .select('id')
+            .eq('promise_id', promiseId)
+            .limit(1);
+        if (eLinked) {
+            throw new Error('No se pudo ligar el pago a la promesa (¿falta aplicar la migración 20261001130000_ar_payment_promise_link.sql?): ' + eLinked.message);
+        }
+        if (linked && linked.length > 0) throw new Error('Esta promesa ya tiene un pago registrado.');
     }
 
     // 1) Insertar el pago
@@ -227,6 +277,7 @@ export async function registerARPaymentAction(input: ARPaymentInput) {
             reference: input.reference?.trim() || null,
             notes: input.notes?.trim() || null,
             registered_by: session.employeeId,
+            ...(promiseId ? { promise_id: promiseId } : {}),
         })
         .select('id')
         .single();
@@ -248,9 +299,20 @@ export async function registerARPaymentAction(input: ARPaymentInput) {
         throw new Error('Error al aplicar el pago a las facturas: ' + e2.message);
     }
 
+    // 3) Marcar la promesa como cumplida. El pago ya quedó registrado, así que
+    //    un error aquí se reporta como aviso para no invitar a capturarlo dos veces.
+    let warning: string | null = null;
+    if (promiseId) {
+        const { error: e3 } = await supabase
+            .from('ar_payment_promises')
+            .update({ status: 'fulfilled' })
+            .eq('id', promiseId);
+        if (e3) warning = 'El pago se registró, pero no se pudo marcar la promesa como cumplida: ' + e3.message;
+    }
+
     revalidatePath('/finance/receivable');
     revalidatePath(`/finance/receivable/${input.client_id}`);
-    return { id: pay.id };
+    return { id: pay.id, warning };
 }
 
 // ============================================================================

@@ -3,9 +3,11 @@
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import { amountSearchTerms, dateSearchTerms, matchesSearch, parseLocalDate } from "@/lib/search";
+import SearchBox from "@/components/SearchBox";
 import {
     ArrowLeft, RefreshCw, Wallet, AlertTriangle, TrendingUp, Users, Receipt,
-    ChevronRight, Search, X, FileBarChart, Calendar, BadgeDollarSign, ExternalLink
+    ChevronRight, FileBarChart, Calendar, BadgeDollarSign, ExternalLink
 } from "lucide-react";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -19,7 +21,7 @@ const fmtMoney = (n: number | null | undefined) =>
 
 const fmtDate = (iso: string | null) => {
     if (!iso) return "—";
-    try { return new Date(iso).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" }); }
+    try { return parseLocalDate(iso).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" }); }
     catch { return iso; }
 };
 
@@ -57,6 +59,8 @@ export default function ReceivableDashboard() {
     const [oldest, setOldest] = useState<OldestInvoice[]>([]);
     const [totals, setTotals] = useState({ gross: 0, vat: 0, net: 0, balance: 0, open: 0, clients: 0, overdue: 0 });
     const [search, setSearch] = useState("");
+    const [overdueSearch, setOverdueSearch] = useState("");
+    const [noDebtSearch, setNoDebtSearch] = useState("");
     const [showObsolete, setShowObsolete] = useState(false);
 
     const load = async () => {
@@ -116,7 +120,7 @@ export default function ReceivableDashboard() {
 
                 // Calcular días de vencido
                 const due = inv.due_date || inv.invoice_date;
-                const days = Math.floor((today.getTime() - new Date(due).getTime()) / 86400000);
+                const days = Math.floor((today.getTime() - parseLocalDate(due).getTime()) / 86400000);
                 if (days > 0 && balance > 0) {
                     oldestList.push({
                         id: inv.id,
@@ -135,7 +139,8 @@ export default function ReceivableDashboard() {
             }
 
             const debtsArr = Array.from(debtMap.values()).sort((a, b) => b.total_balance - a.total_balance);
-            const oldestArr = oldestList.sort((a, b) => b.days_overdue - a.days_overdue).slice(0, 15);
+            // Se guardan todas las vencidas para que el buscador encuentre cualquiera
+            const oldestArr = oldestList.sort((a, b) => b.days_overdue - a.days_overdue);
 
             const tot = debtsArr.reduce(
                 (acc, c) => ({
@@ -164,14 +169,26 @@ export default function ReceivableDashboard() {
 
     useEffect(() => { load(); }, []);
 
-    const filteredDebts = useMemo(() => {
-        if (!search.trim()) return debts;
-        const q = search.toLowerCase();
-        return debts.filter((d) =>
-            d.business_name.toLowerCase().includes(q) ||
-            (d.rfc || "").toLowerCase().includes(q)
-        );
-    }, [debts, search]);
+    const filteredDebts = useMemo(() => debts.filter((d) => matchesSearch(search,
+        d.business_name, d.rfc,
+        amountSearchTerms(d.total_balance), amountSearchTerms(d.total_net), amountSearchTerms(d.total_paid),
+        dateSearchTerms(d.oldest_invoice_date),
+    )), [debts, search]);
+
+    const filteredOverdue = useMemo(() => oldest.filter((o) => matchesSearch(overdueSearch,
+        o.client?.business_name, o.client?.rfc, o.invoice_number, o.concept, `${o.days_overdue}d`,
+        dateSearchTerms(o.invoice_date), dateSearchTerms(o.due_date),
+        amountSearchTerms(o.balance), amountSearchTerms(o.net_amount), amountSearchTerms(o.gross_amount),
+    )), [oldest, overdueSearch]);
+
+    const noDebtClients = useMemo(
+        () => clients.filter((c) => !debts.some((d) => d.client_id === c.id)),
+        [clients, debts]
+    );
+    const filteredNoDebt = useMemo(
+        () => noDebtClients.filter((c) => matchesSearch(noDebtSearch, c.business_name, c.rfc)),
+        [noDebtClients, noDebtSearch]
+    );
 
     return (
         <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 p-3 sm:p-6 md:p-8 lg:p-10 font-[family-name:var(--font-sans)]">
@@ -238,21 +255,11 @@ export default function ReceivableDashboard() {
                             <span className="text-xs text-neutral-500">por saldo pendiente</span>
                         </div>
                         <div className="p-4 border-b border-neutral-700/50">
-                            <div className="relative">
-                                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 pointer-events-none" />
-                                <input
-                                    type="text"
-                                    value={search}
-                                    onChange={(e) => setSearch(e.target.value)}
-                                    placeholder="Buscar cliente por nombre o RFC..."
-                                    className="w-full bg-neutral-900/60 border border-neutral-700/50 rounded-xl pl-10 pr-9 py-2 text-sm text-neutral-200 placeholder:text-neutral-500 focus:outline-none focus:border-cyan-500/50"
-                                />
-                                {search && (
-                                    <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-white p-1 rounded-md hover:bg-neutral-700/50">
-                                        <X className="w-3.5 h-3.5" />
-                                    </button>
-                                )}
-                            </div>
+                            <SearchBox
+                                value={search}
+                                onChange={setSearch}
+                                placeholder="Buscar cliente por nombre, RFC, saldo o fecha..."
+                            />
                         </div>
                         <div className="overflow-x-auto">
                             {loading ? (
@@ -260,7 +267,7 @@ export default function ReceivableDashboard() {
                             ) : filteredDebts.length === 0 ? (
                                 <div className="p-10 text-center text-neutral-500">
                                     <Wallet className="w-12 h-12 mx-auto mb-3 text-neutral-700" />
-                                    <p>No hay clientes con deuda.</p>
+                                    <p>{search.trim() ? `Sin resultados para “${search.trim()}”.` : "No hay clientes con deuda."}</p>
                                 </div>
                             ) : (
                                 <table className="w-full text-sm">
@@ -274,7 +281,7 @@ export default function ReceivableDashboard() {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {filteredDebts.slice(0, 10).map((d) => (
+                                        {(search.trim() ? filteredDebts : filteredDebts.slice(0, 10)).map((d) => (
                                             <tr key={d.client_id} className="border-t border-neutral-800/60 hover:bg-neutral-800/40">
                                                 <td className="p-3">
                                                     <p className="text-white font-medium text-sm">{d.business_name}</p>
@@ -294,9 +301,9 @@ export default function ReceivableDashboard() {
                                 </table>
                             )}
                         </div>
-                        {filteredDebts.length > 10 && (
+                        {!search.trim() && filteredDebts.length > 10 && (
                             <div className="p-3 text-center text-xs text-neutral-500 border-t border-neutral-700/50">
-                                Mostrando 10 de {filteredDebts.length} clientes
+                                Mostrando 10 de {filteredDebts.length} clientes · usa el buscador para encontrar los demás
                             </div>
                         )}
                     </section>
@@ -309,6 +316,13 @@ export default function ReceivableDashboard() {
                             </h2>
                             <span className="text-xs text-neutral-500">días de atraso</span>
                         </div>
+                        <div className="p-4 border-b border-neutral-700/50">
+                            <SearchBox
+                                value={overdueSearch}
+                                onChange={setOverdueSearch}
+                                placeholder="Buscar por cliente, concepto, # factura, monto, fecha..."
+                            />
+                        </div>
                         <div className="overflow-x-auto">
                             {loading ? (
                                 <div className="p-10 text-center text-neutral-500"><RefreshCw className="w-6 h-6 animate-spin mx-auto text-rose-400" /></div>
@@ -316,6 +330,10 @@ export default function ReceivableDashboard() {
                                 <div className="p-10 text-center text-neutral-500">
                                     <Calendar className="w-12 h-12 mx-auto mb-3 text-neutral-700" />
                                     <p>Sin facturas vencidas. ¡Bien!</p>
+                                </div>
+                            ) : filteredOverdue.length === 0 ? (
+                                <div className="p-10 text-center text-sm text-neutral-500">
+                                    Sin resultados para “{overdueSearch.trim()}”.
                                 </div>
                             ) : (
                                 <table className="w-full text-sm">
@@ -328,7 +346,7 @@ export default function ReceivableDashboard() {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {oldest.slice(0, 10).map((o) => (
+                                        {(overdueSearch.trim() ? filteredOverdue : filteredOverdue.slice(0, 10)).map((o) => (
                                             <tr key={o.id} className="border-t border-neutral-800/60 hover:bg-neutral-800/40">
                                                 <td className="p-3">
                                                     <Link href={`/finance/receivable/${o.client?.id}`} className="text-cyan-300 hover:text-white text-sm font-medium inline-flex items-center gap-1">
@@ -354,27 +372,46 @@ export default function ReceivableDashboard() {
                                 </table>
                             )}
                         </div>
+                        {!overdueSearch.trim() && oldest.length > 10 && (
+                            <div className="p-3 text-center text-xs text-neutral-500 border-t border-neutral-700/50">
+                                Mostrando las 10 más vencidas de {oldest.length} · usa el buscador para encontrar las demás
+                            </div>
+                        )}
                     </section>
                 </div>
 
                 {/* Quick links a clientes sin deuda */}
-                {clients.length > 0 && debts.length < clients.length && (
+                {noDebtClients.length > 0 && (
                     <section className="bg-neutral-800/40 border border-neutral-700/50 rounded-3xl p-5">
-                        <h3 className="text-sm font-bold text-white mb-3 uppercase tracking-[0.15em] flex items-center gap-1.5">
-                            <span className="w-1 h-3 rounded-full bg-cyan-400/70" />
-                            Clientes sin deuda ({clients.length - debts.length})
-                        </h3>
-                        <p className="text-xs text-neutral-500 mb-3">Aquí puedes asignarles facturas nuevas o registrar pagos anticipados.</p>
+                        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-3">
+                            <div>
+                                <h3 className="text-sm font-bold text-white mb-2 uppercase tracking-[0.15em] flex items-center gap-1.5">
+                                    <span className="w-1 h-3 rounded-full bg-cyan-400/70" />
+                                    Clientes sin deuda ({noDebtClients.length})
+                                </h3>
+                                <p className="text-xs text-neutral-500">Aquí puedes asignarles facturas nuevas o registrar pagos anticipados.</p>
+                            </div>
+                            <SearchBox
+                                value={noDebtSearch}
+                                onChange={setNoDebtSearch}
+                                placeholder="Buscar cliente por nombre o RFC..."
+                                className="w-full sm:w-80"
+                            />
+                        </div>
+                        {filteredNoDebt.length === 0 && (
+                            <p className="text-sm text-neutral-500 py-2">Sin resultados para “{noDebtSearch.trim()}”.</p>
+                        )}
                         <div className="flex flex-wrap gap-2">
-                            {clients
-                                .filter(c => !debts.find(d => d.client_id === c.id))
-                                .slice(0, 20)
+                            {(noDebtSearch.trim() ? filteredNoDebt : filteredNoDebt.slice(0, 20))
                                 .map(c => (
                                     <Link key={c.id} href={`/finance/receivable/${c.id}`} className="text-xs bg-neutral-900/60 hover:bg-neutral-800 border border-neutral-700/50 hover:border-cyan-500/30 px-3 py-1.5 rounded-lg text-neutral-300 hover:text-white transition-colors">
                                         {c.business_name}
                                     </Link>
                                 ))}
                         </div>
+                        {!noDebtSearch.trim() && filteredNoDebt.length > 20 && (
+                            <p className="text-xs text-neutral-500 mt-3">Mostrando 20 de {filteredNoDebt.length} · usa el buscador para encontrar los demás</p>
+                        )}
                     </section>
                 )}
             </div>
