@@ -15,7 +15,7 @@
  *
  * Reglas de negocio:
  *   - IVA siempre 16% (se calcula server-side, no se confía en el cliente)
- *   - gross → vat = gross * 0.16, net = gross + vat
+ *   - Se separa la base y el IVA conservando el total capturado con IVA.
  *   - status se actualiza automáticamente al insertar allocations (trigger)
  *   - share_link: solo guardamos el SHA-256 del token, nunca el token crudo
  *   - las promesas se crean desde /api/ar/promise (público) con validación de token
@@ -27,18 +27,11 @@ import { createHash, randomBytes } from 'crypto';
 import { getSession } from '@/lib/session';
 import { can } from '@/lib/permissions';
 import { supabase } from '@/lib/supabase';
+import { priceLine } from '@/lib/pricing';
 
 // ============================================================================
 // Helpers internos
 // ============================================================================
-
-const VAT_RATE = 0.16; // 16% — único, configurable solo aquí
-
-function computeVat(gross: number): { vat: number; net: number } {
-    const vat = Math.round(gross * VAT_RATE * 100) / 100;
-    const net = Math.round((gross + vat) * 100) / 100;
-    return { vat, net };
-}
 
 async function requireFinanceAR(action: 'view' | 'create' | 'edit' | 'delete') {
     const session = await getSession();
@@ -69,6 +62,7 @@ export type ARInvoiceInput = {
     client_id: number;
     concept: string;
     gross_amount: number;
+    price_includes_vat?: boolean;
     invoice_number?: string | null;
     work_date?: string | null;     // YYYY-MM-DD
     invoice_date?: string | null;  // YYYY-MM-DD, default = hoy
@@ -82,9 +76,9 @@ export async function createARInvoiceAction(input: ARInvoiceInput) {
     const session = await requireFinanceAR('create');
     if (!input.client_id) throw new Error('Falta el cliente.');
     if (!input.concept?.trim()) throw new Error('Falta el concepto.');
-    const gross = Number(input.gross_amount);
-    if (!isFinite(gross) || gross < 0) throw new Error('Monto (bruto) inválido.');
-    const { vat, net } = computeVat(gross);
+    const enteredAmount = Number(input.gross_amount);
+    if (!isFinite(enteredAmount) || enteredAmount < 0) throw new Error('Monto inválido.');
+    const { subtotal: gross, vat, total: net } = priceLine({ quantity: 1, unit_price: enteredAmount, price_includes_vat: input.price_includes_vat });
 
     const row = {
         client_id: input.client_id,
@@ -128,9 +122,9 @@ export async function updateARInvoiceAction(id: string, input: Partial<ARInvoice
     if (input.due_date !== undefined) patch.due_date = input.due_date || null;
     if (input.notes !== undefined) patch.notes = input.notes?.trim() || null;
     if (input.gross_amount !== undefined) {
-        const gross = Number(input.gross_amount);
-        if (!isFinite(gross) || gross < 0) throw new Error('Monto (bruto) inválido.');
-        const { vat, net } = computeVat(gross);
+        const enteredAmount = Number(input.gross_amount);
+        if (!isFinite(enteredAmount) || enteredAmount < 0) throw new Error('Monto inválido.');
+        const { subtotal: gross, vat, total: net } = priceLine({ quantity: 1, unit_price: enteredAmount, price_includes_vat: input.price_includes_vat });
         patch.gross_amount = gross;
         patch.vat_amount = vat;
         patch.net_amount = net;

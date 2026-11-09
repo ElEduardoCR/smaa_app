@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { supabase } from '@/lib/supabase';
 import { getSession } from '@/lib/session';
 import { can } from '@/lib/permissions';
+import { requisitionPurchaseNotes, validateRequisitionPurpose } from '@/lib/requisitionPurpose';
 
 async function requireSession() {
     const s = await getSession();
@@ -16,6 +17,7 @@ export type RequisitionItemInput = {
     quantity: number;
     unit?: string;
     notes?: string;
+    purpose?: string;
 };
 
 export type RequisitionQuotationInput = {
@@ -29,6 +31,7 @@ export type CreateRequisitionInput = {
     suggested_supplier_id: string | null;
     suggested_supplier_text: string;
     notes: string;
+    purpose?: string;
     items: RequisitionItemInput[];
     quotations?: RequisitionQuotationInput[];
     /** @deprecated usar `quotations` (conserva el nombre original del archivo). */
@@ -50,6 +53,8 @@ type RequisitionRecord = {
 type RequisitionItemRecord = {
     description: string;
     quantity: number;
+    notes?: string | null;
+    purpose?: string | null;
 };
 
 function hasRequisitionUploadPermission(
@@ -115,6 +120,7 @@ export async function createRequisitionAction(input: CreateRequisitionInput) {
             throw new Error('Cada artículo debe tener descripción y cantidad mayor a 0.');
         }
     }
+    validateRequisitionPurpose(input.purpose, input.items);
 
     // Sólo se aceptan cotizaciones subidas a nuestro bucket (se valida antes
     // de insertar nada para no dejar requisiciones a medias).
@@ -142,6 +148,7 @@ export async function createRequisitionAction(input: CreateRequisitionInput) {
             suggested_supplier_id: input.suggested_supplier_id,
             suggested_supplier_text: input.suggested_supplier_text?.trim() || null,
             notes: input.notes?.trim() || null,
+            purpose: input.purpose?.trim() || null,
         })
         .select('*')
         .single();
@@ -154,6 +161,7 @@ export async function createRequisitionAction(input: CreateRequisitionInput) {
         quantity: it.quantity,
         unit: it.unit?.trim() || 'pza',
         notes: it.notes?.trim() || null,
+        purpose: it.purpose?.trim() || null,
     }));
     const { error: itemsErr } = await supabase.from('requisition_items').insert(items);
     if (itemsErr) throw itemsErr;
@@ -211,10 +219,12 @@ export async function completePurchaseAction(
     if (req.status !== 'pending') throw new Error('La requisición ya fue procesada.');
 
     // Traer los items de la requisición para copiarlos al PO
-    const { data: reqItems } = await supabase
+    const { data: reqItems, error: reqItemsErr } = await supabase
         .from('requisition_items')
-        .select('description, quantity, unit, notes')
+        .select('description, quantity, unit, notes, purpose')
         .eq('requisition_id', id);
+    if (reqItemsErr) throw new Error('No se pudieron leer los artículos: ' + reqItemsErr.message);
+    if (!reqItems?.length) throw new Error('La requisición no tiene artículos para comprar.');
 
     // Traer la primera cotización adjunta (si hay) para usarla como
     // supplier_quote_url del PO
@@ -257,6 +267,7 @@ export async function completePurchaseAction(
         req.notes,
         finalNotes?.trim() ? `[Compra] ${finalNotes.trim()}` : null,
     ].filter(Boolean).join('\n\n') || null;
+    const purchaseNotes = requisitionPurchaseNotes(req.purpose, { notes: combinedNotes });
 
     // 1. Auto-crear la PO en Draft (linkeada a la requisición). El comprador
     // con `purchases:edit` completará después precios, supplier (si quedó null),
@@ -293,7 +304,7 @@ export async function completePurchaseAction(
                 evidence_photo_url: invoicePhotoUrl,
                 invoice_date: new Date().toISOString(),
                 requisition_id: id,
-                notes: combinedNotes,
+                notes: purchaseNotes,
             })
             .select('id, po_number')
             .single();
@@ -312,6 +323,7 @@ export async function completePurchaseAction(
             purchase_order_id: po.id,
             description: it.description,
             quantity: it.quantity,
+            notes: requisitionPurchaseNotes(req.purpose, it),
             unit_price: 0,
             line_total: 0,
         }));

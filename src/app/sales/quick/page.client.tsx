@@ -6,6 +6,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import PartySearchSelect from "@/components/PartySearchSelect";
 import { supabase } from "@/lib/supabase";
+import PriceTaxToggle from "@/components/PriceTaxToggle";
+import { priceWithoutVat, priceLine, calculatePriceTotals } from "@/lib/pricing";
 import { ArrowLeft, Save, Plus, Trash2, Zap, AlertCircle, RefreshCw, CalendarDays } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -26,6 +28,7 @@ const quickItemSchema = z.object({
     description: z.string().min(1, "Descripción requerida"),
     quantity: z.coerce.number().min(1, "Mínimo 1"),
     unit_price: z.coerce.number().min(0, "Inválido"),
+    price_includes_vat: z.boolean().optional(),
 });
 
 const commissionerSchema = z.object({
@@ -79,10 +82,8 @@ export default function QuickQuotationPage() {
     const { fields, append, remove } = useFieldArray({ control, name: "items" });
     const watchItems = watch("items");
 
-    const lineTotal = (item: any) => round2((Number(item?.quantity) || 0) * (Number(item?.unit_price) || 0));
-    const subtotal = round2((watchItems || []).reduce((acc, item) => acc + lineTotal(item), 0));
-    const vatTotal = round2(subtotal * 0.16);
-    const total = round2(subtotal + vatTotal);
+    const lineTotal = (item: any) => priceLine(item).subtotal;
+    const { subtotal, vat: vatTotal, total } = calculatePriceTotals(watchItems || []);
 
     const formatCurrency = (amount: number) =>
         new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount || 0);
@@ -149,7 +150,7 @@ export default function QuickQuotationPage() {
             // no hay margen (costo = precio, margin_pct = 0).
             const itemsToInsert = data.items.map((item) => {
                 const qty = Number(item.quantity) || 1;
-                const price = Number(item.unit_price) || 0;
+                const price = priceWithoutVat(item.unit_price, item.price_includes_vat);
                 const line = round2(qty * price);
                 return {
                     quotation_id: insertedQuote.id,
@@ -295,9 +296,10 @@ export default function QuickQuotationPage() {
                                                     errors.items?.[index]?.unit_price ? "border-red-500 focus:border-red-500 focus:ring-red-500" : "border-neutral-700 focus:border-amber-500 focus:ring-amber-500")}
                                             />
                                             {errors.items?.[index]?.unit_price && <p className="text-red-400 text-xs ml-1">{errors.items[index]?.unit_price?.message as string}</p>}
+                                            <PriceTaxToggle includesVat={!!item?.price_includes_vat} onChange={(value) => setValue(`items.${index}.price_includes_vat`, value, { shouldDirty: true })} />
                                         </div>
                                         <div className="space-y-1">
-                                            <label className="text-xs text-amber-400 ml-1">Importe</label>
+                                            <label className="text-xs text-amber-400 ml-1">Importe sin IVA</label>
                                             <div className="w-full bg-amber-500/10 border border-amber-500/40 rounded-lg px-3 py-2 text-amber-300 font-bold">{formatCurrency(lineTotal(item))}</div>
                                         </div>
                                         <button

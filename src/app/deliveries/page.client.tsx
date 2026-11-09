@@ -60,6 +60,8 @@ type Delivery = {
         id: string;
         order_number: string;
         work_title: string | null;
+        status: string;
+        warranty_count: number;
         notes: string | null;
         module?: { code: string; name: string; color: string; icon: string };
         quotation: {
@@ -93,7 +95,7 @@ export default function DeliveriesPage() {
                     tracking_number, created_at, stage, packaged_at, packaged_by, delivered_at, delivered_by,
                     delivery_lat, delivery_lng, delivery_location_source,
                     work_order:work_orders(
-                        id, order_number, work_title, notes,
+                        id, order_number, work_title, notes, status, warranty_count,
                         module:manufacturing_modules(code, name, color, icon),
                         quotation:quotations(id, quotation_number, client:clients(business_name, rfc, email, address))
                     )
@@ -138,10 +140,11 @@ export default function DeliveriesPage() {
         if (!confirm("¿Marcar esta OT como empaquetada / lista para entrega?")) return;
         setBusyId(d.id);
         try {
-            await supabase.from("deliveries").update({
+            const { error } = await supabase.from("deliveries").update({
                 stage: "ready_for_packaging",
                 packaged_at: new Date().toISOString(),
             }).eq("id", d.id);
+            if (error) throw error;
             flash("success", "Marcada como lista para embalaje.");
             await load();
         } catch (e: any) { flash("error", e?.message || "Error."); }
@@ -152,11 +155,12 @@ export default function DeliveriesPage() {
         setBusyId(d.id);
         try {
             const sigUrl = await uploadSignatureDataUrl(signatureDataUrl, `deliv_${d.delivery_number}`);
-            await supabase.from("deliveries").update({
+            const { error } = await supabase.from("deliveries").update({
                 stage: "delivered",
                 delivered_at: new Date().toISOString(),
                 delivery_signature_url: sigUrl,
             }).eq("id", d.id);
+            if (error) throw error;
             flash("success", "Entrega confirmada.");
             await load();
         } catch (e: any) { flash("error", e?.message || "Error al firmar."); }
@@ -213,7 +217,10 @@ export default function DeliveriesPage() {
         }
     };
 
-    const visible = deliveries.filter(d => tab === "ready" ? d.stage === "ready_for_packaging" : d.stage === "delivered");
+    const warrantyPending = (d: Delivery) => d.work_order?.warranty_count > 0 && d.work_order.status !== 'QC_Released';
+    const readyDeliveries = deliveries.filter(d => d.stage === "ready_for_packaging" && !warrantyPending(d));
+    const heldForWarranty = deliveries.filter(d => d.stage === "ready_for_packaging" && warrantyPending(d));
+    const visible = tab === "ready" ? readyDeliveries : deliveries.filter(d => d.stage === "delivered");
 
     return (
         <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 p-3 sm:p-6 md:p-8 lg:p-10 font-[family-name:var(--font-sans)]">
@@ -263,7 +270,7 @@ export default function DeliveriesPage() {
                                 : "bg-neutral-800/40 text-neutral-400 border-neutral-700/50 hover:bg-neutral-800"
                         )}
                     >
-                        <Package className="w-4 h-4" /> Listo para embalaje ({deliveries.filter(d => d.stage === "ready_for_packaging").length})
+                        <Package className="w-4 h-4" /> Listo para embalaje ({readyDeliveries.length})
                     </button>
                     <button
                         onClick={() => setTab("delivered")}
@@ -278,6 +285,10 @@ export default function DeliveriesPage() {
                     </button>
                 </div>
 
+                {tab === "ready" && heldForWarranty.length > 0 && <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">
+                    <p>En espera por garantía; requieren nueva liberación de Calidad:</p>
+                    <ul className="mt-1 flex flex-wrap gap-3">{heldForWarranty.map(delivery => <li key={delivery.id}><Link className="underline" href={`/manufacturing/${delivery.work_order.module?.code}/${delivery.work_order.id}`}>{delivery.work_order.order_number}</Link></li>)}</ul>
+                </div>}
                 {loading ? (
                     <div className="p-12 text-center text-neutral-400">
                         <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-3 text-emerald-400" /> Cargando…

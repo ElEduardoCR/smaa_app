@@ -6,6 +6,7 @@ import { getSession } from '@/lib/session';
 import { can } from '@/lib/permissions';
 import { fileExtension, safeStorageName } from '@/lib/storageNames';
 import { storageErrorMessage } from '@/lib/storageErrors';
+import { calculatePriceTotals, priceLine } from '@/lib/pricing';
 
 async function requireSession() {
     const s = await getSession();
@@ -33,7 +34,7 @@ export type CreatePOInput = {
     total: number;
     supplier_quote_url?: string | null;
     notes?: string | null;
-    items: Array<{ description: string; quantity: number; unit_price: number; line_total: number }>;
+    items: Array<{ description: string; quantity: number; unit_price: number; line_total: number; notes?: string | null }>;
     purchase_group_id?: string | null;
 };
 
@@ -44,22 +45,23 @@ export async function createPurchaseOrderAction(input: CreatePOInput) {
     }
     for (const it of input.items) {
         if (!it.description?.trim()) throw new Error('Cada artículo debe tener descripción.');
-        if (it.quantity <= 0) throw new Error('La cantidad debe ser mayor a 0.');
-        if (it.unit_price < 0) throw new Error('El precio unitario no puede ser negativo.');
+        if (!Number.isFinite(it.quantity) || it.quantity <= 0) throw new Error('La cantidad debe ser mayor a 0.');
+        if (!Number.isFinite(it.unit_price) || it.unit_price < 0) throw new Error('El precio unitario no puede ser negativo.');
     }
     if (input.supplier_id) {
         const { data: sup } = await supabase.from('suppliers').select('id').eq('id', input.supplier_id).maybeSingle();
         if (!sup) throw new Error('El proveedor seleccionado no existe.');
     }
 
+    const totals = calculatePriceTotals(input.items);
     const { data: po, error: poErr } = await supabase
         .from('purchase_orders')
         .insert({
             supplier_id: input.supplier_id,
             status: 'Draft',
-            subtotal: input.subtotal,
-            vat_total: input.vat_total,
-            total: input.total,
+            subtotal: totals.subtotal,
+            vat_total: totals.vat,
+            total: totals.total,
             supplier_quote_url: input.supplier_quote_url?.trim() || null,
             notes: input.notes?.trim() || null,
             purchase_group_id: input.purchase_group_id ?? null,
@@ -73,7 +75,8 @@ export async function createPurchaseOrderAction(input: CreatePOInput) {
         description: it.description.trim(),
         quantity: it.quantity,
         unit_price: it.unit_price,
-        line_total: it.line_total,
+        line_total: priceLine(it).subtotal,
+        notes: it.notes?.trim() || null,
     }));
     const { error: itemsErr } = await supabase.from('purchase_order_items').insert(items);
     if (itemsErr) throw new Error('Error al crear items: ' + itemsErr.message);
@@ -91,7 +94,7 @@ export async function createPurchaseOrderAction(input: CreatePOInput) {
 // =============================================================================
 export type MultiPurchaseGroupInput = {
     supplier_id: string | null;
-    items: Array<{ description: string; quantity: number; unit_price: number; line_total: number }>;
+    items: Array<{ description: string; quantity: number; unit_price: number; line_total: number; notes?: string | null }>;
     supplier_quote_url?: string | null;
 };
 
@@ -116,8 +119,8 @@ export async function createMultiPurchaseOrderAction(input: CreateMultiPOInput) 
         }
         for (const it of group.items) {
             if (!it.description?.trim()) throw new Error(`Grupo ${g + 1}: cada artículo debe tener descripción.`);
-            if (it.quantity <= 0) throw new Error(`Grupo ${g + 1}: la cantidad debe ser mayor a 0.`);
-            if (it.unit_price < 0) throw new Error(`Grupo ${g + 1}: el precio unitario no puede ser negativo.`);
+            if (!Number.isFinite(it.quantity) || it.quantity <= 0) throw new Error(`Grupo ${g + 1}: la cantidad debe ser mayor a 0.`);
+            if (!Number.isFinite(it.unit_price) || it.unit_price < 0) throw new Error(`Grupo ${g + 1}: el precio unitario no puede ser negativo.`);
         }
         // Validar proveedor
         const { data: sup } = await supabase.from('suppliers').select('id').eq('id', group.supplier_id).maybeSingle();
@@ -133,9 +136,7 @@ export async function createMultiPurchaseOrderAction(input: CreateMultiPOInput) 
 
     try {
         for (const group of input.groups) {
-            const subtotal = group.items.reduce((s, it) => s + it.line_total, 0);
-            const vat_total = subtotal * 0.16;
-            const total = subtotal + vat_total;
+            const { subtotal, vat: vat_total, total } = calculatePriceTotals(group.items);
 
             const { data: po, error: poErr } = await supabase
                 .from('purchase_orders')
@@ -159,7 +160,8 @@ export async function createMultiPurchaseOrderAction(input: CreateMultiPOInput) 
                 description: it.description.trim(),
                 quantity: it.quantity,
                 unit_price: it.unit_price,
-                line_total: it.line_total,
+                line_total: priceLine(it).subtotal,
+                notes: it.notes?.trim() || null,
             }));
             const { error: itemsErr } = await supabase.from('purchase_order_items').insert(items);
             if (itemsErr) throw new Error('Error creando items: ' + itemsErr.message);
@@ -199,7 +201,7 @@ export type UpdatePOInput = {
     supplier_id: string | null;
     status: 'Draft' | 'Sent' | 'Approved' | 'Received';
     notes?: string | null;
-    items: Array<{ description: string; quantity: number; unit_price: number; line_total: number }>;
+    items: Array<{ description: string; quantity: number; unit_price: number; line_total: number; notes?: string | null }>;
 };
 
 export async function updatePurchaseOrderAction(input: UpdatePOInput) {
@@ -213,10 +215,13 @@ export async function updatePurchaseOrderAction(input: UpdatePOInput) {
         if (!sup) throw new Error('El proveedor seleccionado no existe.');
     }
 
-    // Calcular totales
-    const subtotal = input.items.reduce((s, it) => s + it.line_total, 0);
-    const vat_total = subtotal * 0.16;
-    const total = subtotal + vat_total;
+    for (const item of input.items) {
+        if (!item.description?.trim()) throw new Error('Cada artículo debe tener descripción.');
+        if (!Number.isFinite(item.quantity) || item.quantity <= 0) throw new Error('La cantidad debe ser mayor a 0.');
+        if (!Number.isFinite(item.unit_price) || item.unit_price < 0) throw new Error('El precio unitario debe ser un número no negativo.');
+    }
+    // Recalcular en el servidor a partir del precio sin IVA.
+    const { subtotal, vat: vat_total, total } = calculatePriceTotals(input.items);
 
     // 1. Update header
     const { error: poErr } = await supabase
@@ -244,7 +249,8 @@ export async function updatePurchaseOrderAction(input: UpdatePOInput) {
         description: it.description.trim(),
         quantity: it.quantity,
         unit_price: it.unit_price,
-        line_total: it.line_total,
+        line_total: priceLine(it).subtotal,
+        notes: it.notes?.trim() || null,
     }));
     const { error: itemsErr } = await supabase.from('purchase_order_items').insert(items);
     if (itemsErr) throw new Error('Error al guardar items: ' + itemsErr.message);

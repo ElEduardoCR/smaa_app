@@ -37,7 +37,7 @@ export default async function RequisitionsPage({ searchParams }: { searchParams:
     }
 
     let q = supabase.from('requisitions')
-        .select('id, code, status, priority, needed_by, suggested_supplier_text, notes, created_at, purchased_at, invoice_url, invoice_photo_url, requested_by, items:requisition_items(id), requester:employees!requisitions_requested_by_fkey(id, full_name, position, photo_url)')
+        .select('id, code, status, priority, needed_by, suggested_supplier_text, notes, purpose, created_at, purchased_at, invoice_url, invoice_photo_url, requested_by, items:requisition_items(id, purpose), requester:employees!requisitions_requested_by_fkey(id, full_name, position, photo_url)')
         .order('created_at', { ascending: false })
         .limit(500);
 

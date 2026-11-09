@@ -24,6 +24,7 @@
  */
 
 import { Client } from 'pg';
+import { randomUUID } from 'node:crypto';
 
 // Implementación inline de can() para no importar permissions.ts
 // (que tiene `server-only` y truena fuera de Next.js).
@@ -80,6 +81,10 @@ if (!DB_URL) {
 }
 
 const sb = new Client({ connectionString: DB_URL });
+const fixtureRun = randomUUID().replaceAll('-', '').slice(0, 8);
+let fixtureSequence = 0;
+// RFC columns allow at most 13 characters; reserve a counter to avoid collisions.
+const fixtureRfc = () => `TEST${fixtureRun.slice(0, 6)}${(++fixtureSequence).toString(36).padStart(3, '0')}`;
 
 type EmployeeFixture = {
     label: string;
@@ -151,7 +156,7 @@ async function simulateServerAction(
     // Master siempre pasa
     if (fixture.role === 'master') {
         try {
-            await doSql();
+            await executeIsolatedAction(doSql);
             return { allowed: true };
         } catch (e: any) {
             return { allowed: false, error: e.message };
@@ -171,10 +176,23 @@ async function simulateServerAction(
 
     // Si tiene permiso, ejecutar SQL
     try {
-        await doSql();
+        await executeIsolatedAction(doSql);
         return { allowed: true };
     } catch (e: any) {
         return { allowed: false, error: e.message };
+    }
+}
+
+// Keep a failed simulated action from aborting the remaining test transaction.
+async function executeIsolatedAction(doSql: () => Promise<unknown>) {
+    await sb.query('SAVEPOINT simulated_action');
+    try {
+        await doSql();
+        await sb.query('RELEASE SAVEPOINT simulated_action');
+    } catch (error) {
+        await sb.query('ROLLBACK TO SAVEPOINT simulated_action');
+        await sb.query('RELEASE SAVEPOINT simulated_action');
+        throw error;
     }
 }
 
@@ -202,27 +220,8 @@ async function setup() {
 }
 
 async function teardown() {
-    console.log('\n🧹 Limpiando...');
-    // Borrar cualquier cliente/supplier/PO de prueba
-    await sb.query(`DELETE FROM purchase_order_items WHERE purchase_order_id IN (SELECT id FROM purchase_orders WHERE notes = 'TEST sa notes')`);
-    await sb.query(`DELETE FROM purchase_orders WHERE notes = 'TEST sa notes'`);
-    await sb.query(`DELETE FROM requisition_items WHERE requisition_id IN (SELECT id FROM requisitions WHERE code LIKE 'TEST-SA-%')`);
-    await sb.query(`DELETE FROM requisitions WHERE code LIKE 'TEST-SA-%'`);
-    // AR cleanup (orden importa por FKs)
-    await sb.query(`DELETE FROM ar_payment_promise_items WHERE promise_id IN (SELECT id FROM ar_payment_promises WHERE client_notes = 'TEST promesa')`);
-    await sb.query(`DELETE FROM ar_payment_promises WHERE client_notes = 'TEST promesa'`);
-    // Cualquier AR con empleado TEST o cliente TEST
-    await sb.query(`DELETE FROM ar_payment_allocations WHERE invoice_id IN (SELECT id FROM ar_invoices WHERE concept LIKE 'TEST SA AR%' OR concept LIKE 'TEST AR%' OR client_id IN (SELECT id FROM clients WHERE business_name = 'TEST SA AR Client'))`);
-    await sb.query(`DELETE FROM ar_payments WHERE client_id IN (SELECT id FROM clients WHERE business_name = 'TEST SA AR Client') OR registered_by IN (SELECT id FROM employees WHERE username LIKE 'TEST_sa_%')`);
-    await sb.query(`DELETE FROM ar_share_links WHERE client_id IN (SELECT id FROM clients WHERE business_name = 'TEST SA AR Client')`);
-    await sb.query(`DELETE FROM ar_invoices WHERE concept LIKE 'TEST SA AR%' OR concept LIKE 'TEST AR%' OR client_id IN (SELECT id FROM clients WHERE business_name = 'TEST SA AR Client')`);
-    await sb.query(`DELETE FROM clients WHERE business_name = 'TEST SA AR Client'`);
-    // Resto
-    await sb.query(`DELETE FROM clients WHERE rfc LIKE 'TESTSA%'`);
-    await sb.query(`DELETE FROM suppliers WHERE rfc LIKE 'TESTSA%'`);
-    await sb.query(`DELETE FROM employee_permissions WHERE employee_id IN (SELECT id FROM employees WHERE username LIKE 'TEST_sa_%')`);
-    await sb.query(`DELETE FROM employees WHERE username LIKE 'TEST_sa_%'`);
-    console.log('  ✓ Limpieza completa');
+    await sb.query('ROLLBACK');
+    console.log('  ✓ Transacción de pruebas revertida; datos originales conservados');
 }
 
 async function runTests() {
@@ -238,7 +237,7 @@ async function runTests() {
     // Test C-001: master puede crear cliente
     {
         const r = await simulateServerAction('create', 'clients', master, async () => {
-            const rfc = 'TESTSA' + Date.now().toString().slice(-7);
+            const rfc = fixtureRfc();
             await sb.query(
                 `INSERT INTO clients (rfc, business_name, fiscal_regime, fiscal_zip_code) VALUES ($1, $2, '601', '12345')`,
                 [rfc, 'TEST SA Master']
@@ -250,7 +249,7 @@ async function runTests() {
     // Test C-002: admin puede crear cliente
     {
         const r = await simulateServerAction('create', 'clients', admin, async () => {
-            const rfc = 'TESTSA' + Date.now().toString().slice(-7);
+            const rfc = fixtureRfc();
             await sb.query(
                 `INSERT INTO clients (rfc, business_name, fiscal_regime, fiscal_zip_code) VALUES ($1, $2, '601', '12345')`,
                 [rfc, 'TEST SA Admin']
@@ -262,7 +261,7 @@ async function runTests() {
     // Test C-003: viewer NO puede crear cliente (regression test fix #1)
     {
         const r = await simulateServerAction('create', 'clients', viewer, async () => {
-            const rfc = 'TESTSA' + Date.now().toString().slice(-7);
+            const rfc = fixtureRfc();
             await sb.query(
                 `INSERT INTO clients (rfc, business_name, fiscal_regime, fiscal_zip_code) VALUES ($1, $2, '601', '12345')`,
                 [rfc, 'TEST SA Viewer Should Fail']
@@ -292,7 +291,7 @@ async function runTests() {
 
     {
         const r = await simulateServerAction('create', 'suppliers', admin, async () => {
-            const rfc = 'TESTSA' + Date.now().toString().slice(-7);
+            const rfc = fixtureRfc();
             await sb.query(
                 `INSERT INTO suppliers (rfc, business_name, fiscal_regime, fiscal_zip_code) VALUES ($1, $2, '601', '12345')`,
                 [rfc, 'TEST SA Admin Supplier']
@@ -303,7 +302,7 @@ async function runTests() {
 
     {
         const r = await simulateServerAction('create', 'suppliers', viewer, async () => {
-            const rfc = 'TESTSA' + Date.now().toString().slice(-7);
+            const rfc = fixtureRfc();
             await sb.query(
                 `INSERT INTO suppliers (rfc, business_name) VALUES ($1, 'TEST SA Viewer Should Fail')`,
                 [rfc]
@@ -317,7 +316,7 @@ async function runTests() {
 
     {
         const r = await simulateServerAction('create', 'purchases', admin, async () => {
-            const supRes = await sb.query(`INSERT INTO suppliers (rfc, business_name) VALUES ($1, 'TEST SA PO Supplier') RETURNING id`, ['TESTSAPO' + Date.now().toString().slice(-6)]);
+            const supRes = await sb.query(`INSERT INTO suppliers (rfc, business_name) VALUES ($1, 'TEST SA PO Supplier') RETURNING id`, [fixtureRfc()]);
             const supplierId = supRes.rows[0].id;
             await sb.query(
                 `INSERT INTO purchase_orders (supplier_id, status, subtotal, vat_total, total, notes) VALUES ($1, 'Draft', 100, 16, 116, 'TEST sa notes')`,
@@ -340,7 +339,7 @@ async function runTests() {
     {
         const r = await simulateServerAction('edit', 'purchases', admin, async () => {
             // Crear PO de prueba
-            const supRes = await sb.query(`INSERT INTO suppliers (rfc, business_name) VALUES ($1, 'TEST SA Receive') RETURNING id`, ['TESTSARC' + Date.now().toString().slice(-6)]);
+            const supRes = await sb.query(`INSERT INTO suppliers (rfc, business_name) VALUES ($1, 'TEST SA Receive') RETURNING id`, [fixtureRfc()]);
             const supplierId = supRes.rows[0].id;
             const poRes = await sb.query(
                 `INSERT INTO purchase_orders (supplier_id, status, subtotal, vat_total, total, notes) VALUES ($1, 'Draft', 0, 0, 0, 'TEST sa notes') RETURNING id`,
@@ -371,7 +370,7 @@ async function runTests() {
     // Soft-delete cliente: master puede (can_delete)
     {
         const r = await simulateServerAction('delete', 'clients', master, async () => {
-            const rfc = 'TESTSA' + Date.now().toString().slice(-7);
+            const rfc = fixtureRfc();
             const ins = await sb.query(
                 `INSERT INTO clients (rfc, business_name, fiscal_regime, fiscal_zip_code) VALUES ($1, 'TEST SA Obsoletable Master', '601', '12345') RETURNING id`,
                 [rfc]
@@ -385,7 +384,7 @@ async function runTests() {
     // Soft-delete cliente: admin con can_delete puede
     {
         const r = await simulateServerAction('delete', 'clients', admin, async () => {
-            const rfc = 'TESTSA' + Date.now().toString().slice(-7);
+            const rfc = fixtureRfc();
             const ins = await sb.query(
                 `INSERT INTO clients (rfc, business_name, fiscal_regime, fiscal_zip_code) VALUES ($1, 'TEST SA Obsoletable Admin', '601', '12345') RETURNING id`,
                 [rfc]
@@ -407,7 +406,7 @@ async function runTests() {
     // Restaurar cliente: master puede (can_edit)
     {
         const r = await simulateServerAction('edit', 'clients', master, async () => {
-            const rfc = 'TESTSA' + Date.now().toString().slice(-7);
+            const rfc = fixtureRfc();
             const ins = await sb.query(
                 `INSERT INTO clients (rfc, business_name, fiscal_regime, fiscal_zip_code, is_active) VALUES ($1, 'TEST SA To Restore Master', '601', '12345', false) RETURNING id`,
                 [rfc]
@@ -421,7 +420,7 @@ async function runTests() {
     // Restaurar cliente: admin con can_edit puede
     {
         const r = await simulateServerAction('edit', 'clients', admin, async () => {
-            const rfc = 'TESTSA' + Date.now().toString().slice(-7);
+            const rfc = fixtureRfc();
             const ins = await sb.query(
                 `INSERT INTO clients (rfc, business_name, fiscal_regime, fiscal_zip_code, is_active) VALUES ($1, 'TEST SA To Restore Admin', '601', '12345', false) RETURNING id`,
                 [rfc]
@@ -443,7 +442,7 @@ async function runTests() {
     // Soft-delete supplier: admin puede
     {
         const r = await simulateServerAction('delete', 'suppliers', admin, async () => {
-            const rfc = 'TESTSA' + Date.now().toString().slice(-7);
+            const rfc = fixtureRfc();
             const ins = await sb.query(
                 `INSERT INTO suppliers (rfc, business_name) VALUES ($1, 'TEST SA Supplier Obsoletable') RETURNING id`,
                 [rfc]
@@ -457,7 +456,7 @@ async function runTests() {
     // Restaurar supplier: admin puede
     {
         const r = await simulateServerAction('edit', 'suppliers', admin, async () => {
-            const rfc = 'TESTSA' + Date.now().toString().slice(-7);
+            const rfc = fixtureRfc();
             const ins = await sb.query(
                 `INSERT INTO suppliers (rfc, business_name, is_active) VALUES ($1, 'TEST SA Supplier Restore', false) RETURNING id`,
                 [rfc]
@@ -473,7 +472,7 @@ async function runTests() {
         const r = await simulateServerAction('delete', 'purchases', admin, async () => {
             const supRes = await sb.query(
                 `INSERT INTO suppliers (rfc, business_name) VALUES ($1, 'TEST SA PO Obs Supplier') RETURNING id`,
-                ['TESTSAPO' + Date.now().toString().slice(-6)]
+                [fixtureRfc()]
             );
             const supplierId = supRes.rows[0].id;
             const ins = await sb.query(
@@ -500,7 +499,7 @@ async function runTests() {
         const r = await simulateServerAction('edit', 'purchases', admin, async () => {
             const supRes = await sb.query(
                 `INSERT INTO suppliers (rfc, business_name) VALUES ($1, 'TEST SA PO Rest Supplier') RETURNING id`,
-                ['TESTSAPO' + Date.now().toString().slice(-6)]
+                [fixtureRfc()]
             );
             const supplierId = supRes.rows[0].id;
             const ins = await sb.query(
@@ -523,7 +522,7 @@ async function runTests() {
 
     // Verificar que obsoletar NO hace DELETE (datos preservados)
     {
-        const rfc = 'TESTSA' + Date.now().toString().slice(-7);
+        const rfc = fixtureRfc();
         const ins = await sb.query(
             `INSERT INTO clients (rfc, business_name, fiscal_regime, fiscal_zip_code) VALUES ($1, 'TEST SA Preserved', '601', '12345') RETURNING id`,
             [rfc]
@@ -544,7 +543,7 @@ async function runTests() {
         doSql: () => Promise<any>
     ): Promise<{ allowed: boolean; error?: string }> => {
         if (fixture.role === 'master') {
-            try { await doSql(); return { allowed: true }; }
+            try { await executeIsolatedAction(doSql); return { allowed: true }; }
             catch (e: any) { return { allowed: false, error: e.message }; }
         }
         const perms = fixture.permissions.map(p => ({
@@ -554,14 +553,14 @@ async function runTests() {
         }));
         const allowed = can(fixture.role, perms as any, 'finance', action, 'receivable');
         if (!allowed) return { allowed: false, error: 'Sin permiso (can() === false)' };
-        try { await doSql(); return { allowed: true }; }
+        try { await executeIsolatedAction(doSql); return { allowed: true }; }
         catch (e: any) { return { allowed: false, error: e.message }; }
     };
 
     // Setup: cliente de prueba
     const arClient = (await sb.query(
         `INSERT INTO clients (rfc, business_name, fiscal_regime, fiscal_zip_code) VALUES ($1, 'TEST SA AR Client', '601', '12345') RETURNING id`,
-        ['TESTSACX' + Date.now().toString().slice(-5)]
+        [fixtureRfc()]
     )).rows[0];
 
     // Test AR-001: master puede crear partida
@@ -651,7 +650,7 @@ async function runTests() {
     {
         const r = await simulateAR('create', master, async () => {
             // Simular el hash SHA-256 de un token fake
-            const fakeHash = 'b'.repeat(64);
+            const fakeHash = randomUUID().replaceAll('-', '').repeat(2);
             await sb.query(
                 `INSERT INTO ar_share_links (client_id, token_hash, expires_at, created_by)
                  SELECT $1, $2, NOW() + INTERVAL '30 days', id FROM employees WHERE username = $3`,
@@ -664,7 +663,7 @@ async function runTests() {
     // Test AR-009: viewer NO puede crear link
     {
         const r = await simulateAR('create', viewer, async () => {
-            const fakeHash = 'c'.repeat(64);
+            const fakeHash = randomUUID().replaceAll('-', '').repeat(2);
             await sb.query(
                 `INSERT INTO ar_share_links (client_id, token_hash, expires_at, created_by)
                  SELECT $1, $2, NOW() + INTERVAL '30 days', id FROM employees WHERE username = $3`,
@@ -743,6 +742,7 @@ async function runTests() {
 (async () => {
     try {
         await sb.connect();
+        await sb.query('BEGIN');
         await setup();
         await runTests();
         await teardown();

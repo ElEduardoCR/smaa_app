@@ -22,12 +22,13 @@ type ReqRow = {
     needed_by: string | null;
     suggested_supplier_text: string | null;
     notes: string | null;
+    purpose?: string | null;
     created_at: string;
     purchased_at: string | null;
     invoice_url: string | null;
     invoice_photo_url: string | null;
     requested_by: string;
-    items: { id: string }[];
+    items: { id: string; purpose?: string | null }[];
     requester: { id: string; full_name: string; position: string | null; photo_url: string | null } | null;
 };
 
@@ -209,6 +210,12 @@ function ReqCard({ req }: { req: ReqRow }) {
                     </span>
                 </div>
             </div>
+
+            {(req.purpose || req.items.some(item => item.purpose)) && (
+                <p className="text-xs text-amber-200 mb-2 line-clamp-3">
+                    Para: {[req.purpose, ...req.items.map(item => item.purpose)].filter(Boolean).filter((value, index, values) => values.indexOf(value) === index).join(' · ')}
+                </p>
+            )}
 
             {req.suggested_supplier_text && (
                 <div className="flex items-center gap-1.5 text-[11px] text-neutral-300 mb-1.5">

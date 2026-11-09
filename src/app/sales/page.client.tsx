@@ -9,6 +9,7 @@ import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
 import { generateQuotationPDF } from "@/lib/generatePdf";
 import QuotationDetailsModal from "./QuotationDetailsModal";
+import HorizontalTableScroll from "@/components/HorizontalTableScroll";
 import { commissionersTotal, type Commissioner } from "@/lib/commissioners";
 
 function cn(...inputs: (string | undefined | null | false)[]) {
@@ -230,7 +231,7 @@ export default function SalesPage() {
 
     return (
         <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 p-3 sm:p-6 md:p-8 lg:p-10 font-[family-name:var(--font-sans)]">
-            <div className="w-full space-y-8">
+            <div className="min-w-0 w-full space-y-8">
                 {/* Header */}
                 <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
                     <div className="flex items-center gap-4">
@@ -293,7 +294,7 @@ export default function SalesPage() {
                         </button>
                     </div>
 
-                    <div className="overflow-x-auto">
+                    <HorizontalTableScroll label="Cotizaciones">
                         <table className="w-full text-left text-sm whitespace-nowrap">
                             <thead className="bg-neutral-900/50 text-neutral-400 uppercase text-xs font-semibold tracking-wider">
                                 <tr>
@@ -421,7 +422,7 @@ export default function SalesPage() {
                                 )}
                             </tbody>
                         </table>
-                    </div>
+                    </HorizontalTableScroll>
                 </div>
             </div>
 

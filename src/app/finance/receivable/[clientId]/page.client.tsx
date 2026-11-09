@@ -4,6 +4,8 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import PriceTaxToggle from "@/components/PriceTaxToggle";
+import { priceLine } from "@/lib/pricing";
 import {
     ArrowLeft, RefreshCw, Wallet, Plus, Archive, ArchiveRestore, Receipt,
     CheckCircle, Clock, XCircle, CreditCard, Link2, Copy, Trash2, FileText,
@@ -1011,6 +1013,8 @@ function SummaryBox({ label, value, color, big }: { label: string; value: string
 function NewInvoiceModal({ clientId, onClose, onSaved, setErr }: { clientId: number; onClose: () => void; onSaved: () => void | Promise<void>; setErr: (t: string) => void }) {
     const [concept, setConcept] = useState("");
     const [gross, setGross] = useState("");
+    const [priceIncludesVat, setPriceIncludesVat] = useState(false);
+    const amountBreakdown = priceLine({ quantity: 1, unit_price: Number(gross), price_includes_vat: priceIncludesVat });
     const [invoiceNumber, setInvoiceNumber] = useState("");
     const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().slice(0, 10));
     const [dueDate, setDueDate] = useState("");
@@ -1054,6 +1058,7 @@ function NewInvoiceModal({ clientId, onClose, onSaved, setErr }: { clientId: num
             if (c) {
                 // El CFDI tiene total, subtotal, vat_total — el "gross" para nosotros es el subtotal
                 setGross(String(c.subtotal || ""));
+                setPriceIncludesVat(false);
                 setInvoiceNumber([c.serie, c.folio].filter(Boolean).join("-"));
                 if (c.invoice_date) setInvoiceDate(c.invoice_date.slice(0, 10));
             }
@@ -1062,14 +1067,15 @@ function NewInvoiceModal({ clientId, onClose, onSaved, setErr }: { clientId: num
 
     const submit = async () => {
         if (!concept.trim()) { setErr("Falta el concepto."); return; }
-        const g = Number(gross);
-        if (!isFinite(g) || g < 0) { setErr("Monto inválido."); return; }
+        const enteredAmount = Number(gross);
+        if (!isFinite(enteredAmount) || enteredAmount < 0) { setErr("Monto inválido."); return; }
         setBusy(true);
         try {
             await createARInvoiceAction({
                 client_id: clientId,
                 concept: concept.trim(),
-                gross_amount: g,
+                gross_amount: enteredAmount,
+                price_includes_vat: priceIncludesVat,
                 invoice_number: invoiceNumber.trim() || null,
                 invoice_date: invoiceDate,
                 due_date: dueDate || null,
@@ -1124,9 +1130,10 @@ function NewInvoiceModal({ clientId, onClose, onSaved, setErr }: { clientId: num
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                     <div>
-                        <label className="text-xs font-medium text-neutral-300">Subtotal (Bruto) *</label>
+                        <label className="text-xs font-medium text-neutral-300">{priceIncludesVat ? "Total con IVA *" : "Subtotal (Bruto) sin IVA *"}</label>
                         <input type="number" inputMode="decimal" step="0.01" value={gross} onChange={(e) => setGross(e.target.value)} placeholder="0.00" className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-3 py-2 text-sm text-white mt-1 focus:outline-none focus:border-cyan-500" />
-                        <p className="text-[10px] text-neutral-500 mt-1">IVA 16% se calcula automáticamente</p>
+                        <div className="mt-2"><PriceTaxToggle includesVat={priceIncludesVat} onChange={setPriceIncludesVat} /></div>
+                        <p className="text-[10px] text-neutral-500 mt-1">El sistema separa el bruto y el IVA (16%).</p>
                     </div>
                     <div>
                         <label className="text-xs font-medium text-neutral-300">Fecha vencimiento</label>
@@ -1139,9 +1146,9 @@ function NewInvoiceModal({ clientId, onClose, onSaved, setErr }: { clientId: num
                 </div>
                 {gross && Number(gross) > 0 && (
                     <div className="bg-cyan-500/5 border border-cyan-500/20 rounded-xl p-3 text-xs space-y-1">
-                        <div className="flex justify-between text-neutral-300"><span>Bruto:</span><span className="font-mono">{fmtMoney(Number(gross))}</span></div>
-                        <div className="flex justify-between text-neutral-300"><span>IVA 16%:</span><span className="font-mono">{fmtMoney(Number(gross) * 0.16)}</span></div>
-                        <div className="flex justify-between text-white font-semibold border-t border-cyan-500/20 pt-1"><span>Total:</span><span className="font-mono">{fmtMoney(Number(gross) * 1.16)}</span></div>
+                        <div className="flex justify-between text-neutral-300"><span>Bruto:</span><span className="font-mono">{fmtMoney(amountBreakdown.subtotal)}</span></div>
+                        <div className="flex justify-between text-neutral-300"><span>IVA 16%:</span><span className="font-mono">{fmtMoney(amountBreakdown.vat)}</span></div>
+                        <div className="flex justify-between text-white font-semibold border-t border-cyan-500/20 pt-1"><span>Total:</span><span className="font-mono">{fmtMoney(amountBreakdown.total)}</span></div>
                     </div>
                 )}
             </div>
@@ -1157,7 +1164,8 @@ function NewInvoiceModal({ clientId, onClose, onSaved, setErr }: { clientId: num
 
 function EditInvoiceModal({ invoice, onClose, onSaved, setErr }: { invoice: Invoice; onClose: () => void; onSaved: () => void | Promise<void>; setErr: (t: string) => void }) {
     const [concept, setConcept] = useState(invoice.concept);
-    const [gross, setGross] = useState(String(invoice.gross_amount));
+    const [gross, setGross] = useState(String(invoice.net_amount));
+    const [priceIncludesVat, setPriceIncludesVat] = useState(true);
     const [invoiceNumber, setInvoiceNumber] = useState(invoice.invoice_number || "");
     const [invoiceDate, setInvoiceDate] = useState(invoice.invoice_date || new Date().toISOString().slice(0, 10));
     const [dueDate, setDueDate] = useState(invoice.due_date || "");
@@ -1169,12 +1177,12 @@ function EditInvoiceModal({ invoice, onClose, onSaved, setErr }: { invoice: Invo
 
     const submit = async () => {
         if (!concept.trim()) { setErr("Falta el concepto."); return; }
-        const g = Number(gross);
-        if (!isFinite(g) || g < 0) { setErr("Monto inválido."); return; }
+        const enteredAmount = Number(gross);
+        if (!isFinite(enteredAmount) || enteredAmount < 0) { setErr("Monto inválido."); return; }
 
-        // Validación: si ya tiene pagos, el nuevo gross no puede ser menor al ya pagado
-        if (hasPayments && g < Number(invoice.paid_amount)) {
-            setErr(`El nuevo monto bruto ($${g.toFixed(2)}) no puede ser menor a lo ya pagado ($${Number(invoice.paid_amount).toFixed(2)}).`);
+        const payable = priceLine({ quantity: 1, unit_price: enteredAmount, price_includes_vat: priceIncludesVat }).total;
+        if (hasPayments && payable < Number(invoice.paid_amount)) {
+            setErr(`El nuevo total ($${payable.toFixed(2)}) no puede ser menor a lo ya pagado ($${Number(invoice.paid_amount).toFixed(2)}).`);
             return;
         }
 
@@ -1183,7 +1191,10 @@ function EditInvoiceModal({ invoice, onClose, onSaved, setErr }: { invoice: Invo
             await updateARInvoiceAction(invoice.id, {
                 client_id: invoice.client_id,
                 concept: concept.trim(),
-                gross_amount: g,
+                ...(priceIncludesVat && enteredAmount === Number(invoice.net_amount) ? {} : {
+                    gross_amount: enteredAmount,
+                    price_includes_vat: priceIncludesVat,
+                }),
                 invoice_number: invoiceNumber.trim() || null,
                 invoice_date: invoiceDate,
                 due_date: dueDate || null,
@@ -1194,15 +1205,16 @@ function EditInvoiceModal({ invoice, onClose, onSaved, setErr }: { invoice: Invo
         finally { setBusy(false); }
     };
 
-    const grossNum = Number(gross);
-    const vat = isFinite(grossNum) && grossNum >= 0 ? Math.round(grossNum * 0.16 * 100) / 100 : 0;
-    const net = isFinite(grossNum) && grossNum >= 0 ? Math.round((grossNum + vat) * 100) / 100 : 0;
+    const amountUnchanged = priceIncludesVat && Number(gross) === Number(invoice.net_amount);
+    const { subtotal: grossNum, vat, total: net } = amountUnchanged
+        ? { subtotal: Number(invoice.gross_amount), vat: Number(invoice.vat_amount), total: Number(invoice.net_amount) }
+        : priceLine({ quantity: 1, unit_price: Number(gross), price_includes_vat: priceIncludesVat });
 
     return (
         <ModalShell title={`Editar partida${hasPayments ? ' (con pagos aplicados)' : ''}`} onClose={onClose}>
             {hasPayments && (
                 <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 mb-4 text-xs text-amber-200">
-                    <strong>Esta partida ya tiene ${Number(invoice.paid_amount).toFixed(2)} aplicados.</strong> El nuevo monto bruto no puede ser menor a lo ya pagado.
+                    <strong>Esta partida ya tiene ${Number(invoice.paid_amount).toFixed(2)} aplicados.</strong> Sus importes se conservan mientras tenga pagos aplicados.
                 </div>
             )}
             <div className="space-y-4">
@@ -1240,7 +1252,7 @@ function EditInvoiceModal({ invoice, onClose, onSaved, setErr }: { invoice: Invo
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                     <div>
-                        <label className="text-xs font-medium text-neutral-300">Subtotal (Bruto) *</label>
+                        <label className="text-xs font-medium text-neutral-300">{priceIncludesVat ? "Total con IVA *" : "Subtotal (Bruto) sin IVA *"}</label>
                         <input
                             type="number"
                             inputMode="decimal"
@@ -1251,7 +1263,8 @@ function EditInvoiceModal({ invoice, onClose, onSaved, setErr }: { invoice: Invo
                             placeholder="0.00"
                             className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-3 py-2 text-sm text-white mt-1 focus:outline-none focus:border-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed"
                         />
-                        <p className="text-[10px] text-neutral-500 mt-1">IVA 16% se recalcula automáticamente</p>
+                        <div className="mt-2"><PriceTaxToggle includesVat={priceIncludesVat} onChange={setPriceIncludesVat} disabled={isLocked} /></div>
+                        <p className="text-[10px] text-neutral-500 mt-1">El sistema separa el bruto y el IVA (16%).</p>
                     </div>
                     <div>
                         <label className="text-xs font-medium text-neutral-300">Fecha vencimiento</label>
@@ -1283,7 +1296,7 @@ function EditInvoiceModal({ invoice, onClose, onSaved, setErr }: { invoice: Invo
                 )}
                 {isLocked && (
                     <div className="bg-rose-500/10 border border-rose-500/30 rounded-xl p-3 text-xs text-rose-200">
-                        Partida bloqueada para edición. {invoice.status === 'cancelled' ? 'Está cancelada.' : 'Tiene pagos aplicados — solo puedes editar concepto, folio y notas.'}
+                        Partida bloqueada para edición. {invoice.status === 'cancelled' ? 'Está cancelada.' : 'Tiene pagos aplicados; se conserva el registro del cobro.'}
                     </div>
                 )}
             </div>

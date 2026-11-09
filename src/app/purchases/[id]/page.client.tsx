@@ -4,6 +4,8 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import PriceTaxToggle from "@/components/PriceTaxToggle";
+import { calculatePriceTotals, priceLine, priceWithoutVat } from "@/lib/pricing";
 import { updatePurchaseOrderAction, deletePurchaseOrderAction, addPurchaseAttachmentAction, deletePurchaseAttachmentAction } from "@/app/actions/purchases";
 import { uploadPurchaseFiles } from "@/lib/purchaseUploads";
 import { ArrowLeft, Save, Trash2, Loader2, AlertCircle, CheckCircle2, ExternalLink, Plus, ShoppingCart, Truck, Calendar, FileText, Receipt, FileCheck, Paperclip, X, Upload, Layers, Camera, FilePlus } from "lucide-react";
@@ -39,6 +41,8 @@ type Item = {
     quantity: number;
     unit_price: number;
     line_total: number;
+    price_includes_vat?: boolean;
+    notes?: string | null;
 };
 
 const STATUS_OPTIONS = [
@@ -133,15 +137,13 @@ export default function PurchaseOrderEditClient({
     const otherCount = attachments.filter((a) => a.kind === 'other').length;
 
     // Recalcular totales cuando cambian items
-    const subtotal = items.reduce((s, it) => s + (Number(it.quantity) || 0) * (Number(it.unit_price) || 0), 0);
-    const vatTotal = subtotal * 0.16;
-    const total = subtotal + vatTotal;
+    const { subtotal, vat: vatTotal, total } = calculatePriceTotals(items);
 
     const updateItem = (idx: number, patch: Partial<Item>) => {
         setItems((prev) => prev.map((it, i) => {
             if (i !== idx) return it;
             const merged = { ...it, ...patch };
-            merged.line_total = (Number(merged.quantity) || 0) * (Number(merged.unit_price) || 0);
+            merged.line_total = priceLine(merged).subtotal;
             return merged;
         }));
     };
@@ -181,8 +183,9 @@ export default function PurchaseOrderEditClient({
                 items: cleanItems.map((it) => ({
                     description: it.description.trim(),
                     quantity: Number(it.quantity) || 0,
-                    unit_price: Number(it.unit_price) || 0,
-                    line_total: (Number(it.quantity) || 0) * (Number(it.unit_price) || 0),
+                    unit_price: priceWithoutVat(it.unit_price, it.price_includes_vat),
+                    line_total: priceLine(it).subtotal,
+                    notes: it.notes?.trim() || null,
                 })),
             });
             setMsg({ type: 'success', text: "Orden actualizada." });
@@ -500,19 +503,24 @@ export default function PurchaseOrderEditClient({
                                 <div className="col-span-6">Descripción</div>
                                 <div className="col-span-2 text-right">Cantidad</div>
                                 <div className="col-span-2 text-right">P. Unit.</div>
-                                <div className="col-span-1 text-right">Importe</div>
+                                <div className="col-span-1 text-right">Sin IVA</div>
                                 <div className="col-span-1"></div>
                             </div>
                             {items.map((it, idx) => (
                                 <div key={it.id} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-start bg-neutral-900/30 p-3 rounded-xl border border-neutral-700/30">
+                                    <div className="md:col-span-6 space-y-1">
                                     <input
                                         type="text"
                                         value={it.description}
                                         onChange={(e) => updateItem(idx, { description: e.target.value })}
                                         disabled={!canEdit}
                                         placeholder="Descripción"
-                                        className="md:col-span-6 bg-neutral-900/80 border border-neutral-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-orange-500 disabled:opacity-60"
+                                        className="w-full bg-neutral-900/80 border border-neutral-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-orange-500 disabled:opacity-60"
                                     />
+                                        <input value={it.notes || ""} onChange={(e) => updateItem(idx, { notes: e.target.value })}
+                                            disabled={!canEdit} aria-label={`Notas del artículo ${idx + 1}`} placeholder="Para qué se requiere / proyecto"
+                                            className="w-full bg-neutral-900/50 border border-neutral-700 rounded-lg px-3 py-1.5 text-xs text-neutral-300 disabled:opacity-60" />
+                                    </div>
                                     <input
                                         type="number" step="0.01" min="0"
                                         value={it.quantity}
@@ -520,15 +528,19 @@ export default function PurchaseOrderEditClient({
                                         disabled={!canEdit}
                                         className="md:col-span-2 bg-neutral-900/80 border border-neutral-700 rounded-lg px-3 py-1.5 text-sm text-white text-right focus:outline-none focus:border-orange-500 disabled:opacity-60"
                                     />
+                                    <div className="md:col-span-2 space-y-1">
                                     <input
-                                        type="number" step="0.01" min="0"
+                                        type="number" step="any" min="0"
                                         value={it.unit_price}
                                         onChange={(e) => updateItem(idx, { unit_price: parseFloat(e.target.value) || 0 })}
                                         disabled={!canEdit}
-                                        className="md:col-span-2 bg-neutral-900/80 border border-neutral-700 rounded-lg px-3 py-1.5 text-sm text-white text-right focus:outline-none focus:border-orange-500 disabled:opacity-60"
+                                        className="w-full bg-neutral-900/80 border border-neutral-700 rounded-lg px-3 py-1.5 text-sm text-white text-right focus:outline-none focus:border-orange-500 disabled:opacity-60"
                                     />
+                                        <PriceTaxToggle includesVat={!!it.price_includes_vat} disabled={!canEdit}
+                                            onChange={(value) => updateItem(idx, { price_includes_vat: value })} />
+                                    </div>
                                     <div className="md:col-span-1 flex items-center justify-end text-sm font-medium text-emerald-400 tabular-nums">
-                                        ${(Number(it.quantity) * Number(it.unit_price)).toFixed(2)}
+                                        ${priceLine(it).subtotal.toFixed(2)}
                                     </div>
                                     <div className="md:col-span-1 flex items-center justify-end">
                                         {canEdit && (

@@ -8,6 +8,7 @@ type POData = {
     subtotal: number;
     vat_total: number;
     total: number;
+    notes?: string | null;
     supplier: {
         business_name: string;
         rfc: string;
@@ -20,6 +21,7 @@ type POData = {
         quantity: number;
         unit_price: number;
         line_total: number;
+        notes?: string | null;
     }[];
 };
 
@@ -109,7 +111,7 @@ export const generatePurchaseOrderPDF = async (data: POData) => {
     if (supplierInfo.email) { doc.text(`Email: ${supplierInfo.email}`, 14, nextY); nextY += 5; }
     if (supplierInfo.address) { doc.text(`Dirección: ${supplierInfo.address}`, 14, nextY); }
 
-    const tableData = data.items.map(item => [item.description, item.quantity.toString(), formatCurrency(item.unit_price), formatCurrency(item.line_total)]);
+    const tableData = data.items.map(item => [[item.description, item.notes].filter(Boolean).join('\n'), item.quantity.toString(), formatCurrency(item.unit_price), formatCurrency(item.line_total)]);
 
     autoTable(doc, {
         startY: Math.max(nextY + 10, dividerY + 35),
@@ -121,7 +123,11 @@ export const generatePurchaseOrderPDF = async (data: POData) => {
         styles: { fontSize: 9, cellPadding: 4 }
     });
 
-    const finalY = (doc as any).lastAutoTable.finalY + 10;
+    let finalY = (doc as any).lastAutoTable.finalY + 10;
+    if (finalY + 25 > doc.internal.pageSize.getHeight() - 25) {
+        doc.addPage();
+        finalY = 20;
+    }
     const totalsX = pageWidth - 65;
 
     doc.setFont("helvetica", "normal");
@@ -144,6 +150,18 @@ export const generatePurchaseOrderPDF = async (data: POData) => {
     doc.text("Total Neto:", totalsX, finalY + 18);
     doc.setTextColor(244, 63, 94);
     doc.text(formatCurrency(data.total), pageWidth - 14, finalY + 18, { align: "right" });
+
+    if (data.notes?.trim()) {
+        autoTable(doc, {
+            startY: finalY + 30,
+            head: [['Notas / propósito de la compra']],
+            body: [[data.notes.trim()]],
+            theme: 'plain',
+            headStyles: { textColor: [30, 41, 59], fontStyle: 'bold' },
+            styles: { fontSize: 9, cellPadding: 3, overflow: 'linebreak' },
+            margin: { bottom: 25 },
+        });
+    }
 
     doc.setFont("helvetica", "italic");
     doc.setFontSize(8);

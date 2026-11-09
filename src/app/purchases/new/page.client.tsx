@@ -6,6 +6,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { matchesSearch } from "@/lib/search";
 import { supabase } from "@/lib/supabase";
+import PriceTaxToggle from "@/components/PriceTaxToggle";
+import { calculatePriceTotals, priceLine, priceWithoutVat, roundMoney } from "@/lib/pricing";
 import { generateUUID } from "@/lib/uuid";
 import { fileExtension } from "@/lib/storageNames";
 import { storageErrorMessage } from "@/lib/storageErrors";
@@ -43,6 +45,8 @@ const itemSchema = z.object({
     description: z.string().min(1, "Escribe la descripción"),
     quantity: z.coerce.number().min(0.01, "La cantidad debe ser mayor a 0"),
     unit_price: z.coerce.number().min(0, "El precio no puede ser negativo"),
+    price_includes_vat: z.boolean().optional(),
+    notes: z.string().optional(),
 });
 
 const groupSchema = z.object({
@@ -112,14 +116,14 @@ function NewPOForm() {
         fetch();
     }, []);
 
-    const calculateLineTotal = (qty: number, price: number) => (qty || 0) * (price || 0);
-    const groupSubtotal = (items: any[]) => items?.reduce((sum, it) => sum + calculateLineTotal(it.quantity, it.unit_price), 0) || 0;
+    const calculateLineTotal = (qty: number, price: number, includesVat = false) => priceLine({ quantity: qty, unit_price: price, price_includes_vat: includesVat }).subtotal;
+    const groupSubtotal = (items: any[]) => calculatePriceTotals(items || []).subtotal;
     const formatCurrency = (amt: number) => `$${(amt || 0).toFixed(2)}`;
 
     // Totales globales
     const totalGlobal = watchedGroups?.reduce((s, g) => s + groupSubtotal(g.items), 0) || 0;
-    const totalVat = totalGlobal * 0.16;
-    const totalGrand = totalGlobal + totalVat;
+    const totalVat = roundMoney(watchedGroups?.reduce((sum, g) => sum + calculatePriceTotals(g.items || []).vat, 0) || 0);
+    const totalGrand = roundMoney(totalGlobal + totalVat);
 
     const onSubmit = async (data: POFormValues) => {
         setIsSubmitting(true);
@@ -129,9 +133,7 @@ function NewPOForm() {
             // creamos una sola PO (camino legacy).
             if (data.groups.length === 1) {
                 const g = data.groups[0];
-                const subtotal = groupSubtotal(g.items);
-                const vatTotal = subtotal * 0.16;
-                const total = subtotal + vatTotal;
+                const { subtotal, vat: vatTotal, total } = calculatePriceTotals(g.items);
 
                 // Subir cotización del proveedor si hay
                 let supplierQuoteUrl: string | null = null;
@@ -167,8 +169,9 @@ function NewPOForm() {
                     purchase_order_id: insertedPO.id,
                     description: item.description,
                     quantity: item.quantity,
-                    unit_price: item.unit_price,
-                    line_total: calculateLineTotal(item.quantity, item.unit_price),
+                    unit_price: priceWithoutVat(item.unit_price, item.price_includes_vat),
+                    line_total: calculateLineTotal(item.quantity, item.unit_price, item.price_includes_vat),
+                    notes: item.notes?.trim() || null,
                 }));
                 const { error: itemsError } = await supabase.from('purchase_order_items').insert(itemsToInsert);
                 if (itemsError) throw itemsError;
@@ -183,9 +186,7 @@ function NewPOForm() {
 
             for (let i = 0; i < data.groups.length; i++) {
                 const g = data.groups[i];
-                const subtotal = groupSubtotal(g.items);
-                const vatTotal = subtotal * 0.16;
-                const total = subtotal + vatTotal;
+                const { subtotal, vat: vatTotal, total } = calculatePriceTotals(g.items);
 
                 let supplierQuoteUrl: string | null = null;
                 const f = getFirstFile((g as any).supplier_quote_file);
@@ -227,8 +228,9 @@ function NewPOForm() {
                     purchase_order_id: insertedPO.id,
                     description: item.description,
                     quantity: item.quantity,
-                    unit_price: item.unit_price,
-                    line_total: calculateLineTotal(item.quantity, item.unit_price),
+                    unit_price: priceWithoutVat(item.unit_price, item.price_includes_vat),
+                    line_total: calculateLineTotal(item.quantity, item.unit_price, item.price_includes_vat),
+                    notes: item.notes?.trim() || null,
                 }));
                 const { error: itemsError } = await supabase.from('purchase_order_items').insert(itemsToInsert);
                 if (itemsError) {
@@ -476,7 +478,7 @@ type GroupCardProps = {
     watchedGroup: any;
     groupSubtotal: (items: any[]) => number;
     formatCurrency: (n: number) => string;
-    calculateLineTotal: (qty: number, price: number) => number;
+    calculateLineTotal: (qty: number, price: number, includesVat?: boolean) => number;
 };
 
 function GroupCard({
@@ -487,9 +489,7 @@ function GroupCard({
     const { fields, append, remove } = useFieldArray({ control, name: `groups.${gIdx}.items` as const });
     const watchedItems = watchedGroup?.items || [];
     // Header summary cuando está colapsado
-    const subtotal = groupSubtotal(watchedItems);
-    const vat = subtotal * 0.16;
-    const total = subtotal + vat;
+    const { total } = calculatePriceTotals(watchedItems);
     const selectedSupplier = suppliers.find((s) => s.id === watchedGroup?.supplier_id);
 
     return (
@@ -579,13 +579,14 @@ function GroupCard({
                                 <div className="col-span-5">Descripción</div>
                                 <div className="col-span-2">Cantidad</div>
                                 <div className="col-span-2">Precio Unit.</div>
-                                <div className="col-span-2 text-right">Importe</div>
+                                <div className="col-span-2 text-right">Importe sin IVA</div>
                                 <div className="col-span-1"></div>
                             </div>
                             {fields.map((field, idx) => {
                                 const qty = watchedItems?.[idx]?.quantity || 0;
                                 const price = watchedItems?.[idx]?.unit_price || 0;
-                                const lineTotal = calculateLineTotal(qty, price);
+                                const includesVat = !!watchedItems?.[idx]?.price_includes_vat;
+                                const lineTotal = calculateLineTotal(qty, price, includesVat);
                                 return (
                                     <div key={field.id} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-start bg-neutral-900/30 p-3 rounded-xl border border-neutral-700/30 md:border-none">
                                         <div className="md:col-span-5 space-y-1">
@@ -600,6 +601,10 @@ function GroupCard({
                                                 )}
                                                 placeholder="Descripción del artículo"
                                             />
+                                            <input {...register(`groups.${gIdx}.items.${idx}.notes` as const)}
+                                                aria-label={`Notas del artículo ${idx + 1}`}
+                                                placeholder="Para qué se requiere / proyecto (opcional)"
+                                                className="w-full bg-neutral-900/50 border border-neutral-700 rounded-lg px-3 py-1.5 text-xs text-neutral-300" />
                                         </div>
                                         <div className="md:col-span-2 space-y-1">
                                             <label className="md:hidden text-xs text-neutral-400 ml-1">Cantidad</label>
@@ -616,6 +621,7 @@ function GroupCard({
                                                 {...register(`groups.${gIdx}.items.${idx}.unit_price` as const)}
                                                 className="w-full bg-neutral-900/80 border border-neutral-700 rounded-lg px-3 py-2 text-white text-right focus:outline-none focus:ring-1 focus:border-orange-500 focus:ring-orange-500 transition-all"
                                             />
+                                            <PriceTaxToggle includesVat={includesVat} onChange={(value) => setValue(`groups.${gIdx}.items.${idx}.price_includes_vat`, value, { shouldDirty: true })} />
                                         </div>
                                         <div className="md:col-span-2 flex items-center justify-end">
                                             <span className="font-medium text-emerald-400 tabular-nums">{formatCurrency(lineTotal)}</span>

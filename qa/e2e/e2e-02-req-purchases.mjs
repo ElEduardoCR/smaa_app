@@ -103,7 +103,8 @@ await step('Requisiciones: operador crea requisición con cotización (nombre co
     await page.getByPlaceholder('Descripción (ej. Electrodo E7018 3/32)').fill('QA Electrodo E7018 3/32');
     await page.locator('input[type=number]').first().fill('5');
     await page.getByPlaceholder("O escribe uno libre (ej. 'Materiales del Sur')").fill('QA Aceros');
-    await page.getByPlaceholder('Para qué es el material, especificaciones adicionales, etc.').fill('QA requisición de prueba (borrar)');
+    await page.getByLabel('¿Para qué se requiere esta compra?', { exact: true }).fill('QA proyecto de soldadura');
+    await page.getByPlaceholder('Especificaciones adicionales, instrucciones de entrega, etc.').fill('QA requisición de prueba (borrar)');
     await page.locator('input[type=file]').setInputFiles(fileArg(F.pdfAccent));
     await page.waitForTimeout(2500);
     const t1 = await bodyText(page);
@@ -128,6 +129,8 @@ await step('Requisiciones: almacén (Ver + Solicitar) crea, ve lista y detalle',
     await page.getByPlaceholder('Descripción (ej. Electrodo E7018 3/32)').fill('QA Disco de corte 4.5"');
     await page.getByRole('button', { name: /Agregar/ }).first().click();
     await page.getByPlaceholder('Descripción (ej. Electrodo E7018 3/32)').nth(1).fill('QA Guantes de carnaza');
+    await page.getByLabel('¿Para qué se requiere este artículo?', { exact: true }).nth(0).fill('QA Proyecto A');
+    await page.getByLabel('¿Para qué se requiere este artículo?', { exact: true }).nth(1).fill('QA Proyecto B');
     await page.locator('select').nth(1).selectOption({ index: 1 }).catch(() => {});
     await page.getByRole('button', { name: /Crear requisición/i }).click();
     await page.waitForURL(/\/requisitions\/[0-9a-f-]{36}|denied=1/, { timeout: 15000 });

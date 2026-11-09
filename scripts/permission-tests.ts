@@ -18,7 +18,7 @@
  *   1. Crea 5 empleados de prueba con permisos distintos (TEST_*)
  *   2. Para cada (módulo, acción), verifica que el comportamiento real
  *      coincida con el esperado según la matriz de docs/permission-audit.md
- *   3. Limpia los registros creados
+ *   3. Revierte la transacción completa (no borra fixtures de otras corridas)
  *   4. Imprime un resumen con ✅ / ❌ por caso
  *
  * NOTA: La RLS de Supabase es "Allow all" en la mayoría de tablas, así que
@@ -33,6 +33,8 @@
  */
 
 import { Client } from 'pg';
+import { readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 
 const DB_URL = process.env.DB_URL;
 if (!DB_URL) {
@@ -43,6 +45,12 @@ if (!DB_URL) {
 }
 
 const sb = new Client({ connectionString: DB_URL });
+const fixtureRun = randomUUID().replaceAll('-', '').slice(0, 8);
+let fixtureSequence = 0;
+// A clock tick is not unique: fast local tests can insert several rows in one ms.
+const fixtureValue = (prefix: string) => `${prefix}${fixtureRun}${++fixtureSequence}`;
+// RFC columns allow at most 13 characters; reserve a counter to avoid collisions.
+const fixtureRfc = () => `TEST${fixtureRun.slice(0, 6)}${(++fixtureSequence).toString(36).padStart(3, '0')}`;
 
 // =============================================================================
 // Test fixtures
@@ -139,7 +147,7 @@ const TEST_CASES: TestCase[] = [
         fixture: 'TEST_op_create_only',
         expect: 'allow',
         run: async (c, employeeId) => {
-            const code = 'TEST-REQ-' + Date.now();
+            const code = fixtureValue('TEST-REQ-');
             const res = await c.query(
                 `INSERT INTO requisitions (code, requested_by, status, priority, suggested_supplier_text)
                  VALUES ($1, $2, 'pending', 'normal', 'Test supplier')
@@ -164,7 +172,7 @@ const TEST_CASES: TestCase[] = [
         fixture: 'TEST_op_requis',
         expect: 'allow',  // Este sí tiene can_create
         run: async (c, employeeId) => {
-            const code = 'TEST-REQ-' + Date.now();
+            const code = fixtureValue('TEST-REQ-');
             const res = await c.query(
                 `INSERT INTO requisitions (code, requested_by, status, priority, suggested_supplier_text)
                  VALUES ($1, $2, 'pending', 'normal', 'Test 2')
@@ -180,7 +188,7 @@ const TEST_CASES: TestCase[] = [
         fixture: 'TEST_op_requis',
         expect: 'allow',
         run: async (c, employeeId) => {
-            const code = 'TEST-REQ-' + Date.now();
+            const code = fixtureValue('TEST-REQ-');
             const res = await c.query(
                 `INSERT INTO requisitions (code, requested_by, status, priority)
                  VALUES ($1, $2, 'pending', 'normal')
@@ -223,7 +231,7 @@ const TEST_CASES: TestCase[] = [
             // Crear supplier de prueba
             const supRes = await c.query(
                 `INSERT INTO suppliers (rfc, business_name) VALUES ($1, $2) RETURNING id`,
-                ['TEST' + Date.now().toString().slice(-8), 'TEST Supplier ' + Date.now()]
+                [fixtureRfc(), fixtureValue('TEST Supplier ')]
             );
             const supplierId = supRes.rows[0].id;
             const res = await c.query(
@@ -245,7 +253,7 @@ const TEST_CASES: TestCase[] = [
             const reqRes = await c.query(
                 `INSERT INTO requisitions (code, requested_by, status, priority)
                  VALUES ($1, $2, 'pending', 'normal') RETURNING id`,
-                ['TEST-PO3-' + Date.now(), employeeId]
+                [fixtureValue('TEST-PO3-'), employeeId]
             );
             const reqId = reqRes.rows[0].id;
             // Crear PO linkeada
@@ -336,7 +344,7 @@ const TEST_CASES: TestCase[] = [
         fixture: 'TEST_admin',
         expect: 'allow',
         run: async (c) => {
-            const rfc = 'TEST' + Date.now().toString().slice(-8);
+            const rfc = fixtureRfc();
             const res = await c.query(
                 `INSERT INTO suppliers (rfc, business_name, fiscal_regime, fiscal_zip_code, email, phone, address, constancia_pdf_url)
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -355,7 +363,7 @@ const TEST_CASES: TestCase[] = [
         fixture: 'TEST_admin',
         expect: 'allow',
         run: async (c) => {
-            const username = 'TEST_created_' + Date.now();
+            const username = fixtureValue('TEST_created_');
             const res = await c.query(
                 `INSERT INTO employees (full_name, username, password_hash, role, is_active)
                  VALUES ($1, $2, 'placeholder', 'operator', false)
@@ -544,7 +552,7 @@ const TEST_CASES: TestCase[] = [
         fixture: 'TEST_admin',
         expect: 'allow',
         run: async (c) => {
-            const rfc = 'TESTSA' + Date.now().toString().slice(-7);
+            const rfc = fixtureRfc();
             const ins = await c.query(
                 `INSERT INTO clients (rfc, business_name, fiscal_regime, fiscal_zip_code) VALUES ($1, 'TEST SA Schema Roundtrip', '601', '12345') RETURNING id, is_active`,
                 [rfc]
@@ -637,7 +645,7 @@ const TEST_CASES: TestCase[] = [
             const cid = (await c.query(`SELECT id FROM clients WHERE rfc LIKE 'TEST%' LIMIT 1`)).rows[0]?.id;
             if (!emp.rows[0] || !cid) {
                 // Crear cliente de prueba
-                const cRes = await c.query(`INSERT INTO clients (rfc, business_name, fiscal_regime, fiscal_zip_code) VALUES ($1, 'TEST AR Client', '601', '12345') RETURNING id`, ['TESTAR' + Date.now().toString().slice(-7)]);
+                const cRes = await c.query(`INSERT INTO clients (rfc, business_name, fiscal_regime, fiscal_zip_code) VALUES ($1, 'TEST AR Client', '601', '12345') RETURNING id`, [fixtureRfc()]);
                 return { ok: true, note: `cliente de prueba creado: ${cRes.rows[0].id}` };
             }
             const gross = 1000.00;
@@ -663,7 +671,7 @@ const TEST_CASES: TestCase[] = [
             const emp = await c.query(`SELECT id FROM employees WHERE username = 'TEST_admin'`);
             let client = (await c.query(`SELECT id FROM clients WHERE business_name = 'TEST AR Client' LIMIT 1`)).rows[0];
             if (!client) {
-                client = (await c.query(`INSERT INTO clients (rfc, business_name, fiscal_regime, fiscal_zip_code) VALUES ($1, 'TEST AR Client', '601', '12345') RETURNING id`, ['TESTAR' + Date.now().toString().slice(-6)])).rows[0];
+                client = (await c.query(`INSERT INTO clients (rfc, business_name, fiscal_regime, fiscal_zip_code) VALUES ($1, 'TEST AR Client', '601', '12345') RETURNING id`, [fixtureRfc()])).rows[0];
             }
             // Crear factura
             const inv = await c.query(
@@ -698,7 +706,7 @@ const TEST_CASES: TestCase[] = [
         run: async (c) => {
             let client = (await c.query(`SELECT id FROM clients WHERE business_name = 'TEST AR Client' LIMIT 1`)).rows[0];
             const emp = (await c.query(`SELECT id FROM employees WHERE username = 'TEST_admin'`)).rows[0];
-            const fakeHash = 'a'.repeat(64); // SHA-256 hex
+            const fakeHash = randomUUID().replaceAll('-', '').repeat(2); // SHA-256 hex
             const ins = await c.query(
                 `INSERT INTO ar_share_links (client_id, token_hash, expires_at, created_by)
                  VALUES ($1, $2, NOW() + INTERVAL '30 days', $3) RETURNING token_hash`,
@@ -891,6 +899,7 @@ const TEST_CASES: TestCase[] = [
                 [woId, emp.rows[0].id]
             );
             let duplicateFailed = false;
+            await c.query('SAVEPOINT duplicate_operator');
             try {
                 await c.query(
                     `INSERT INTO work_order_operators (work_order_id, employee_id, role) VALUES ($1, $2, 'operator')`,
@@ -898,7 +907,9 @@ const TEST_CASES: TestCase[] = [
                 );
             } catch (e: any) {
                 duplicateFailed = e.message.includes('duplicate') || e.message.includes('unique') || e.code === '23505';
+                await c.query('ROLLBACK TO SAVEPOINT duplicate_operator');
             }
+            await c.query('RELEASE SAVEPOINT duplicate_operator');
             await c.query(`DELETE FROM work_order_operators WHERE work_order_id = $1`, [woId]);
             await c.query(`DELETE FROM work_orders WHERE id = $1`, [woId]);
             return { ok: duplicateFailed, note: duplicateFailed ? 'Duplicate bloqueado ✓' : 'Duplicate NO fue bloqueado ✗' };
@@ -931,12 +942,27 @@ const TEST_CASES: TestCase[] = [
         fixture: 'TEST_admin',
         expect: 'allow',
         run: async (c) => {
-            const r = await c.query(`
-                SELECT COUNT(*) as migrated_count
-                FROM work_order_notes
-                WHERE created_by_name = 'Migrado de campo legacy'
-            `);
-            return { ok: Number(r.rows[0].migrated_count) > 0, note: `${r.rows[0].migrated_count} notas migradas de campos legacy` };
+            // A new database need not contain production-era OTs. Verify the
+            // actual migration against a known legacy fixture, including reruns.
+            const legacyNote = 'Nota legacy de prueba con acentos';
+            const wo = await c.query(
+                `INSERT INTO work_orders (order_number, status, notes) VALUES ($1, 'Open', $2) RETURNING id`,
+                [fixtureValue('TEST-MFG2-LEGACY-'), legacyNote]
+            );
+            const migration = readFileSync('supabase/migrations/20260729030000_manufacturing_v2.sql', 'utf8');
+            const copyNotes = migration.match(/INSERT INTO public\.work_order_notes[\s\S]*?;/)?.[0];
+            if (!copyNotes) throw new Error('No se encontró la migración de notas legacy.');
+            await c.query(copyNotes);
+            await c.query(copyNotes);
+            const migrated = await c.query(
+                `SELECT note, created_by_name FROM work_order_notes WHERE work_order_id = $1`,
+                [wo.rows[0].id]
+            );
+            return {
+                ok: migrated.rows.length === 1 && migrated.rows[0].note === legacyNote
+                    && migrated.rows[0].created_by_name === 'Migrado de campo legacy',
+                note: `${migrated.rows.length} nota de la fixture migrada; una segunda ejecución no la duplica`,
+            };
         },
     },
 ];
@@ -993,46 +1019,10 @@ async function setup() {
 }
 
 async function teardown() {
-    console.log('\n🧹 Limpiando datos de prueba...');
-    // Primero: borrar TODOS los POs/items que referencian a suppliers de prueba
-    // (algunos tests crean un supplier y le asignan una PO)
-    await sb.query(`DELETE FROM purchase_order_items WHERE purchase_order_id IN (
-        SELECT po.id FROM purchase_orders po JOIN suppliers s ON s.id = po.supplier_id
-        WHERE s.rfc LIKE 'TEST%'
-    )`);
-    await sb.query(`DELETE FROM purchase_orders WHERE supplier_id IN (SELECT id FROM suppliers WHERE rfc LIKE 'TEST%')`);
-    // Luego: POs con notas de prueba o linkeados a requisiciones TEST_
-    await sb.query(`DELETE FROM purchase_order_items WHERE purchase_order_id IN (
-        SELECT id FROM purchase_orders WHERE notes = 'Notas de prueba'
-        OR requisition_id IN (SELECT id FROM requisitions WHERE code LIKE 'TEST-%')
-    )`);
-    await sb.query(`DELETE FROM purchase_orders WHERE notes = 'Notas de prueba' OR requisition_id IN (SELECT id FROM requisitions WHERE code LIKE 'TEST-%')`);
-    // Requisiciones
-    await sb.query(`DELETE FROM requisition_items WHERE requisition_id IN (SELECT id FROM requisitions WHERE code LIKE 'TEST-%')`);
-    await sb.query(`DELETE FROM requisition_quotations WHERE requisition_id IN (SELECT id FROM requisitions WHERE code LIKE 'TEST-%')`);
-    await sb.query(`DELETE FROM requisitions WHERE code LIKE 'TEST-%'`);
-    // Huérfanos
-    await sb.query(`DELETE FROM purchase_order_items WHERE purchase_order_id NOT IN (SELECT id FROM purchase_orders)`);
-    // MFG2: limpiar OTs y data de prueba de manufacturing v2
-    await sb.query(`DELETE FROM work_order_operators WHERE work_order_id IN (SELECT id FROM work_orders WHERE order_number LIKE 'TEST-MFG2-%')`);
-    await sb.query(`DELETE FROM work_order_notes WHERE work_order_id IN (SELECT id FROM work_orders WHERE order_number LIKE 'TEST-MFG2-%')`);
-    await sb.query(`DELETE FROM work_order_files WHERE work_order_id IN (SELECT id FROM work_orders WHERE order_number LIKE 'TEST-MFG2-%')`);
-    await sb.query(`DELETE FROM work_orders WHERE order_number LIKE 'TEST-MFG2-%'`);
-    // AR: limpiar todo lo de prueba
-    await sb.query(`DELETE FROM ar_payment_promise_items WHERE promise_id IN (SELECT id FROM ar_payment_promises WHERE client_notes = 'TEST promesa')`);
-    await sb.query(`DELETE FROM ar_payment_promises WHERE client_notes = 'TEST promesa'`);
-    // Cualquier AR payment / allocation / link / invoice donde aparezca un empleado TEST o un cliente TEST
-    await sb.query(`DELETE FROM ar_payment_allocations WHERE invoice_id IN (SELECT id FROM ar_invoices WHERE client_id IN (SELECT id FROM clients WHERE business_name IN ('TEST AR Client', 'TEST SA AR Client')))`);
-    await sb.query(`DELETE FROM ar_payments WHERE client_id IN (SELECT id FROM clients WHERE business_name IN ('TEST AR Client', 'TEST SA AR Client')) OR registered_by IN (SELECT id FROM employees WHERE username LIKE 'TEST_%')`);
-    await sb.query(`DELETE FROM ar_share_links WHERE client_id IN (SELECT id FROM clients WHERE business_name IN ('TEST AR Client', 'TEST SA AR Client'))`);
-    await sb.query(`DELETE FROM ar_invoices WHERE client_id IN (SELECT id FROM clients WHERE business_name IN ('TEST AR Client', 'TEST SA AR Client'))`);
-    await sb.query(`DELETE FROM clients WHERE business_name IN ('TEST AR Client', 'TEST SA AR Client')`);
-    // Suppliers
-    await sb.query(`DELETE FROM suppliers WHERE rfc LIKE 'TEST%'`);
-    // Empleados
-    await sb.query(`DELETE FROM employee_permissions WHERE employee_id IN (SELECT id FROM employees WHERE username LIKE 'TEST_%')`);
-    await sb.query(`DELETE FROM employees WHERE username LIKE 'TEST_%'`);
-    console.log('  ✓ Limpieza completa');
+    // All fixtures and test writes belong to this transaction. Never delete
+    // other runs' records with broad TEST% filters; rollback also cleans failures.
+    await sb.query('ROLLBACK');
+    console.log('  ✓ Transacción de pruebas revertida; datos originales conservados');
 }
 
 async function runTests() {
@@ -1054,8 +1044,10 @@ async function runTests() {
             continue;
         }
 
+        await sb.query('SAVEPOINT test_case');
         try {
             const result = await tc.run(sb, employeeId);
+            await sb.query('RELEASE SAVEPOINT test_case');
             const expectOk = tc.expect === 'allow';
             if (result.ok === expectOk) {
                 passed++;
@@ -1067,6 +1059,8 @@ async function runTests() {
                 if (result.note) console.log(`     └─ ${result.note}`);
             }
         } catch (ex: any) {
+            await sb.query('ROLLBACK TO SAVEPOINT test_case');
+            await sb.query('RELEASE SAVEPOINT test_case');
             failed++;
             console.log(`  ❌ ${tc.id}: ${tc.description}`);
             console.log(`     └─ Error: ${ex.message}`);
@@ -1084,6 +1078,7 @@ async function runTests() {
 (async () => {
     try {
         await sb.connect();
+        await sb.query('BEGIN');
         await setup();
         const { failed } = await runTests();
         await teardown();

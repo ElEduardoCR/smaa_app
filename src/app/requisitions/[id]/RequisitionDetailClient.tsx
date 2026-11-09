@@ -10,6 +10,7 @@ import {
 import { cancelRequisitionAction, completePurchaseAction, createRequisitionUploadAction } from "@/app/actions/requisitions";
 import { supabase } from "@/lib/supabase";
 import { storageErrorMessage } from "@/lib/storageErrors";
+import { requisitionItemPurpose } from "@/lib/requisitionPurpose";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -27,6 +28,7 @@ export type Requisition = {
     suggested_supplier_id: string | null;
     suggested_supplier_text: string | null;
     notes: string | null;
+    purpose?: string | null;
     purchased_at: string | null;
     purchased_by: string | null;
     invoice_url: string | null;
@@ -35,7 +37,7 @@ export type Requisition = {
     updated_at: string;
     requester: { id: string; full_name: string; position: string | null; photo_url: string | null; username: string } | null;
     purchaser: { id: string; full_name: string; position: string | null; photo_url: string | null } | null;
-    items: { id: string; description: string; quantity: number; unit: string; notes: string | null }[];
+    items: { id: string; description: string; quantity: number; unit: string; notes: string | null; purpose?: string | null }[];
     quotations: { id: string; file_url: string; file_name: string; uploaded_at: string }[];
     suggested_supplier: { id: string; business_name: string } | null;
 };
@@ -206,7 +208,12 @@ export default function RequisitionDetailClient({
                         <tbody>
                             {req.items.map((it) => (
                                 <tr key={it.id} className="border-t border-neutral-800/40">
-                                    <td className="p-3 text-white">{it.description}</td>
+                                    <td className="p-3 text-white">
+                                        {it.description}
+                                        {requisitionItemPurpose(req.purpose, it) && (
+                                            <p className="mt-1 text-xs text-amber-200 whitespace-pre-wrap">Para: {requisitionItemPurpose(req.purpose, it)}</p>
+                                        )}
+                                    </td>
                                     <td className="p-3 text-right tabular-nums text-neutral-200 font-semibold">{it.quantity}</td>
                                     <td className="p-3 text-neutral-400 text-xs">{it.unit}</td>
                                     <td className="p-3 text-neutral-400 text-xs">{it.notes || "—"}</td>
@@ -217,6 +224,12 @@ export default function RequisitionDetailClient({
                 </div>
 
                 {/* Notas */}
+                {req.purpose && (
+                    <div className="bg-amber-500/5 border border-amber-500/20 rounded-2xl p-4">
+                        <p className="text-[10px] font-bold text-amber-300 uppercase tracking-wider mb-1.5">Propósito general de la compra</p>
+                        <p className="text-sm text-neutral-200 whitespace-pre-wrap">{req.purpose}</p>
+                    </div>
+                )}
                 {req.notes && (
                     <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-2xl p-4">
                         <p className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider mb-1.5">Notas</p>

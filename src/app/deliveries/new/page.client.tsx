@@ -16,6 +16,7 @@ type WOOption = {
     id: string;
     order_number: string;
     status: string;
+    warranty_count: number;
     notes: string | null;
     quotation?: { quotation_number: string; client?: { business_name: string } };
     _existingDeliveryNumber?: string | null;
@@ -44,7 +45,7 @@ function NewDeliveryForm() {
                 // muestran deshabilitadas con un label distintivo.
                 const { data, error } = await supabase
                     .from('work_orders')
-                    .select('id, order_number, status, notes, work_title, client_name, module_id, qc_released_at, module:manufacturing_modules(code, name), quotation:quotations(quotation_number, client:clients(business_name, rfc, address, email))')
+                    .select('id, order_number, status, notes, work_title, client_name, module_id, qc_released_at, warranty_count, module:manufacturing_modules(code, name), quotation:quotations(quotation_number, client:clients(business_name, rfc, address, email))')
                     .in('status', ['QC', 'QC_Released'])
                     .order('status', { ascending: true })  // QC antes que QC_Released
                     .order('qc_released_at', { ascending: false, nullsFirst: false });
@@ -54,12 +55,14 @@ function NewDeliveryForm() {
                 const woIds = (data || []).map((w: any) => w.id);
                 const existingDeliveryByWO: Record<string, string> = {};
                 if (woIds.length > 0) {
-                    const { data: delivs } = await supabase
+                    const { data: delivs, error: deliveryError } = await supabase
                         .from('deliveries')
-                        .select('id, work_order_id, delivery_number')
+                        .select('id, work_order_id, delivery_number, stage, warranty_cycle')
                         .in('work_order_id', woIds);
+                    if (deliveryError) throw deliveryError;
+                    const cyclesByOrder = new Map((data || []).map(wo => [wo.id, wo.warranty_count]));
                     (delivs || []).forEach((d: any) => {
-                        if (d.work_order_id) existingDeliveryByWO[d.work_order_id] = d.delivery_number;
+                        if (d.work_order_id && (d.stage !== 'delivered' || d.warranty_cycle === cyclesByOrder.get(d.work_order_id))) existingDeliveryByWO[d.work_order_id] = d.delivery_number;
                     });
                 }
 
@@ -72,6 +75,7 @@ function NewDeliveryForm() {
                 setWorkOrders(formatted || []);
             } catch (err) {
                 console.error("Failed to load work orders", err);
+                setErrorMsg(err instanceof Error ? err.message : 'No se pudieron cargar las OT disponibles.');
             } finally {
                 setIsLoadingWOs(false);
             }
@@ -82,13 +86,13 @@ function NewDeliveryForm() {
     const selectedWO = workOrders.find(w => w.id === selectedWOId);
 
     // Derive delivery number from the OT number: OT-MAQ-00001 -> NE-00001
-    const deriveDeliveryNumber = (orderNumber: string) => {
+    const deriveDeliveryNumber = (orderNumber: string, warrantyCount: number) => {
         const digits = orderNumber.replace(/\D/g, '');
-        return `NE-${digits}`;
+        return `NE-${digits}${warrantyCount > 0 ? `-G${warrantyCount}` : ''}`;
     };
 
     const onSubmit = async () => {
-        if (!selectedWOId) {
+        if (!selectedWO || selectedWO.status !== 'QC_Released' || selectedWO._existingDeliveryNumber) {
             setErrorMsg("Selecciona una Orden de Trabajo.");
             return;
         }
@@ -97,12 +101,13 @@ function NewDeliveryForm() {
         setErrorMsg(null);
 
         try {
-            const deliveryNumber = deriveDeliveryNumber(selectedWO!.order_number);
+            const deliveryNumber = deriveDeliveryNumber(selectedWO.order_number, selectedWO.warranty_count);
 
             // 1. Create delivery in stage = ready_for_packaging
             const { error: deliveryError } = await supabase.from('deliveries').insert([{
                 delivery_number: deliveryNumber,
                 work_order_id: selectedWOId,
+                warranty_cycle: selectedWO.warranty_count,
                 observations: observations || null,
                 shipping_method: shippingMethod || null,
                 shipping_address: shippingAddress || null,
@@ -175,7 +180,7 @@ function NewDeliveryForm() {
                                         disabled={disabled}
                                     >
                                         {prefix}
-                                        {wo.order_number} — {(wo as any).module?.name || ''} — {wo.quotation?.client?.business_name || wo.notes?.slice(0, 40) || ''} ({wo.quotation?.quotation_number || 'ad-hoc'}){suffix}
+                                        {wo.order_number}{wo.warranty_count > 0 ? ` · Garantía #${wo.warranty_count}` : ''} — {(wo as any).module?.name || ''} — {wo.quotation?.client?.business_name || wo.notes?.slice(0, 40) || ''} ({wo.quotation?.quotation_number || 'ad-hoc'}){suffix}
                                     </option>
                                 );
                             })}
@@ -189,7 +194,7 @@ function NewDeliveryForm() {
                             <div className="flex items-center gap-3 flex-wrap">
                                 <span className="text-xs text-neutral-400">Folio Entrega:</span>
                                 <span className="font-mono font-bold text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-lg border border-emerald-500/20 text-lg">
-                                    {deriveDeliveryNumber(selectedWO.order_number)}
+                                    {deriveDeliveryNumber(selectedWO.order_number, selectedWO.warranty_count)}
                                 </span>
                                 <span className="text-xs text-neutral-500">• Aparecerá en la sección "Listo para embalaje"</span>
                             </div>

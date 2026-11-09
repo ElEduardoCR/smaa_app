@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase';
 import { getSession } from '@/lib/session';
 import { can } from '@/lib/permissions';
 import { revalidatePath } from 'next/cache';
+import { getServerSupabase } from '@/lib/supabaseServer';
 
 export async function addQuotationExtraAction(input: { quotationId: string; description: string; quantity: number; unitPrice: number; note: string }) {
     const session = await getSession();
@@ -18,9 +19,10 @@ export async function addQuotationExtraAction(input: { quotationId: string; desc
 export async function quotationToReceivableAction(quotationId: string) {
     const session = await getSession();
     if (!session || !can(session.role, session.permissions, 'finance', 'create', 'receivable') || !can(session.role, session.permissions, 'sales', 'view')) throw new Error('Sin permiso para enviar a cuentas por cobrar.');
-    const { data, error } = await supabase.rpc('quotation_to_receivable', { p_quotation_id: quotationId, p_employee_id: session.employeeId });
+    const database = getServerSupabase();
+    const { data, error } = await database.rpc('quotation_to_receivable', { p_quotation_id: quotationId, p_employee_id: session.employeeId });
     if (error) throw new Error(error.message);
-    const { data: invoice, error: readError } = await supabase.from('ar_invoices').select('client_id').eq('id', data).single();
+    const { data: invoice, error: readError } = await database.from('ar_invoices').select('client_id').eq('id', data).single();
     if (readError) throw new Error(readError.message);
     revalidatePath('/finance/receivable', 'layout');
     return { id: data as string, clientId: invoice.client_id as number };

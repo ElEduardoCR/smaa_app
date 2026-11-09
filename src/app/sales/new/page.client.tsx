@@ -6,6 +6,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import PartySearchSelect from "@/components/PartySearchSelect";
 import { supabase } from "@/lib/supabase";
+import PriceTaxToggle from "@/components/PriceTaxToggle";
+import { priceWithoutVat, priceLine, calculatePriceTotals } from "@/lib/pricing";
 import { ArrowLeft, Save, Plus, Trash2, Calculator, AlertCircle, RefreshCw, Clock, Package, Wrench, CalendarDays } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -32,6 +34,7 @@ const itemSchema = z
         description: z.string().optional().or(z.literal("")),
         quantity: z.coerce.number().optional(),
         unit_price: z.coerce.number().optional(),
+        price_includes_vat: z.boolean().optional(),
         margin_pct: z.coerce.number().catch(38),
         service_concepts: z.array(conceptSchema).optional().default([]),
     })
@@ -86,12 +89,12 @@ function qtyOf(item: any): number {
 function lineAmount(item: any): number {
     if (item?.item_type === "service") {
         const unit = (item.service_concepts || []).reduce(
-            (acc: number, c: any) => acc + (Number(c.rate) || 0) * (Number(c.hours) || 0),
+            (acc: number, c: any) => acc + priceWithoutVat(Number(c.rate), !!item.price_includes_vat) * (Number(c.hours) || 0),
             0
         );
         return qtyOf(item) * unit;
     }
-    return qtyOf(item) * (Number(item?.unit_price) || 0);
+    return qtyOf(item) * priceWithoutVat(Number(item?.unit_price), !!item?.price_includes_vat);
 }
 
 function marginOf(item: any): number {
@@ -142,7 +145,8 @@ function QuotationForm() {
     // Utilidad efectiva por línea: general (una para todas) o específica por línea
     const effectiveMargin = (item: any) =>
         marginMode === "general" ? (Number.isFinite(generalMargin) ? generalMargin : 0) : marginOf(item);
-    const lineSelling = (item: any) => round2(lineAmount(item) * (1 + effectiveMargin(item) / 100));
+    const sellingEntry = (item: any) => ({ quantity: qtyOf(item), unit_price: lineAmount(item) / qtyOf(item) * (1 + effectiveMargin(item) / 100) });
+    const lineSelling = (item: any) => priceLine(sellingEntry(item)).subtotal;
 
     const applyMarginMode = (mode: "general" | "specific") => {
         if (mode === "specific") {
@@ -155,10 +159,8 @@ function QuotationForm() {
 
     // Calculations — el subtotal/IVA/total de la cotización son el PRECIO al cliente (con utilidad)
     const costSubtotal = round2((watchItems || []).reduce((acc, item) => acc + lineAmount(item), 0));
-    const subtotal = round2((watchItems || []).reduce((acc, item) => acc + lineSelling(item), 0));
+    const { subtotal, vat: vatTotal, total } = calculatePriceTotals((watchItems || []).map(sellingEntry));
     const profitTotal = round2(subtotal - costSubtotal);
-    const vatTotal = round2(subtotal * 0.16); // 16% IVA
-    const total = round2(subtotal + vatTotal);
 
     const formatCurrency = (amount: number) => {
         return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount || 0);
@@ -329,12 +331,12 @@ function QuotationForm() {
                 if (item.item_type === "service") {
                     const concepts = (item.service_concepts || []).map((c) => ({
                         concept: c.concept,
-                        rate: Number(c.rate) || 0,
+                        rate: priceWithoutVat(Number(c.rate), item.price_includes_vat),
                         hours: Number(c.hours) || 0,
                     }));
                     const qty = Number(item.quantity) || 1;
-                    const unitCost = round2(concepts.reduce((a, c) => a + c.rate * c.hours, 0));
-                    const saleUnit = round2(unitCost * factor);
+                    const unitCost = concepts.reduce((a, c) => a + c.rate * c.hours, 0);
+                    const saleUnit = unitCost * factor;
                     const name = item.description && item.description.trim() ? item.description.trim() : "";
                     const description = name || `Servicio: ${concepts.map((c) => c.concept).join(", ")}` || "Servicio";
                     return {
@@ -351,8 +353,8 @@ function QuotationForm() {
                     };
                 }
                 const qty = Number(item.quantity) || 0;
-                const costUnit = Number(item.unit_price) || 0;
-                const saleUnit = round2(costUnit * factor);
+                const costUnit = priceWithoutVat(Number(item.unit_price), item.price_includes_vat);
+                const saleUnit = costUnit * factor;
                 return {
                     quotation_id: currentQuoteId,
                     description: item.description || "",
@@ -556,6 +558,11 @@ function QuotationForm() {
                                             </button>
                                         </div>
 
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <PriceTaxToggle includesVat={!!item?.price_includes_vat} label={isService ? "Tarifas incluyen IVA" : "Costo incluye IVA"}
+                                                onChange={(value) => setValue(`items.${index}.price_includes_vat`, value, { shouldDirty: true })} />
+                                            <span className="text-xs text-neutral-400">Se separa el IVA antes de calcular la utilidad.</span>
+                                        </div>
                                         {!isService ? (
                                             /* PRODUCTO */
                                             <div className="space-y-4">
@@ -591,7 +598,7 @@ function QuotationForm() {
                                                         {errors.items?.[index]?.unit_price && <p className="text-red-400 text-xs ml-1">{errors.items[index]?.unit_price?.message as string}</p>}
                                                     </div>
                                                     <div className="space-y-1">
-                                                        <label className="text-xs text-neutral-400 ml-1">Mi costo</label>
+                                                        <label className="text-xs text-neutral-400 ml-1">Mi costo sin IVA</label>
                                                         <div className="w-full bg-neutral-900/40 border border-neutral-800 rounded-lg px-3 py-2 text-neutral-300 font-medium">{formatCurrency(amount)}</div>
                                                     </div>
                                                     <div className="space-y-1">
@@ -608,7 +615,7 @@ function QuotationForm() {
                                                         )}
                                                     </div>
                                                     <div className="space-y-1">
-                                                        <label className="text-xs text-orange-400 ml-1">Precio</label>
+                                                        <label className="text-xs text-orange-400 ml-1">Precio sin IVA</label>
                                                         <div className="w-full bg-orange-500/10 border border-orange-500/40 rounded-lg px-3 py-2 text-orange-300 font-bold">{formatCurrency(sale)}</div>
                                                     </div>
                                                 </div>
@@ -656,7 +663,7 @@ function QuotationForm() {
                                                         {errors.items?.[index]?.quantity && <p className="text-red-400 text-xs ml-1">{errors.items[index]?.quantity?.message as string}</p>}
                                                     </div>
                                                     <div className="space-y-1">
-                                                        <label className="text-xs text-neutral-400 ml-1">Mi costo</label>
+                                                        <label className="text-xs text-neutral-400 ml-1">Mi costo sin IVA</label>
                                                         <div className="w-full bg-neutral-900/40 border border-neutral-800 rounded-lg px-3 py-2 text-neutral-300 font-medium">{formatCurrency(amount)}</div>
                                                     </div>
                                                     <div className="space-y-1">
@@ -673,7 +680,7 @@ function QuotationForm() {
                                                         )}
                                                     </div>
                                                     <div className="space-y-1">
-                                                        <label className="text-xs text-orange-400 ml-1">Precio</label>
+                                                        <label className="text-xs text-orange-400 ml-1">Precio sin IVA</label>
                                                         <div className="w-full bg-orange-500/10 border border-orange-500/40 rounded-lg px-3 py-2 text-orange-300 font-bold">{formatCurrency(sale)}</div>
                                                     </div>
                                                 </div>

@@ -8,6 +8,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
 
@@ -15,15 +16,15 @@ const require = createRequire(new URL('../package.json', import.meta.url));
 const { Pool } = require('pg');
 const { jwtVerify, SignJWT } = require('jose');
 
-const QA = path.dirname(new URL(import.meta.url).pathname);
+const QA = path.dirname(fileURLToPath(import.meta.url));
 const keys = JSON.parse(fs.readFileSync(path.join(QA, 'keys.json'), 'utf8'));
 const SECRET = new TextEncoder().encode(keys.secret);
 const DATA = path.join(QA, 'storage-data');
 const GLOBAL_LIMIT = Number(process.env.STORAGE_GLOBAL_LIMIT || 50 * 1024 * 1024);
-const PORT = 54321;
+const PORT = Number(process.env.QA_PORT || 54321);
 const ERRLOG = path.join(QA, 'storage-errors.log');
 
-const pool = new Pool({ host: '127.0.0.1', port: 54322, user: 'postgres', database: 'postgres', max: 10 });
+const pool = new Pool({ host: '127.0.0.1', port: Number(process.env.PGPORT || 54322), user: 'postgres', database: 'postgres', max: 10 });
 
 const CORS = {
     'access-control-allow-origin': '*',

@@ -44,6 +44,7 @@ type WO = {
     id: string;
     order_number: string;
     status: string;
+    warranty_count: number;
     work_title: string | null;
     priority: string | null;
     client_name: string | null;
@@ -79,7 +80,7 @@ export default function ModuleWorkOrdersList({ code }: { code: string }) {
             const { data: wos, error: wErr } = await supabase
                 .from("work_orders")
                 .select(`
-                    id, order_number, status, work_title, priority, client_name, created_at,
+                    id, order_number, status, work_title, priority, client_name, created_at, warranty_count,
                     quotation:quotations(quotation_number, title, items:quotation_items(description), client:clients(name, business_name))
                 `)
                 .eq("module_id", mod.id)
@@ -230,6 +231,7 @@ export default function ModuleWorkOrdersList({ code }: { code: string }) {
                                                 <span className={cn("px-2.5 py-1 rounded-full text-xs font-semibold border", STATUS_STYLES[wo.status] || STATUS_STYLES["Open"])}>
                                                     {STATUS_LABEL[wo.status] || wo.status}
                                                 </span>
+                                                {wo.warranty_count > 0 && <span className="ml-2 text-xs text-amber-300">Garantía #{wo.warranty_count}</span>}
                                             </td>
                                             <td className="px-6 py-4 text-right whitespace-nowrap">
                                                 <Link
@@ -275,6 +277,7 @@ export default function ModuleWorkOrdersList({ code }: { code: string }) {
                                     <span className={cn("shrink-0 px-2.5 py-1 rounded-full text-[10px] font-semibold border", STATUS_STYLES[wo.status] || STATUS_STYLES["Open"])}>
                                         {STATUS_LABEL[wo.status] || wo.status}
                                     </span>
+                                    {wo.warranty_count > 0 && <span className="text-xs text-amber-300">Garantía #{wo.warranty_count}</span>}
                                 </div>
                                 <div className="space-y-1.5 text-xs text-neutral-300 mb-3">
                                     <p>

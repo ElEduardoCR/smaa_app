@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useRef, useState } from "react";
-import { matchesSearch } from "@/lib/search";
+import { matchesPurchaseSearch } from "@/lib/purchaseSearch";
 import { supabase } from "@/lib/supabase";
 import { generatePurchaseOrderPDF } from "@/lib/generatePoPdf";
 import { receivePurchaseOrderAction, deletePurchaseOrderAction as obsoletePOAction, restorePurchaseOrderAction } from "@/app/actions/purchases";
@@ -29,8 +29,9 @@ type PO = {
     invoice_date: string | null;
     is_active?: boolean;
     purchase_group_id?: string | null;
+    notes?: string | null;
     supplier: { name?: string | null; business_name: string; rfc: string; email?: string; address?: string; is_active?: boolean; } | null;
-    items: Array<{ id: string; description: string; quantity: number; unit_price: number; line_total: number }>;
+    items: Array<{ id: string; description: string; quantity: number; unit_price: number; line_total: number; notes?: string | null }>;
 };
 
 export default function PurchasesPage({ canEdit = true, canDelete = true }: { canEdit?: boolean; canDelete?: boolean }) {
@@ -55,14 +56,22 @@ export default function PurchasesPage({ canEdit = true, canDelete = true }: { ca
     const fetchOrders = async () => {
         setIsLoading(true);
         try {
-            const { data, error } = await supabase
-                .from('purchase_orders')
-                .select('*, supplier:suppliers(name, business_name, rfc, email, address, is_active), items:purchase_order_items(id, description, quantity, unit_price, line_total)')
-                .order('invoice_date', { ascending: false, nullsFirst: false })
-                .order('created_at', { ascending: false });
-            if (error) throw error;
-            const formatted = (data as any[]).map(po => ({ ...po, supplier: Array.isArray(po.supplier) ? po.supplier[0] : po.supplier }));
-            setOrders(formatted || []);
+            // Fetch every page so historical notes remain searchable beyond the API row limit.
+            const pageSize = 500;
+            const allOrders: PO[] = [];
+            for (let offset = 0; ; offset += pageSize) {
+                const { data, error } = await supabase
+                    .from('purchase_orders')
+                    .select('*, supplier:suppliers(name, business_name, rfc, email, address, is_active), items:purchase_order_items(id, description, quantity, unit_price, line_total, notes)')
+                    .order('invoice_date', { ascending: false, nullsFirst: false })
+                    .order('created_at', { ascending: false })
+                    .order('id')
+                    .range(offset, offset + pageSize - 1);
+                if (error) throw error;
+                allOrders.push(...(data || []).map(po => ({ ...po, supplier: Array.isArray(po.supplier) ? po.supplier[0] : po.supplier })) as PO[]);
+                if ((data?.length || 0) < pageSize) break;
+            }
+            setOrders(allOrders);
 
             // Traer el conteo de adjuntos por PO en una sola query
             try {
@@ -133,6 +142,7 @@ export default function PurchasesPage({ canEdit = true, canDelete = true }: { ca
                 subtotal: po.subtotal,
                 vat_total: po.vat_total,
                 total: po.total,
+                notes: po.notes,
                 supplier: po.supplier,
                 items: items || []
             });
@@ -195,9 +205,9 @@ export default function PurchasesPage({ canEdit = true, canDelete = true }: { ca
     const filteredOrders = orders.filter((po) => {
         // Filtro de obsoletos: solo mostrar si el toggle está activo
         if (!showObsolete && po.is_active === false) return false;
-        // Filtro por texto: proveedor, # de PO, RFC o descripción de artículo
+        // Busca también el uso/proyecto en notas generales y por artículo.
         if (search.trim()) {
-            const hay = matchesSearch(search, po.supplier?.business_name, po.supplier?.name, po.po_number, po.supplier?.rfc, po.items?.map(item => item.description));
+            const hay = matchesPurchaseSearch(search, po);
             if (!hay) return false;
         }
         // Filtro por valor (total)
@@ -277,7 +287,8 @@ export default function PurchasesPage({ canEdit = true, canDelete = true }: { ca
                                     type="text"
                                     value={search}
                                     onChange={(e) => setSearch(e.target.value)}
-                                placeholder="Buscar proveedor, artículo, # PO o RFC..."
+                                placeholder="Buscar artículo, notas, proyecto, proveedor o # PO..."
+                                    aria-label="Buscar compras por artículo, notas, proyecto, proveedor o folio"
                                     className="w-full bg-neutral-900/60 border border-neutral-700/50 rounded-xl pl-10 pr-9 py-2.5 text-sm text-neutral-200 placeholder:text-neutral-500 focus:outline-none focus:border-orange-500/50 focus:ring-2 focus:ring-orange-500/20"
                                 />
                                 {search && (
@@ -446,6 +457,7 @@ export default function PurchasesPage({ canEdit = true, canDelete = true }: { ca
                                                     isObsolete ? "text-neutral-500" : "text-neutral-200"
                                                 )}>
                                                     <span>{po.supplier?.name || po.supplier?.business_name || "Sin proveedor"}</span>
+                                                    {po.notes && <span className="block text-xs text-amber-200/80 font-normal mt-1 max-w-sm truncate" title={po.notes}>{po.notes}</span>}
                                                     {po.supplier?.name && (
                                                         <span className="block text-[11px] text-neutral-500 font-normal mt-0.5">{po.supplier.business_name}</span>
                                                     )}
@@ -540,6 +552,12 @@ export default function PurchasesPage({ canEdit = true, canDelete = true }: { ca
                                             {isExpanded && (
                                                 <tr className="bg-neutral-950/45">
                                                     <td colSpan={8} className="px-6 py-4 whitespace-normal">
+                                                        {po.notes && (
+                                                            <div className="mb-3 ml-0 md:ml-6 text-sm text-neutral-300">
+                                                                <p className="text-xs text-amber-300 font-semibold mb-1">Notas / propósito de la compra</p>
+                                                                <p className="whitespace-pre-wrap">{po.notes}</p>
+                                                            </div>
+                                                        )}
                                                         <div className="rounded-xl border border-neutral-700/50 overflow-hidden ml-0 md:ml-6">
                                                             <div className="px-4 py-2.5 bg-neutral-900/70 border-b border-neutral-700/50 flex items-center justify-between gap-3">
                                                                 <h3 className="text-xs font-semibold uppercase tracking-wider text-neutral-300">Artículos comprados</h3>
@@ -551,7 +569,10 @@ export default function PurchasesPage({ canEdit = true, canDelete = true }: { ca
                                                                 <div className="divide-y divide-neutral-800">
                                                                     {po.items.map((item) => (
                                                                         <div key={item.id} className="grid grid-cols-1 sm:grid-cols-12 gap-2 px-4 py-3 text-sm">
-                                                                            <span className="sm:col-span-6 text-neutral-200">{item.description}</span>
+                                                                            <span className="sm:col-span-6 text-neutral-200">
+                                                                                {item.description}
+                                                                                {item.notes && <span className="block mt-1 text-xs text-amber-200 whitespace-pre-wrap">{item.notes}</span>}
+                                                                            </span>
                                                                             <span className="sm:col-span-2 text-neutral-400 sm:text-center">Cant. {Number(item.quantity)}</span>
                                                                             <span className="sm:col-span-2 text-neutral-400 sm:text-right">{formatCurrency(item.unit_price)}</span>
                                                                             <span className="sm:col-span-2 text-emerald-400 font-medium sm:text-right">{formatCurrency(item.line_total)}</span>

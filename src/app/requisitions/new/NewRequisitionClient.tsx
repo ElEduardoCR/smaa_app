@@ -9,13 +9,14 @@ import {
 import { createRequisitionAction, createRequisitionUploadAction } from "@/app/actions/requisitions";
 import { supabase } from "@/lib/supabase";
 import { storageErrorMessage } from "@/lib/storageErrors";
+import { validateRequisitionPurpose } from "@/lib/requisitionPurpose";
 
-type Item = { description: string; quantity: number; unit: string; notes: string };
+type Item = { description: string; quantity: number; unit: string; notes: string; purpose: string };
 type UploadedFile = { name: string; url: string };
 type Priority = 'low' | 'normal' | 'high' | 'urgent';
 
 function emptyItem(): Item {
-    return { description: "", quantity: 1, unit: "pza", notes: "" };
+    return { description: "", quantity: 1, unit: "pza", notes: "", purpose: "" };
 }
 
 function errorMessage(error: unknown, fallback: string) {
@@ -30,6 +31,7 @@ export default function NewRequisitionClient({ suppliers }: { suppliers: { id: s
     const [supplierId, setSupplierId] = useState('');
     const [supplierText, setSupplierText] = useState('');
     const [notes, setNotes] = useState('');
+    const [purpose, setPurpose] = useState('');
     const [items, setItems] = useState<Item[]>([emptyItem()]);
     const [files, setFiles] = useState<UploadedFile[]>([]);
     const [saving, setSaving] = useState(false);
@@ -86,12 +88,14 @@ export default function NewRequisitionClient({ suppliers }: { suppliers: { id: s
 
         setSaving(true);
         try {
+            validateRequisitionPurpose(purpose, cleanItems);
             const result = await createRequisitionAction({
                 priority,
                 needed_by: neededBy || null,
                 suggested_supplier_id: supplierId || null,
                 suggested_supplier_text: supplierText,
                 notes,
+                purpose,
                 items: cleanItems,
                 quotations: files.map((f) => ({ url: f.url, name: f.name })),
             });
@@ -184,12 +188,25 @@ export default function NewRequisitionClient({ suppliers }: { suppliers: { id: s
                         </div>
 
                         <div>
-                            <label className="block text-[11px] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Notas (opcional)</label>
+                            <label htmlFor="requisition-purpose" className="block text-[11px] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">¿Para qué se requiere esta compra?</label>
+                            <textarea
+                                id="requisition-purpose"
+                                value={purpose}
+                                onChange={(e) => setPurpose(e.target.value)}
+                                rows={2}
+                                placeholder="Ej. Proyecto de transportador, O.T. 245 o mantenimiento general"
+                                className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500"
+                            />
+                            <p className="text-xs text-neutral-400 mt-1">Aplica a todos los artículos. Si son para distintos proyectos, indica el uso en cada renglón; el uso de cada artículo tiene prioridad sobre el general.</p>
+                        </div>
+
+                        <div>
+                            <label className="block text-[11px] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Notas adicionales (opcional)</label>
                             <textarea
                                 value={notes}
                                 onChange={(e) => setNotes(e.target.value)}
                                 rows={3}
-                                placeholder="Para qué es el material, especificaciones adicionales, etc."
+                                placeholder="Especificaciones adicionales, instrucciones de entrega, etc."
                                 className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500"
                             />
                         </div>
@@ -245,6 +262,16 @@ export default function NewRequisitionClient({ suppliers }: { suppliers: { id: s
                                             placeholder="Notas"
                                             className="col-span-12 md:col-span-2 bg-neutral-800/60 border border-neutral-700 rounded-lg px-2.5 py-1.5 text-sm text-white focus:outline-none focus:border-orange-500"
                                         />
+                                        <label className="col-span-12 text-xs text-neutral-400">
+                                            ¿Para qué se requiere este artículo?
+                                            <input
+                                                type="text"
+                                                value={it.purpose}
+                                                onChange={(e) => setItems((p) => p.map((x, i) => i === idx ? { ...x, purpose: e.target.value } : x))}
+                                                placeholder={purpose.trim() ? `Usar propósito general: ${purpose.trim()}` : "Proyecto, O.T. o uso de este artículo"}
+                                                className="mt-1 w-full bg-neutral-800/60 border border-neutral-700 rounded-lg px-2.5 py-1.5 text-sm text-white focus:outline-none focus:border-orange-500"
+                                            />
+                                        </label>
                                     </div>
                                     {items.length > 1 && (
                                         <button

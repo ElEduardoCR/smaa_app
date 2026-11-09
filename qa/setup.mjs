@@ -3,13 +3,14 @@
 // Uso: node qa/setup.mjs   (desde la raíz del repo)
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
 
 const require = createRequire(new URL('../package.json', import.meta.url));
 const { SignJWT } = require('jose');
 
-const QA = path.dirname(new URL(import.meta.url).pathname);
+const QA = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(QA, '..');
 const secret = crypto.randomBytes(32).toString('hex');
 const key = new TextEncoder().encode(secret);

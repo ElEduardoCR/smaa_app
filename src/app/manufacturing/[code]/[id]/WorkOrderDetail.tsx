@@ -21,6 +21,7 @@ import PhotoCapture from "@/components/manufacturing/PhotoCapture";
 import AttachmentUploader, { AttachedFile, fileTypeFromName } from "@/components/manufacturing/AttachmentUploader";
 import { uploadSignatureDataUrl, uploadFileToBucket } from "@/lib/uploadHelpers";
 import { safeStorageName } from "@/lib/storageNames";
+import { getWorkOrderWarrantyHistoryAction, reopenWorkOrderWarrantyAction } from "@/app/actions/workOrderWarranty";
 
 function cn(...inputs: (string | undefined | null | false)[]) {
     return twMerge(clsx(inputs));
@@ -79,6 +80,7 @@ type WO = {
     created_at: string;
     module_id: string;
     quotation_id: string | null;
+    warranty_count: number;
     quotation?: {
         quotation_number: string;
         title?: string | null;
@@ -122,6 +124,10 @@ export default function WorkOrderDetail({ code, woId }: { code: string; woId: st
     // ("Liberar/Rechazar" = can_edit), no el de Fabricación: el operador que
     // terminó la pieza no debe poder liberar su propio trabajo.
     const [canQcRelease, setCanQcRelease] = useState(false);
+    const [warrantyReason, setWarrantyReason] = useState("");
+    const [warrantyFormOpen, setWarrantyFormOpen] = useState(false);
+    const [warrantyError, setWarrantyError] = useState("");
+    const [warrantyHistory, setWarrantyHistory] = useState<Awaited<ReturnType<typeof getWorkOrderWarrantyHistoryAction>>>([]);
     useEffect(() => {
         let aborted = false;
         (async () => {
@@ -186,7 +192,7 @@ export default function WorkOrderDetail({ code, woId }: { code: string; woId: st
                 .select(`
                     id, order_number, status, notes, work_title, priority, client_name, client_rfc,
                     started_at, paused_at, completed_at, operator_name, operator_signature_url,
-                    qc_released_at, qc_released_by, qc_reject_reason, created_at, module_id, quotation_id,
+                    qc_released_at, qc_released_by, qc_reject_reason, created_at, module_id, quotation_id, warranty_count,
                     quotation:quotations(quotation_number, title, client:clients(business_name, rfc, address, email)),
                     module:manufacturing_modules(id, code, name, color, icon)
                 `)
@@ -203,6 +209,16 @@ export default function WorkOrderDetail({ code, woId }: { code: string; woId: st
             } as WO;
             setWo(formatted);
             setModule(m || null);
+            if (formatted.warranty_count > 0) {
+                try {
+                    setWarrantyHistory(await getWorkOrderWarrantyHistoryAction(woId));
+                    setWarrantyError("");
+                } catch (error) {
+                    setWarrantyError(error instanceof Error ? error.message : "No se pudo cargar el historial de garantías.");
+                }
+            } else {
+                setWarrantyHistory([]);
+            }
 
             const [{ data: atts }, { data: ps }, { data: cps }, { data: ops }, { data: nots }] = await Promise.all([
                 supabase.from("work_order_files").select("*").eq("work_order_id", woId).order("created_at", { ascending: false }),
@@ -445,6 +461,24 @@ export default function WorkOrderDetail({ code, woId }: { code: string; woId: st
     };
 
     // --- QC actions (when status = QC and not yet released) ---
+    const handleWarrantyReopen = async (event: React.FormEvent) => {
+        event.preventDefault();
+        if (!wo || busy) return;
+        setBusy(true);
+        setWarrantyError("");
+        try {
+            await reopenWorkOrderWarrantyAction(wo.id, warrantyReason);
+            setWarrantyFormOpen(false);
+            setWarrantyReason("");
+            await load();
+            flash("success", "OT reabierta por garantía. Conserva su folio, historial y cuenta por cobrar.");
+        } catch (error) {
+            setWarrantyError(error instanceof Error ? error.message : "No se pudo reabrir la OT.");
+        } finally {
+            setBusy(false);
+        }
+    };
+
     const handleQCRelease = async (signatureDataUrl: string) => {
         if (!wo) return;
         if (!canQcRelease) {
@@ -610,6 +644,7 @@ export default function WorkOrderDetail({ code, woId }: { code: string; woId: st
                                 <span className={cn("text-xs font-semibold px-2.5 py-1 rounded-full border", STATUS_STYLE[wo.status])}>
                                     {STATUS_LABEL[wo.status] || wo.status}
                                 </span>
+                                {wo.warranty_count > 0 && <span className="text-xs font-semibold px-2.5 py-1 rounded-full border border-amber-500/40 text-amber-300">Garantía #{wo.warranty_count}</span>}
                             </div>
                             {wo.work_title && <p className="text-sm text-neutral-200 mt-0.5 truncate">{wo.work_title}</p>}
                             <p className="text-xs text-neutral-500 mt-0.5">
@@ -831,8 +866,29 @@ export default function WorkOrderDetail({ code, woId }: { code: string; woId: st
                                 >
                                     Ir a Entregas <ArrowRight className="w-3.5 h-3.5" />
                                 </Link>
+                                {(perms?.can_edit || canQcRelease) && <div className="mt-4 border-t border-emerald-500/20 pt-3">
+                                    {!warrantyFormOpen ? <button type="button" disabled={busy} onClick={() => setWarrantyFormOpen(true)} className="rounded-lg border border-amber-500/40 px-3 py-2 text-amber-200 disabled:opacity-40">Reabrir por garantía</button> : <form onSubmit={handleWarrantyReopen} className="space-y-3">
+                                        <p className="text-xs text-neutral-300">La OT volverá a Abierta y pasará otra vez por fabricación y Calidad. Se conservarán folio, historial, entregas anteriores, importes y pagos.</p>
+                                        <label className="block text-sm text-neutral-200">Motivo de la garantía<textarea required maxLength={2000} value={warrantyReason} onChange={event => setWarrantyReason(event.target.value)} className="mt-1 w-full rounded-lg border border-neutral-700 bg-neutral-900 p-2 text-white" /></label>
+                                        <div className="flex gap-2">
+                                            <button type="submit" disabled={busy || !warrantyReason.trim()} className="rounded-lg bg-amber-600 px-3 py-2 text-white disabled:opacity-40">{busy ? 'Reabriendo…' : 'Confirmar reapertura'}</button>
+                                            <button type="button" disabled={busy} onClick={() => { setWarrantyFormOpen(false); setWarrantyError(""); }} className="rounded-lg border border-neutral-600 px-3 py-2 text-neutral-200">Cancelar</button>
+                                        </div>
+                                    </form>}
+                                </div>}
                             </div>
                         )}
+
+                        {warrantyError && <p role="alert" className="text-sm text-red-300">{warrantyError}</p>}
+                        {warrantyHistory.length > 0 && <section className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4 space-y-3">
+                            <h3 className="text-sm font-semibold text-amber-200">Historial de garantías</h3>
+                            {warrantyHistory.map(entry => <div key={entry.id} className="text-sm text-neutral-200 border-t border-neutral-700/50 pt-2">
+                                <p>{entry.reason}</p>
+                                <p className="text-xs text-neutral-400">Reabierta por {entry.reopenedBy} · {new Date(entry.reopenedAt).toLocaleString()}</p>
+                                <p className="text-xs text-neutral-400">Liberación anterior: {entry.previousReleasedBy || 'Calidad'}{entry.previousReleasedAt ? ` · ${new Date(entry.previousReleasedAt).toLocaleString()}` : ''}</p>
+                                {entry.previousOperatorSignature && <a href={entry.previousOperatorSignature} target="_blank" rel="noopener noreferrer" className="text-xs text-amber-300 underline">Ver firma anterior del operador</a>}
+                            </div>)}
+                        </section>}
 
                         {/* WPS for soldadura */}
                         {module?.code === "soldadura" && (
