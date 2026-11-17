@@ -109,7 +109,7 @@ export async function saveDigitalEntryAction(input: SaveDigitalEntryInput): Prom
     const db = getServerSupabase();
     const { document, template } = await loadDigitalDocument(input.documentId);
     if (['obsolete', 'pending_obsolete'].includes(document.status)) throw new Error('Este formato está obsoleto. Utiliza la versión vigente.');
-    if (!template.sections.some(s => s.fields?.length || s.table)) throw new Error('Este documento es de consulta y no tiene campos de captura.');
+    if (template.captureEnabled === false || !template.sections.some(s => s.fields?.length || s.table)) throw new Error('Este documento es de consulta y no tiene campos de captura.');
     if ((input.expectedTemplateVersion !== undefined && input.expectedTemplateVersion !== document.version) ||
         (input.expectedTemplateRevision !== undefined && input.expectedTemplateRevision !== document.revision)) {
         throw new Error('El formato cambió. Actualiza antes de iniciar la captura.');
@@ -202,9 +202,18 @@ export async function getDigitalTemplatePdfAction(documentId: string, mode: 'inl
     const pdf = generateDigitalPdf({ template: { ...template, code: document.folio, title: document.title },
         values: initialDigitalValues(template), folio: `${document.folio} · EN BLANCO`,
         templateVersion: document.version, templateRevision: document.revision, revision: 0,
-        status: 'blank', authorName: 'Sin captura', savedAt: document.updated_at });
+        status: 'blank', documentStatus: document.status, authorName: 'Sin captura', savedAt: document.updated_at });
     const path = `templates/${document.id}/${pdf.sha256}.pdf`;
     await uploadDigitalPdf(path, pdf.bytes, true);
     if (!['inline', 'download'].includes(mode)) throw new Error('Modo de PDF no válido.');
     return signDigitalPdf(path, `${document.folio}_Formato.pdf`, mode === 'download');
+}
+
+export async function getDigitalSourceEvidenceAction(documentId: string, sha256: string): Promise<string> {
+    await requireDocuments();
+    const { template } = await loadDigitalDocument(documentId);
+    if (!/^[a-f0-9]{64}$/.test(sha256)) throw new Error('Referencia de archivo no válida.');
+    const evidence = template.sourceEvidence?.find(source => source.sha256 === sha256);
+    if (!evidence || evidence.storagePath !== `sources/${sha256}.pdf`) throw new Error('No se encontró el original de este documento.');
+    return signDigitalPdf(evidence.storagePath, evidence.fileName);
 }

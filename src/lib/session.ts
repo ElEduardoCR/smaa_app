@@ -1,7 +1,7 @@
 import 'server-only';
 import { SignJWT, jwtVerify } from 'jose';
 import { cookies } from 'next/headers';
-import { supabase } from './supabase';
+import { getServerSupabase } from './supabaseServer';
 import type { EmployeePermission, EmployeeRole } from './employees';
 import { computeAccessList } from './moduleCatalog';
 
@@ -48,7 +48,7 @@ export type SessionPayload = {
 export type Session = SessionPayload & { permissions: EmployeePermission[] };
 
 export async function encrypt(payload: SessionPayload) {
-    return new SignJWT(payload as any)
+    return new SignJWT({ ...payload })
         .setProtectedHeader({ alg: 'HS256' })
         .setIssuedAt()
         .setExpirationTime('7d')
@@ -61,7 +61,7 @@ export async function decrypt(session: string | undefined = ''): Promise<Session
             algorithms: ['HS256'],
         });
         return payload as unknown as SessionPayload;
-    } catch (error) {
+    } catch {
         return null;
     }
 }
@@ -70,8 +70,8 @@ export async function decrypt(session: string | undefined = ''): Promise<Session
  * Decodifica el JWT, consulta los permisos en la BD y los agrega a la sesión.
  * Esta es la función que páginas/API deberían usar para leer la sesión.
  *
- * Si el JWT no trae `accessList` (sesión pre-existente al upgrade), lo
- * recalculamos a partir de los permisos de la BD.
+ * El estado, rol y permisos se consultan en cada lectura: una cookie anterior
+ * no conserva acceso después de desactivar al empleado o cambiar sus permisos.
  */
 export async function getSession(): Promise<Session | null> {
     const cookieStore = await cookies();
@@ -81,17 +81,21 @@ export async function getSession(): Promise<Session | null> {
     if (!payload) return null;
 
     try {
-        const { data: perms } = await supabase
-            .from('employee_permissions')
-            .select('*')
-            .eq('employee_id', payload.employeeId);
+        const db = getServerSupabase();
+        const [employee, permissions] = await Promise.all([
+            db.from('employees').select('id,username,full_name,role,position,photo_url,is_active').eq('id', payload.employeeId).maybeSingle(),
+            db.from('employee_permissions').select('*').eq('employee_id', payload.employeeId),
+        ]);
+        if (employee.error || permissions.error || !employee.data?.is_active ||
+            !['master', 'admin', 'operator', 'document_controller', 'top_management'].includes(employee.data.role)) return null;
+        const current = employee.data;
+        const perms = permissions.data;
         const permsList = (perms || []) as EmployeePermission[];
-        const accessList = payload.accessList
-            ? payload.accessList
-            : computeAccessList(permsList).join(',');
-        return { ...payload, accessList, permissions: permsList };
+        const accessList = computeAccessList(permsList).join(',');
+        return { ...payload, username: current.username, fullName: current.full_name, role: current.role as EmployeeRole,
+            position: current.position, photoUrl: current.photo_url, accessList, permissions: permsList };
     } catch {
-        return { ...payload, accessList: payload.accessList || '', permissions: [] };
+        return null;
     }
 }
 

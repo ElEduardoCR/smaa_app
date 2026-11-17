@@ -20,6 +20,9 @@ export function readDigitalTemplate(value: unknown): DigitalTemplate {
         throw new Error('El formato digital no está disponible. Actualiza el catálogo de documentos.');
     }
     const keys = new Set<string>();
+    if (value.captureEnabled !== undefined && typeof value.captureEnabled !== 'boolean') throw new Error('Modo de documento no válido.');
+    if (value.relatedCodes !== undefined && (!Array.isArray(value.relatedCodes) || value.relatedCodes.length > 100 || !value.relatedCodes.every(code => typeof code === 'string' && code.length <= 80))) throw new Error('Referencias documentales no válidas.');
+    if (value.sourceEvidence !== undefined && (!Array.isArray(value.sourceEvidence) || value.sourceEvidence.length > 20 || value.sourceEvidence.some(source => !object(source) || typeof source.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(source.sha256) || source.storagePath !== `sources/${source.sha256}.pdf` || typeof source.label !== 'string' || source.label.length > 180 || typeof source.fileName !== 'string' || !source.fileName.toLowerCase().endsWith('.pdf') || /[/\\]/.test(source.fileName)))) throw new Error('Evidencia de origen no válida.');
     const checkField = (field: unknown, seen: Set<string>) => {
         if (!object(field) || typeof field.key !== 'string' || !field.key || FORBIDDEN_KEYS.has(field.key) ||
             seen.has(field.key) || typeof field.label !== 'string' ||
@@ -113,6 +116,145 @@ function fieldValue(field: DigitalField, raw: unknown, final: boolean, label: st
     return value;
 }
 
+function requireRecorded(values: Record<string, unknown>, keys: string[], message: string) {
+    if (keys.some(key => typeof values[key] !== 'string' || !String(values[key]).trim())) throw new Error(message);
+}
+
+function requireRecordedSigner(values: DigitalValues, prefix: string, message: string) {
+    requireRecorded(values, [`${prefix}-nombre`, `${prefix}-fecha`, `${prefix}-firma`], message);
+}
+
+function requireClientDecision(values: Record<string, unknown>, name: string, date: string, evidence: string) {
+    if (!['Sí', 'No', 'No aplica'].includes(String(values['requiere-cliente'] ?? ''))) {
+        throw new Error('Resuelve si se requiere autorización del cliente antes de registrar esta decisión.');
+    }
+    if (values['requiere-cliente'] === 'Sí') {
+        requireRecorded(values, [name, date, evidence], 'La autorización del cliente requiere nombre, fecha y evidencia de su aceptación.');
+    }
+}
+
+function recordedRows(values: DigitalValues, key: string): DigitalRow[] {
+    const rows = values[key];
+    return Array.isArray(rows) ? rows.filter(row => Object.values(row).some(value => !empty(value) && value !== false)) : [];
+}
+
+/** Validate the decisions recorded in controlled forms. Saving a draft never
+ * depends on these checks, so an incomplete or adverse result can be preserved
+ * without inventing an approval or overwriting the underlying evidence. */
+function validateControlledFormDecisions(template: DigitalTemplate, values: DigitalValues) {
+    switch (template.key) {
+        case 'revision-requisitos-cliente':
+            if (values.resultado === 'Apto para comprometer') {
+                requireRecordedSigner(values, 'autoriza', 'La aceptación del compromiso requiere nombre, fecha y firma de la autoridad interna.');
+                requireRecorded(values, ['ubicacion-soportes'], 'Indica dónde se conserva la aceptación del cliente y los soportes de la revisión.');
+                if (recordedRows(values, 'comprobaciones').some(row => ['No', 'Pendiente'].includes(String(row.resultado)))) {
+                    throw new Error('El pedido no puede marcarse apto mientras una comprobación previa sea negativa o esté pendiente.');
+                }
+            }
+            break;
+        case 'plan-por-pedido':
+            if (values['estado-plan'] === 'Cerrado') {
+                requireRecorded(values, ['produccion-calidad', 'evidencia-entrega', 'facturacion'], 'El cierre del plan requiere vínculos con producción, liberación, entrega y expediente de facturación.');
+            }
+            break;
+        case 'comunicacion-cambio-requisitos':
+            if (values.decision === 'Autorizado') {
+                requireRecordedSigner(values, 'autoridad', 'El cambio autorizado requiere nombre, fecha y firma de la autoridad interna.');
+                requireClientDecision(values, 'confirma-cliente', 'fecha-cliente', 'evidencia-cliente');
+                if (values['tipo-evento'] === 'Cambio de requisito') {
+                    requireRecorded(values, ['antes', 'despues', 'razon', 'documentos-cambio'], 'Identifica el requisito anterior, el nuevo, el motivo y los documentos afectados antes de autorizar el cambio.');
+                }
+                if (recordedRows(values, 'impactos').some(row => row.afectado === 'Pendiente')) {
+                    throw new Error('Completa la evaluación de impactos antes de autorizar el cambio de requisitos.');
+                }
+            }
+            break;
+        case 'hoja-viajera-inspeccion':
+            if (values['verificable-despues'] === 'No') {
+                requireRecorded(values, ['evaluacion-validacion', 'metodo-validacion', 'resultados-validacion', 'aprobo-validacion', 'firma-validacion', 'fecha-validacion', 'revalidacion'],
+                    'Si el resultado no puede verificarse después, documenta la validación, sus resultados, aprobación y condiciones de revalidación.');
+            }
+            break;
+        case 'propiedad-preservacion-entrega':
+            if (['Entrega confirmada', 'Devolución confirmada'].includes(String(values['estado-operativo']))) {
+                requireRecorded(values, ['fecha-entrega', 'recibio', 'evidencia-recepcion'], 'La entrega o devolución confirmada requiere fecha, receptor y evidencia real de recepción.');
+                if (values['estado-operativo'] === 'Entrega confirmada') {
+                    requireRecorded(values, ['liberacion'], 'Vincula la liberación de Calidad de la cantidad entregada.');
+                }
+            }
+            break;
+        case 'cambios-produccion-postentrega':
+            if (values.decision === 'Autorizado') {
+                requireRecordedSigner(values, 'autoriza', 'El cambio de producción autorizado requiere nombre, fecha y firma de quien autoriza.');
+                requireClientDecision(values, 'acepta-cliente', 'fecha-acepta-cliente', 'evidencia-acepta-cliente');
+                if (recordedRows(values, 'revision-tecnica').some(row => row.afectado === 'Pendiente')) {
+                    throw new Error('Completa la revisión técnica antes de autorizar el cambio de producción.');
+                }
+            }
+            break;
+        case 'liberacion-productos-servicios': {
+            const released = ['Liberación normal', 'Liberación parcial', 'Liberación excepcional antes de completar verificaciones'].includes(String(values.decision));
+            if (released) {
+                requireClientDecision(values, 'autoriza-cliente', 'fecha-cliente', 'evidencia-cliente');
+                const quantity = values['cantidad-autorizada'];
+                const reviewed = values['cantidad-revisada'];
+                if (typeof quantity !== 'number' || typeof reviewed !== 'number' || quantity <= 0 || quantity > reviewed) {
+                    throw new Error('La cantidad liberada debe ser mayor que cero y no puede exceder la cantidad revisada.');
+                }
+                if (values.decision === 'Liberación excepcional antes de completar verificaciones') {
+                    requireRecorded(values, ['motivo-excepcion', 'verificaciones-pendientes', 'restricciones'], 'La liberación excepcional requiere motivo, verificaciones pendientes y restricciones.');
+                } else if (recordedRows(values, 'comprobaciones').some(row => ['No', 'Pendiente'].includes(String(row.resultado))) ||
+                    recordedRows(values, 'criterios-evidencia').some(row => row.resultado === 'Pendiente')) {
+                    throw new Error('Las comprobaciones pendientes o negativas y los criterios sin verificar requieren mantener retenido el producto o documentar una liberación excepcional.');
+                }
+                if (recordedRows(values, 'criterios-evidencia').some(row => row.resultado === 'No cumple')) {
+                    requireRecorded(values, ['concesion'], 'Una liberación que incluye un incumplimiento requiere la referencia de la concesión autorizada.');
+                }
+            }
+            break;
+        }
+        case 'control-salidas-no-conformes':
+            for (const row of recordedRows(values, 'disposiciones')) {
+                requireClientDecision(row, 'autoriza-cliente', 'fecha-cliente', 'evidencia-cliente');
+            }
+            break;
+        case 'requisicion-orden-externa':
+            if (values.decision === 'Autorizada') {
+                if (!['Aprobado', 'Condicionado'].includes(String(values['estado-proveedor']))) {
+                    throw new Error('La orden solo puede autorizarse para un proveedor aprobado o condicionado para ese suministro.');
+                }
+                if (values['estado-proveedor'] === 'Condicionado') {
+                    requireRecorded(values, ['controles-adicionales'], 'El proveedor condicionado requiere controles adicionales, fecha de cierre y autoridad.');
+                }
+                if (recordedRows(values, 'revision-previa-orden').some(row => !['Conforme para emitir', 'No aplica'].includes(String(row.resultado)))) {
+                    throw new Error('Resuelve las revisiones previas antes de autorizar la emisión de la orden.');
+                }
+            }
+            if (values.enviada === 'Sí') {
+                if (values.decision !== 'Autorizada') throw new Error('La versión enviada debe contar con autorización de emisión. Conserva la situación pendiente como borrador.');
+                requireRecorded(values, ['fecha-envio', 'enviado-por', 'destinatario', 'evidencia-envio'], 'El envío de la orden requiere fecha, emisor, destinatario y evidencia de la versión comunicada.');
+            }
+            if (values.confirmacion === 'Aceptada') {
+                requireRecorded(values, ['fecha-confirmacion', 'evidencia-confirmacion'], 'La aceptación del proveedor requiere fecha y evidencia de su confirmación.');
+            }
+            break;
+        case 'verificacion-suministro-externo': {
+            const inspections = recordedRows(values, 'resultados');
+            if (values.decision === 'Aceptado') {
+                if (inspections.some(row => row.conformidad === 'Pendiente')) {
+                    throw new Error('El suministro no puede aceptarse completo mientras tenga verificaciones pendientes.');
+                }
+                if (inspections.some(row => row.conformidad === 'No conforme')) {
+                    requireRecorded(values, ['nc', 'concesion'], 'La aceptación de un suministro no conforme requiere no conformidad y concesión autorizada vinculadas.');
+                }
+            } else if (values.decision === 'Aceptación parcial autorizada' && inspections.some(row => row.conformidad === 'No conforme')) {
+                requireRecorded(values, ['nc'], 'Vincula el control de la parte no conforme antes de registrar una aceptación parcial.');
+            }
+            break;
+        }
+    }
+}
+
 /** The persisted server schema is the authority; unknown keys are never stored. */
 export function validateDigitalValues(template: DigitalTemplate, input: unknown, final: boolean): DigitalValues {
     readDigitalTemplate(template);
@@ -170,6 +312,7 @@ export function validateDigitalValues(template: DigitalTemplate, input: unknown,
         if (template.key === 'matriz-control-cambios' && (!result.autorizo || !result.firma_autorizo)) {
             throw new Error('Completa el nombre y la firma de quien autoriza el cambio.');
         }
+        validateControlledFormDecisions(template, result);
     }
     return result;
 }

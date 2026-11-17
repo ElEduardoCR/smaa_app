@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
+import { listControlledDocumentChangesAction } from '@/app/actions/documentAccess';
 import {
     ArrowLeft, History, RefreshCw, Filter, Edit, Trash2, ArrowRightLeft, Plus
 } from "lucide-react";
@@ -82,22 +82,17 @@ export default function ChangesPage() {
     const [filterEntity, setFilterEntity] = useState("all");
     const [filterAction, setFilterAction] = useState("all");
     const [search, setSearch] = useState("");
+    const [error, setError] = useState<string | null>(null);
 
     const load = async () => {
         setLoading(true);
+        setError(null);
         try {
-            // Solo cambios de la Información Documentada (ISO 9001:2015 cláusula 7.5):
+            // Solo cambios de la Información Documentada (ISO 9001:2026 cláusula 7.5):
             // documentos nuevos, versiones nuevas, cambios de status, firmas, eliminaciones.
             // Los commits de GitHub se sincronizan vía Configuración → GitHub Sync.
-            const { data, error } = await supabase
-                .from("change_log")
-                .select("*")
-                .in("entity_type", ["document", "document_version"])
-                .order("changed_at", { ascending: false })
-                .limit(300);
-            if (error) throw error;
-            setChanges(data || []);
-        } catch (e) { console.error(e); }
+            setChanges(await listControlledDocumentChangesAction());
+        } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo consultar la bitácora documental.'); }
         finally { setLoading(false); }
     };
 
@@ -144,7 +139,7 @@ export default function ChangesPage() {
                                 Control de Cambios — Información Documentada
                             </h1>
                             <p className="text-neutral-400 text-sm mt-1">
-                                Bitácora de versiones, status y firmas de los documentos ISO 9001:2015 (cláusula 7.5).
+                                Bitácora de versiones, status y firmas de los documentos ISO 9001:2026 (cláusula 7.5).
                             </p>
                         </div>
                     </div>
@@ -154,6 +149,7 @@ export default function ChangesPage() {
                         </button>
                     </div>
                 </header>
+                {error ? <p role="alert" className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-300">{error}</p> : null}
 
                 {/* Stats */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

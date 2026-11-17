@@ -44,6 +44,11 @@ export type DigitalTemplate = {
     sourceIsExample: boolean;
     description: string;
     needsAdaptation?: boolean;
+    captureEnabled?: boolean;
+    relatedCodes?: string[];
+    normativeBaseline?: string;
+    transitionNote?: string;
+    sourceEvidence?: { label: string; fileName: string; sha256: string; storagePath: string }[];
     sections: DigitalSection[];
 };
 

@@ -5,7 +5,8 @@ import { getSession } from '@/lib/session';
 import { can } from '@/lib/permissions';
 import { getServerSupabase } from '@/lib/supabaseServer';
 import { digitalTemplateContent } from '@/lib/documents/catalog';
-import { initialDigitalValues, type DigitalTemplate, type DigitalValues } from '@/lib/documents/schema';
+import { initialDigitalValues, type DigitalRow, type DigitalTemplate, type DigitalValues } from '@/lib/documents/schema';
+import { readDigitalTemplate, validateDigitalValues } from '@/lib/documents/validation';
 
 async function authorize(action: 'view' | 'create' | 'edit') {
     const session = await getSession();
@@ -43,6 +44,7 @@ export async function getDigitalRegisterValuesAction(documentId: string, documen
 export async function updateDigitalDocumentContentAction(input: {
     documentId: string; expectedRevision: number; title: string; description: string;
     paragraphs: string[][]; nodeLabels: Record<string, string>; changeSummary: string;
+    controlledTables?: Record<string, DigitalRow[]>;
 }) {
     const session = await authorize('edit');
     if (!input.title?.trim() || input.title.length > 300 || !input.changeSummary?.trim() || input.changeSummary.length > 2000) throw new Error('Indica el título y el motivo del cambio.');
@@ -52,6 +54,9 @@ export async function updateDigitalDocumentContentAction(input: {
     const template = document.template_schema as DigitalTemplate;
     if (document.revision !== input.expectedRevision) throw new Error('El documento cambió. Recarga la página antes de editarlo.');
     if (!Array.isArray(input.paragraphs) || input.paragraphs.length !== template.sections.length || typeof input.description !== 'string' || input.description.length > 5000) throw new Error('Contenido no válido.');
+    if (!input.nodeLabels || typeof input.nodeLabels !== 'object' || Array.isArray(input.nodeLabels)) throw new Error('Textos de actividades no válidos.');
+    const tableKeys = new Set(template.captureEnabled === false ? template.sections.flatMap(section => section.table ? [section.table.key] : []) : []);
+    if (input.controlledTables && (typeof input.controlledTables !== 'object' || Array.isArray(input.controlledTables) || Object.keys(input.controlledTables).some(key => !tableKeys.has(key)))) throw new Error('Sólo se puede editar el contenido de las tablas del documento controlado.');
     let size = 0;
     const updated: DigitalTemplate = { ...template, title: input.title.trim(), description: input.description.trim(), sections: template.sections.map((section, index) => {
         const paragraphs = input.paragraphs[index];
@@ -62,9 +67,23 @@ export async function updateDigitalDocumentContentAction(input: {
             if (typeof label !== 'string' || !label.trim() || label.length > 2000) throw new Error('El texto de una actividad del mapa no es válido.');
             return { ...node, label: label.trim() };
         }) } : undefined;
-        return { ...section, paragraphs: paragraphs.map(paragraph => paragraph.trim()).filter(Boolean), ...(flow ? { flow } : {}) };
+        let table = section.table;
+        if (table && input.controlledTables?.[table.key] !== undefined) {
+            const proposedRows = input.controlledTables[table.key];
+            if (!Array.isArray(proposedRows) || proposedRows.length > 500) throw new Error('La tabla excede la cantidad de filas permitidas.');
+            const editable = { ...table, fixedRows: false, minRows: 0, maxRows: 500, initialRows: undefined,
+                columns: table.columns.map(column => ({ ...column, readOnly: false })) };
+            const rows = proposedRows.map(row => Object.fromEntries(Object.entries(row).map(([key, value]) => {
+                const column = editable.columns.find(column => column.key === key);
+                return [key, column?.type !== 'number' && typeof value === 'number' ? String(value) : value];
+            })));
+            const cleaned = validateDigitalValues({ ...template, sections: [{ title: section.title, table: editable }] }, { [table.key]: rows }, false);
+            table = { ...table, initialRows: cleaned[table.key] as DigitalRow[] };
+        }
+        return { ...section, paragraphs: paragraphs.map(paragraph => paragraph.trim()).filter(Boolean), ...(flow ? { flow } : {}), ...(table ? { table } : {}) };
     }) };
-    if (size > 800000) throw new Error('El documento excede el tamaño permitido.');
+    if (size > 800000 || JSON.stringify(updated).length > 1500000) throw new Error('El documento excede el tamaño permitido.');
+    readDigitalTemplate(updated);
     const { error: updateError } = await db.rpc('update_digital_document_content', {
         p_document_id: input.documentId, p_expected_revision: input.expectedRevision,
         p_template_schema: updated, p_content: digitalTemplateContent(updated),

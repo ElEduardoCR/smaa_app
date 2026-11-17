@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
+import { getControlledDocumentRequestAction } from '@/app/actions/documentAccess';
 import {
     ArrowLeft, FileText, RefreshCw, Clock, CheckCircle2, XCircle, ShieldCheck, X,
     AlertCircle, History, User, ChevronRight, Send
@@ -15,7 +15,6 @@ import {
     publishDocumentRequestAction, cancelDocumentRequestAction
 } from "@/app/actions/documentRequests";
 import SignaturePad from '@/components/manufacturing/SignaturePad';
-import { uploadSignatureDataUrl } from '@/lib/uploadHelpers';
 
 function cn(...inputs: (string | undefined | null | false)[]) {
     return twMerge(clsx(inputs));
@@ -85,40 +84,10 @@ export default function RequestDetailPage({ id, viewer }: { id: string; viewer: 
     const load = async () => {
         setLoading(true);
         try {
-            const { data, error } = await supabase.from("document_requests").select("*").eq("id", id).single();
-            if (error) throw error;
-            setReq(data as any);
-
-            // Cargar documentos relacionados
-            const ids = [data.target_document_id, data.resulting_document_id].filter(Boolean);
-            if (ids.length) {
-                const { data: docs } = await supabase.from("documents").select("id, folio, title, version, status").in("id", ids);
-                if (docs) {
-                    setTargetDoc((docs as any).find((d: any) => d.id === data.target_document_id) || null);
-                    setResultingDoc((docs as any).find((d: any) => d.id === data.resulting_document_id) || null);
-                }
-            }
-
-            // Log de cambios
-            const { data: logData } = await supabase
-                .from("change_log")
-                .select("*")
-                .eq("entity_type", "document_request")
-                .eq("entity_id", id)
-                .order("changed_at", { ascending: false });
-            setLog((logData || []) as any);
-
-            // Empleados referenciados
-            const empIds = Array.from(new Set([
-                data.requested_by, data.doc_control_reviewer, data.top_mgmt_approver,
-                ...(logData || []).map((l: any) => l.changed_by)
-            ].filter(Boolean)));
-            if (empIds.length) {
-                const { data: emps } = await supabase.from("employees").select("id, full_name, role").in("id", empIds);
-                const map: any = {};
-                for (const e of (emps || []) as any[]) map[e.id] = e;
-                setEmployees(map);
-            }
+            const result = await getControlledDocumentRequestAction(id);
+            setReq(result.request); setTargetDoc(result.targetDocument); setResultingDoc(result.resultingDocument);
+            setLog(result.changes.map(change => ({ ...change, changed_by: change.changed_by || '', description: change.description || '' })));
+            setEmployees(result.employees);
         } catch (e: any) {
             setErr(e?.message || "Error");
         } finally {
@@ -147,9 +116,7 @@ export default function RequestDetailPage({ id, viewer }: { id: string; viewer: 
             if (reviewer === 'doc_control') {
                 await reviewByDocumentControllerAction({ requestId: id, decision, notes });
             } else {
-                const signatureUrl = decision === 'approve' && signatureDataUrl
-                    ? await uploadSignatureDataUrl(signatureDataUrl, `req_${id}`) : undefined;
-                await approveByTopManagementAction({ requestId: id, decision, notes, signatureUrl });
+                await approveByTopManagementAction({ requestId: id, decision, notes, signatureDataUrl });
             }
             setNotes("");
             setShowApproveModal(null);

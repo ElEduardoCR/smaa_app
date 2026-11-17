@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
+import { listControlledDocumentRequestsAction } from '@/app/actions/documentAccess';
 import {
     ArrowLeft, FileText, RefreshCw, Plus, Filter, X, Inbox, CheckCircle2,
     XCircle, Clock, ShieldCheck, AlertCircle, Search
@@ -65,23 +65,8 @@ export default function RequestsListPage() {
         setLoading(true);
         setErr(null);
         try {
-            const { data, error } = await supabase
-                .from('document_requests')
-                .select('*')
-                .order('requested_at', { ascending: false });
-            if (error) throw error;
-            setRequests((data || []) as any);
-
-            const ids = Array.from(new Set((data || []).map((r: any) => r.requested_by).filter(Boolean)));
-            if (ids.length) {
-                const { data: emps } = await supabase
-                    .from('employees')
-                    .select('id, full_name, role')
-                    .in('id', ids);
-                const map: Record<string, EmployeeLite> = {};
-                for (const e of (emps || []) as any[]) map[e.id] = e;
-                setEmployees(map);
-            }
+            const result = await listControlledDocumentRequestsAction();
+            setRequests(result.requests); setEmployees(result.employees);
         } catch (e: any) {
             setErr(e?.message || 'Error');
         } finally {

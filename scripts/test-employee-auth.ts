@@ -7,6 +7,8 @@ import { hashPassword, verifyPassword } from '../src/lib/passwordHash';
 import type * as EmployeesModule from '../src/lib/employees';
 import type * as AuthPolicyModule from '../src/lib/employeeAuth';
 import type * as LoginModule from '../src/app/api/auth/login/route';
+import type * as SessionModule from '../src/lib/session';
+import type * as ModuleCatalog from '../src/lib/moduleCatalog';
 
 type Row = Record<string, unknown>;
 
@@ -29,6 +31,7 @@ function loadModule<T>(file: string, dependencies: Record<string, unknown>): T {
 
 function memorySupabase() {
     const tables: Record<string, Row[]> = { employees: [], employee_permissions: [] };
+    const failingTables = new Set<string>();
     let nextId = 1;
     const supabase = {
         from(table: string) {
@@ -45,7 +48,9 @@ function memorySupabase() {
                 update(value: Row) { operation = 'update'; payload = value; return query; },
                 maybeSingle() { singular = true; return query; },
                 single() { singular = true; return query; },
-                async then(onFulfilled: (result: { data: unknown; error: null }) => unknown) {
+                order() { return query; },
+                async then(onFulfilled: (result: { data: unknown; error: { message: string } | null }) => unknown) {
+                    if (failingTables.has(table)) return onFulfilled({ data: null, error: { message: 'Isolated read failure' } });
                     let rows = tables[table].filter(row => filters.every(([key, value]) => row[key] === value));
                     if (operation === 'insert') {
                         const row = { id: `test-${nextId++}`, ...payload };
@@ -61,7 +66,7 @@ function memorySupabase() {
             return query;
         },
     };
-    return { tables, supabase };
+    return { tables, supabase, failingTables };
 }
 
 async function main() {
@@ -69,9 +74,9 @@ async function main() {
     for (const role of ['operator', 'document_controller', 'top_management']) assert.equal(policy.requiresEmployeePassword(role), false);
     for (const role of ['admin', 'master', 'unknown', '', 'ADMIN']) assert.equal(policy.requiresEmployeePassword(role), true);
 
-    const { tables, supabase } = memorySupabase();
+    const { tables, supabase, failingTables } = memorySupabase();
     const employees = loadModule<typeof EmployeesModule>('src/lib/employees.ts', {
-        'server-only': {}, './supabase': { supabase },
+        'server-only': {}, './supabaseServer': { getServerSupabase: () => supabase },
         './password': { hashPassword, verifyPassword }, './employeeAuth': policy,
     });
     const originalHash = hashPassword('Current#2026');
@@ -90,6 +95,7 @@ async function main() {
             const result = await employees.authenticateEmployee(`  ${role.toUpperCase()} `, password);
             assert.equal(result?.id, role, `${role} must log in without its old password`);
             assert.equal(result?.permissions[0]?.id, `${role}-permission`, 'Keep the employee permission matrix');
+            assert(!Object.hasOwn(result || {}, 'password_hash'), 'Authentication never serializes a credential');
         }
         assert.ok(tables.employees.find(row => row.id === role)?.last_login_at);
     }
@@ -104,6 +110,7 @@ async function main() {
 
     for (const role of ['operator', 'document_controller', 'top_management'] as const) {
         const created = await employees.createEmployee({ full_name: ' Test employee ', username: ` NEW_${role} `, role });
+        assert(!Object.hasOwn(created, 'password_hash'));
         const row = tables.employees.find(value => value.id === created.id)!;
         assert.equal(row.password_hash, '', 'Passwordless employees store no usable password');
         assert.equal(row.username, `new_${role}`);
@@ -115,7 +122,8 @@ async function main() {
         const row = tables.employees.find(value => value.id === created.id)!;
         assert.equal(verifyPassword('NewPassword#2026', String(row.password_hash)), true);
         const preserved = row.password_hash;
-        await employees.updateEmployee(created.id, { full_name: 'Updated name' });
+        const updated = await employees.updateEmployee(created.id, { full_name: 'Updated name' });
+        assert(!Object.hasOwn(updated, 'password_hash'));
         assert.equal(row.password_hash, preserved, 'Profile edits preserve protected passwords');
         await employees.updateEmployee(created.id, { password: 'Changed#2026' });
         assert.equal(verifyPassword('Changed#2026', String(row.password_hash)), true);
@@ -133,6 +141,35 @@ async function main() {
     await employees.updateEmployee('document_controller', { role: 'operator' });
     assert.equal(tables.employees.find(row => row.id === 'document_controller')?.password_hash, '');
     assert.equal((await employees.authenticateEmployee('document_controller', ''))?.role, 'operator');
+
+    assert((await employees.listAllEmployees()).every(employee => !Object.hasOwn(employee, 'password_hash')));
+    assert(!Object.hasOwn((await employees.getEmployeeById('admin'))!, 'password_hash'));
+    failingTables.add('employee_permissions');
+    await assert.rejects(employees.authenticateEmployee('operator', ''), 'Permission read errors fail authentication closed');
+    failingTables.clear();
+
+    // Read the current database identity even while a signed cookie says master.
+    const catalog = loadModule<typeof ModuleCatalog>('src/lib/moduleCatalog.ts', {});
+    const session = loadModule<typeof SessionModule>('src/lib/session.ts', {
+        'server-only': {}, 'jose': { jwtVerify: async () => ({ payload: {
+            employeeId: 'operator', username: 'stale', fullName: 'Stale cookie', role: 'master', accessList: 'documents:',
+        } }) },
+        'next/headers': { cookies: async () => ({ get: () => ({ value: 'isolated-test-cookie' }) }) },
+        './supabaseServer': { getServerSupabase: () => supabase }, './moduleCatalog': catalog,
+    });
+    const refreshed = await session.getSession();
+    assert.equal(refreshed?.role, 'operator'); assert.equal(refreshed?.username, 'operator');
+    assert.equal(refreshed?.accessList, 'requisitions:');
+    const operator = tables.employees.find(row => row.id === 'operator')!;
+    operator.is_active = false;
+    assert.equal(await session.getSession(), null, 'A deactivated account cannot reuse its signed cookie');
+    operator.is_active = true;
+    failingTables.add('employee_permissions');
+    assert.equal(await session.getSession(), null, 'Permission read errors invalidate access, including a master cookie');
+    failingTables.clear();
+    failingTables.add('employees');
+    assert.equal(await session.getSession(), null, 'Identity read errors invalidate access');
+    failingTables.clear();
 
     const sessions: Row[] = [];
     const route = loadModule<typeof LoginModule>('src/app/api/auth/login/route.ts', {

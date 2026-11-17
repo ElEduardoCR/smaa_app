@@ -21,7 +21,7 @@ export default async function Page({ params, searchParams }: { params: Promise<{
     if (error) throw new Error('No se pudo consultar el documento.');
     if (!document) notFound();
     if (document.template_schema && document.source_key && query.control !== '1') {
-        return <DigitalDocumentClient document={{ id: document.id, folio: document.folio, title: document.title, version: document.version, revision: document.revision, status: document.status }} template={document.template_schema as DigitalTemplate} canCreate={can(session.role, session.permissions, 'documents', 'create')} canEdit={canEdit} />;
+        return <DigitalDocumentClient key={document.id} document={{ id: document.id, folio: document.folio, title: document.title, version: document.version, revision: document.revision, status: document.status }} template={document.template_schema as DigitalTemplate} canCreate={can(session.role, session.permissions, 'documents', 'create')} canEdit={canEdit} />;
     }
     return <ClientPage id={paramsResolved.id} canEdit={canEdit} canDelete={canDelete} />;
 }

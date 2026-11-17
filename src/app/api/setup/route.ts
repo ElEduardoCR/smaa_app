@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { getServerSupabase } from '@/lib/supabaseServer';
 import { hashPassword } from '@/lib/password';
 
 export const dynamic = 'force-dynamic';
@@ -27,10 +27,18 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: 'Secret incorrecto.' }, { status: 403 });
     }
 
-    let body: any;
-    try { body = await req.json(); } catch { return NextResponse.json({ error: 'Body inválido.' }, { status: 400 }); }
+    let body: Record<string, unknown>;
+    try {
+        const parsed: unknown = await req.json();
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Body inválido.');
+        body = parsed as Record<string, unknown>;
+    } catch { return NextResponse.json({ error: 'Body inválido.' }, { status: 400 }); }
 
-    const { username, password, full_name, position, phone } = body || {};
+    const username = typeof body.username === 'string' ? body.username.trim() : '';
+    const password = typeof body.password === 'string' ? body.password : '';
+    const full_name = typeof body.full_name === 'string' ? body.full_name.trim() : '';
+    const position = typeof body.position === 'string' ? body.position.trim() : '';
+    const phone = typeof body.phone === 'string' ? body.phone.trim() : '';
     if (!username || !password || !full_name) {
         return NextResponse.json({ error: 'username, password y full_name son obligatorios.' }, { status: 400 });
     }
@@ -39,12 +47,16 @@ export async function POST(req: Request) {
     }
 
     // Solo si no hay empleados
-    const { count } = await supabase.from('employees').select('id', { count: 'exact', head: true });
+    const db = getServerSupabase();
+    const { count, error: countError } = await db.from('employees').select('id', { count: 'exact', head: true });
+    if (countError) {
+        return NextResponse.json({ error: 'No se pudo comprobar el estado de la configuración inicial.' }, { status: 503 });
+    }
     if ((count || 0) > 0) {
         return NextResponse.json({ error: 'Ya existen empleados. El setup inicial solo se permite una vez.' }, { status: 409 });
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await db
         .from('employees')
         .insert({
             full_name: String(full_name).trim(),
@@ -58,7 +70,7 @@ export async function POST(req: Request) {
         .select('id, username, full_name, role')
         .single();
     if (error) {
-        if ((error as any).code === '23505') {
+        if (error.code === '23505') {
             return NextResponse.json({ error: 'Ya existe un empleado con ese usuario.' }, { status: 409 });
         }
         return NextResponse.json({ error: error.message }, { status: 500 });

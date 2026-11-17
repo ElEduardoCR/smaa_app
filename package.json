@@ -14,7 +14,8 @@
     "test:attendance": "tsx scripts/test-attendance-calculation.ts",
     "test:time-clock": "tsx scripts/test-time-clock-import.ts",
     "test:sales-manufacturing": "tsx scripts/test-sales-manufacturing.ts",
-    "test:documents": "tsx scripts/test-digital-documents.ts && tsx scripts/test-document-publication.ts && tsx scripts/test-digital-catalog-replacement.ts",
+    "test:documents": "tsx scripts/test-digital-documents.ts && tsx scripts/test-document-publication.ts && tsx scripts/test-digital-catalog-replacement.ts && tsx scripts/test-controlled-catalog-extension.ts && tsx scripts/test-controlled-forms.ts",
+    "test:document-security": "tsx scripts/test-controlled-document-privacy.ts && tsx scripts/test-employee-access-privacy.ts && tsx scripts/test-employee-auth.ts",
     "documents:catalog": "tsx scripts/prepare-digital-document-catalog.ts"
   },
   "dependencies": {

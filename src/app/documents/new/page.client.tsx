@@ -3,7 +3,7 @@
 import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
+import { getControlledDocumentAction, getDocumentEditorOptionsAction, saveLegacyControlledDocumentAction, type DocumentTypeOption } from '@/app/actions/documentAccess';
 import {
     ArrowLeft, Save, BookOpen, AlertCircle, RefreshCw, FileText, Tag, ChevronRight, ChevronLeft
 } from "lucide-react";
@@ -28,7 +28,8 @@ function NewDocumentForm() {
     const [step, setStep] = useState(1);
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState<string | null>(null);
-    const [types, setTypes] = useState<any[]>([]);
+    const [types, setTypes] = useState<DocumentTypeOption[]>([]);
+    const [expectedRevision, setExpectedRevision] = useState<number | undefined>();
 
     // 1) Identification
     const [typeId, setTypeId] = useState<string>("");
@@ -52,22 +53,25 @@ function NewDocumentForm() {
 
     useEffect(() => {
         (async () => {
-            const { data } = await supabase.from("document_types").select("*").eq("is_active", true).order("sort_order");
-            setTypes(data || []);
-            if (data && data.length > 0 && !typeId) setTypeId(data[0].id);
+            try {
+                const { types: data, viewer } = await getDocumentEditorOptionsAction();
+                setTypes(data); setCreatedBy(current => current || viewer.fullName);
+                if (data.length) setTypeId(current => current || data[0].id);
+            } catch (error) { setErr(error instanceof Error ? error.message : 'No se pudieron cargar las opciones.'); }
         })();
     }, []);
 
     useEffect(() => {
         if (editId) {
             (async () => {
-                const { data, error } = await supabase.from("documents").select("*").eq("id", editId).single();
-                if (error) { setErr(error.message); return; }
+                try {
+                const { document: data, viewer } = await getControlledDocumentAction(editId);
                 if (data) {
+                    setExpectedRevision(data.revision);
                     setTypeId(data.type_id);
                     setTitle(data.title);
                     setKeywords(data.keywords || "");
-                    setCreatedBy(data.created_by || "");
+                    setCreatedBy(data.created_by || viewer.fullName);
                     setObjective(data.objective || "");
                     setScope(data.scope || "");
                     setDefinitions(data.definitions || "");
@@ -79,6 +83,7 @@ function NewDocumentForm() {
                     setNextReviewDate(data.next_review_date || "");
                     setVersion(data.version);
                 }
+                } catch (error) { setErr(error instanceof Error ? error.message : 'No se pudo consultar el documento.'); }
             })();
         }
     }, [editId]);
@@ -92,53 +97,11 @@ function NewDocumentForm() {
 
         setBusy(true);
         try {
-            if (editId) {
-                // Update with version snapshot
-                const { data: current } = await supabase.from("documents").select("*").eq("id", editId).single();
-                if (current) {
-                    // Save current as version snapshot
-                    await supabase.from("document_versions").insert([{
-                        document_id: editId,
-                        version: current.version,
-                        revision: current.revision,
-                        title: current.title,
-                        objective: current.objective,
-                        scope: current.scope,
-                        definitions: current.definitions,
-                        responsibilities: current.responsibilities,
-                        content: current.content,
-                        document_references: current.document_references,
-                        records: current.records,
-                        keywords: current.keywords,
-                        change_summary: "Versión anterior guardada automáticamente",
-                        changed_by: createdBy,
-                    }]);
-                }
-                const { error } = await supabase.from("documents").update({
-                    type_id: typeId, title, keywords, objective, scope, definitions, responsibilities,
-                    content, document_references: documentReferences, records,
-                    effective_date: effectiveDate || null, next_review_date: nextReviewDate || null,
-                    version, created_by: createdBy,
-                }).eq("id", editId);
-                if (error) throw error;
-                router.push(`/documents/${editId}`);
-            } else {
-                // Auto-folio: call SQL function via RPC
-                const selType = types.find(t => t.id === typeId);
-                if (!selType) throw new Error("Tipo no válido");
-                const { data: folioData, error: folioErr } = await supabase.rpc("next_document_folio", { type_prefix: selType.prefix });
-                if (folioErr) throw folioErr;
-                const folio = (folioData as string) || `${selType.prefix}-001`;
-
-                const { data, error } = await supabase.from("documents").insert([{
-                    folio, type_id: typeId, title, keywords, objective, scope, definitions, responsibilities,
-                    content, document_references: documentReferences, records,
-                    effective_date: effectiveDate || null, next_review_date: nextReviewDate || null,
-                    version, created_by: createdBy, status: "draft",
-                }]).select().single();
-                if (error) throw error;
-                router.push(`/documents/${data.id}`);
-            }
+            const result = await saveLegacyControlledDocumentAction({ documentId: editId || undefined, expectedRevision, payload: {
+                type_id: typeId, title, keywords, objective, scope, definitions, responsibilities, content,
+                document_references: documentReferences, records, next_review_date: nextReviewDate || null, version,
+            } });
+            router.push(`/documents/${result.id}`);
         } catch (e: any) {
             setErr(e?.message || "Error al guardar.");
         } finally { setBusy(false); }
@@ -156,7 +119,7 @@ function NewDocumentForm() {
                             <BookOpen className="w-8 h-8 text-violet-400" />
                             {editId ? "Editar documento" : "Nuevo documento"}
                         </h1>
-                        <p className="text-neutral-400 text-sm mt-1">Documento controlado según ISO 9001:2015 — sección 7.5.</p>
+                        <p className="text-neutral-400 text-sm mt-1">Documento controlado según ISO 9001:2026 — sección 7.5.</p>
                     </div>
                 </header>
 
@@ -191,11 +154,12 @@ function NewDocumentForm() {
                                     <select value={typeId} onChange={e => setTypeId(e.target.value)} className="w-full mt-1 bg-neutral-900/50 border border-neutral-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500">
                                         {types.map(t => <option key={t.id} value={t.id}>{t.name} ({t.prefix})</option>)}
                                     </select>
-                                    <p className="text-[10px] text-neutral-500 mt-1">El folio se genera automáticamente: {types.find(t => t.id === typeId)?.prefix || "—"}-XXX</p>
+                                    <p className="text-[10px] text-neutral-500 mt-1">El folio se asigna automáticamente al guardar.</p>
                                 </div>
                                 <div>
-                                    <label className="text-xs text-neutral-400 ml-1">Versión inicial</label>
-                                    <input value={version} onChange={e => setVersion(e.target.value)} className="w-full mt-1 bg-neutral-900/50 border border-neutral-700 rounded-lg px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-violet-500" placeholder="1.0" />
+                                    <label className="text-xs text-neutral-400 ml-1">{editId ? 'Versión actual' : 'Versión inicial'}</label>
+                                    <input value={version} readOnly={!!editId} onChange={e => setVersion(e.target.value)} className="w-full mt-1 bg-neutral-900/50 border border-neutral-700 rounded-lg px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-violet-500" placeholder="1.0" />
+                                    {editId ? <p className="mt-1 text-xs text-neutral-400">Se incrementará al guardar la nueva revisión.</p> : null}
                                 </div>
                             </div>
                             <div>
@@ -204,7 +168,7 @@ function NewDocumentForm() {
                             </div>
                             <div>
                                 <label className="text-xs text-neutral-400 ml-1">Autor / Creado por *</label>
-                                <input value={createdBy} onChange={e => setCreatedBy(e.target.value)} className="w-full mt-1 bg-neutral-900/50 border border-neutral-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500" placeholder="Tu nombre" />
+                                <input value={createdBy} readOnly className="w-full mt-1 bg-neutral-900/50 border border-neutral-700 rounded-lg px-3 py-2 text-white text-sm" />
                             </div>
                             <div>
                                 <label className="text-xs text-neutral-400 ml-1">Palabras clave (búsqueda)</label>
@@ -215,7 +179,7 @@ function NewDocumentForm() {
 
                     {step === 2 && (
                         <div className="space-y-4">
-                            <h2 className="text-lg font-semibold text-white">2) Contenido del documento (ISO 9001:2015)</h2>
+                            <h2 className="text-lg font-semibold text-white">2) Contenido del documento (ISO 9001:2026)</h2>
                             <div>
                                 <label className="text-xs text-neutral-400 ml-1">Objetivo</label>
                                 <textarea value={objective} onChange={e => setObjective(e.target.value)} className="w-full mt-1 bg-neutral-900/50 border border-neutral-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500 min-h-[70px]" placeholder="¿Qué busca lograr este documento? Propósito principal." />
@@ -254,7 +218,8 @@ function NewDocumentForm() {
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                 <div>
                                     <label className="text-xs text-neutral-400 ml-1">Fecha de vigencia (effective date)</label>
-                                    <input value={effectiveDate} onChange={e => setEffectiveDate(e.target.value)} type="date" className="w-full mt-1 bg-neutral-900/50 border border-neutral-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500" />
+                                    <input value={effectiveDate} readOnly type="date" className="w-full mt-1 bg-neutral-900/50 border border-neutral-700 rounded-lg px-3 py-2 text-white text-sm" />
+                                    <p className="mt-1 text-xs text-neutral-400">La vigencia se establece al aprobar y firmar la revisión.</p>
                                 </div>
                                 <div>
                                     <label className="text-xs text-neutral-400 ml-1">Próxima revisión</label>
@@ -263,7 +228,7 @@ function NewDocumentForm() {
                             </div>
                             <div className="bg-violet-500/5 border border-violet-500/30 rounded-xl p-4 text-sm text-violet-200 space-y-2">
                                 <p className="font-semibold">Resumen del documento</p>
-                                <p><span className="text-violet-300/80">Folio:</span> {types.find(t => t.id === typeId)?.prefix}-XXX (auto)</p>
+                                <p><span className="text-violet-300/80">Folio:</span> Asignado al guardar</p>
                                 <p><span className="text-violet-300/80">Título:</span> {title || <em className="text-neutral-500">sin título</em>}</p>
                                 <p><span className="text-violet-300/80">Versión:</span> {version}</p>
                                 <p><span className="text-violet-300/80">Autor:</span> {createdBy || <em className="text-neutral-500">sin autor</em>}</p>

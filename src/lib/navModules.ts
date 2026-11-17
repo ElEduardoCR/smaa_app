@@ -66,7 +66,7 @@ export const ALL_MODULES: Array<NavModule & { short: string }> = [
       Icon: "ShieldAlert", color: "rose", category: "Calidad", badge: "NUEVO" },
 
     { moduleCode: "documents", href: "/documents", title: "Control de Documentos", short: "Documentos",
-      desc: "14 procedimientos ISO 9001:2015, foliado y versionado.",
+      desc: "Documentos y formatos del sistema de gestión, con códigos y revisiones.",
       Icon: "BookOpen", color: "violet", category: "Sistema" },
     { moduleCode: "documents", href: "/changes", title: "Control de Cambios", short: "Control de Cambios",
       desc: "Bitácora de cambios + sync automático de GitHub.",

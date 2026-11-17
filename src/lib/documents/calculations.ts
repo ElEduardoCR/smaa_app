@@ -33,6 +33,21 @@ const monthNames = [
 
 /** Summaries are derived from saved answers; blank inputs remain distinguishable from zero. */
 export function calculateDigitalValues(template: DigitalTemplate, values: DigitalValues): DigitalCalculation[] {
+    if (template.key === 'evaluacion-proveedores-desempeno') {
+        return tableRows(values, 'proveedores').flatMap((row, index) => {
+            const scores = ['precios', 'atencion_cotizacion', 'tiempo_entrega', 'domicilio'].map(key => numberValue(row[key]));
+            const name = String(row.proveedor || `Proveedor ${index + 1}`);
+            const complete = scores.every(score => score !== null);
+            const subtotal = complete ? (scores as number[]).reduce((sum, score) => sum + score, 0) : null;
+            const manual = numberValue(row.calificacion_total);
+            return [
+                { label: `${name}: subtotal de cuatro criterios`, value: subtotal === null ? 'Faltan valoraciones' : decimal(subtotal) },
+                { label: `${name}: calificación registrada`, value: manual === null ? 'Sin captura' : decimal(manual) },
+                ...(subtotal !== null && manual !== null && subtotal !== manual
+                    ? [{ label: `${name}: diferencia documentada`, value: String(row.justificacion_total || 'Registre la justificación de la calificación manual') }] : []),
+            ];
+        });
+    }
     if (template.key === 'resultados-auditoria-requisitos' || template.key === 'resultados-auditoria-procesos') {
         const rows = tableRows(values, 'hallazgos');
         const categories = [['mayor', 'No conformidades mayores'], ['menor', 'No conformidades menores'], ['observacion', 'Observaciones'], ['mejora', 'Oportunidades de mejora']];

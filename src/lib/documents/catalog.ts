@@ -1,8 +1,10 @@
 import { spreadsheetTemplates } from './spreadsheetTemplates';
 import { narrativeTemplates } from './narrativeTemplates';
 import type { DigitalTemplate } from './schema';
+import { prepareIso2026 } from './iso2026';
 
 export const documentTemplates: DigitalTemplate[] = [...spreadsheetTemplates, ...narrativeTemplates]
+    .map(prepareIso2026)
     .sort((a, b) => a.priority - b.priority || a.code.localeCompare(b.code));
 
 export function getDigitalTemplate(key: string) {

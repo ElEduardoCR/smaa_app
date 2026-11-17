@@ -1,5 +1,5 @@
 import 'server-only';
-import { supabase } from './supabase';
+import { getServerSupabase } from './supabaseServer';
 import { hashPassword, verifyPassword } from './password';
 import { requiresEmployeePassword } from './employeeAuth';
 
@@ -42,57 +42,69 @@ export type EmployeePermission = {
 
 export type EmployeeWithPermissions = Employee & { permissions: EmployeePermission[] };
 
+// This projection is also the serialization boundary for employee settings.
+// Credentials are needed only during authentication and never cross that boundary.
+const EMPLOYEE_COLUMNS = 'id,full_name,username,role,position,photo_url,phone,is_active,last_login_at,created_at,updated_at';
+function safeEmployee(input: unknown): Employee {
+    const row = input as Employee;
+    return {
+        id: row.id, full_name: row.full_name, username: row.username, role: row.role,
+        position: row.position, photo_url: row.photo_url, phone: row.phone, is_active: row.is_active,
+        last_login_at: row.last_login_at, created_at: row.created_at, updated_at: row.updated_at,
+    };
+}
+
 /** Lista ligera de usuarios activos (para el grid del login, sin password_hash). */
 export async function listActiveEmployeesPublic(): Promise<Pick<Employee, 'id' | 'full_name' | 'username' | 'position' | 'photo_url' | 'role'>[]> {
-    const { data, error } = await supabase
+    const { data, error } = await getServerSupabase()
         .from('employees')
         .select('id, full_name, username, position, photo_url, role')
         .eq('is_active', true)
         .order('full_name', { ascending: true });
     if (error) throw error;
-    return (data || []) as any;
+    return (data || []) as Pick<Employee, 'id' | 'full_name' | 'username' | 'position' | 'photo_url' | 'role'>[];
 }
 
 /** Lista completa de empleados (para CRUD en settings). */
 export async function listAllEmployees(): Promise<EmployeeWithPermissions[]> {
-    const { data: emps, error: eErr } = await supabase
+    const { data: emps, error: eErr } = await getServerSupabase()
         .from('employees')
-        .select('*')
+        .select(EMPLOYEE_COLUMNS)
         .order('full_name', { ascending: true });
     if (eErr) throw eErr;
 
-    const { data: perms, error: pErr } = await supabase
+    const { data: perms, error: pErr } = await getServerSupabase()
         .from('employee_permissions')
         .select('*');
     if (pErr) throw pErr;
 
     const permsByEmp: Record<string, EmployeePermission[]> = {};
-    for (const p of (perms || []) as any[]) {
+    for (const p of (perms || []) as EmployeePermission[]) {
         (permsByEmp[p.employee_id] = permsByEmp[p.employee_id] || []).push(p);
     }
 
-    return ((emps || []) as any[]).map((e) => ({
-        ...e,
+    return (emps || []).map((e) => ({
+        ...safeEmployee(e),
         permissions: permsByEmp[e.id] || [],
     }));
 }
 
 export async function getEmployeeById(id: string): Promise<EmployeeWithPermissions | null> {
-    const { data: emp, error: eErr } = await supabase
+    const { data: emp, error: eErr } = await getServerSupabase()
         .from('employees')
-        .select('*')
+        .select(EMPLOYEE_COLUMNS)
         .eq('id', id)
         .maybeSingle();
     if (eErr) throw eErr;
     if (!emp) return null;
 
-    const { data: perms, error: pErr } = await supabase
+    const { data: perms, error: pErr } = await getServerSupabase()
         .from('employee_permissions')
         .select('*')
         .eq('employee_id', id);
     if (pErr) throw pErr;
 
-    return { ...(emp as any), permissions: (perms || []) as any[] };
+    return { ...safeEmployee(emp), permissions: (perms || []) as EmployeePermission[] };
 }
 
 export type CreateEmployeeInput = {
@@ -111,7 +123,7 @@ export async function createEmployee(input: CreateEmployeeInput): Promise<Employ
     if (needsPassword && !input.password) {
         throw new Error('La contraseña es obligatoria para administradores y masters.');
     }
-    const { data, error } = await supabase
+    const { data, error } = await getServerSupabase()
         .from('employees')
         .insert({
             full_name: input.full_name.trim(),
@@ -123,15 +135,15 @@ export async function createEmployee(input: CreateEmployeeInput): Promise<Employ
             photo_url: input.photo_url || null,
             is_active: input.is_active ?? true,
         })
-        .select('*')
+        .select(EMPLOYEE_COLUMNS)
         .single();
     if (error) {
-        if ((error as any).code === '23505') {
+        if (error.code === '23505') {
             throw new Error('Ya existe un empleado con ese usuario.');
         }
         throw error;
     }
-    return data as Employee;
+    return safeEmployee(data);
 }
 
 export type UpdateEmployeeInput = {
@@ -146,7 +158,7 @@ export type UpdateEmployeeInput = {
 };
 
 export async function updateEmployee(id: string, input: UpdateEmployeeInput): Promise<Employee> {
-    const { data: current, error: currentError } = await supabase
+    const { data: current, error: currentError } = await getServerSupabase()
         .from('employees')
         .select('role')
         .eq('id', id)
@@ -157,7 +169,7 @@ export async function updateEmployee(id: string, input: UpdateEmployeeInput): Pr
     if (needsPassword && !requiresEmployeePassword(current.role) && !input.password) {
         throw new Error('Asigna una contraseña al cambiar a administrador o master.');
     }
-    const patch: Record<string, any> = {};
+    const patch: Record<string, unknown> = {};
     if (input.full_name !== undefined) patch.full_name = input.full_name.trim();
     if (input.username !== undefined) patch.username = input.username.trim().toLowerCase();
     if (!needsPassword) patch.password_hash = '';
@@ -168,23 +180,23 @@ export async function updateEmployee(id: string, input: UpdateEmployeeInput): Pr
     if (input.photo_url !== undefined) patch.photo_url = input.photo_url || null;
     if (input.is_active !== undefined) patch.is_active = input.is_active;
 
-    const { data, error } = await supabase
+    const { data, error } = await getServerSupabase()
         .from('employees')
         .update(patch)
         .eq('id', id)
-        .select('*')
+        .select(EMPLOYEE_COLUMNS)
         .single();
     if (error) {
-        if ((error as any).code === '23505') {
+        if (error.code === '23505') {
             throw new Error('Ya existe un empleado con ese usuario.');
         }
         throw error;
     }
-    return data as Employee;
+    return safeEmployee(data);
 }
 
 export async function deleteEmployee(id: string): Promise<void> {
-    const { error } = await supabase.from('employees').delete().eq('id', id);
+    const { error } = await getServerSupabase().from('employees').delete().eq('id', id);
     if (error) throw error;
 }
 
@@ -194,7 +206,7 @@ export async function setEmployeePermissions(
     perms: Array<Omit<EmployeePermission, 'id' | 'employee_id' | 'created_at'>>
 ): Promise<void> {
     // Borrar existentes
-    const { error: delErr } = await supabase
+    const { error: delErr } = await getServerSupabase()
         .from('employee_permissions')
         .delete()
         .eq('employee_id', employeeId);
@@ -217,7 +229,7 @@ export async function setEmployeePermissions(
         can_purchase: p.can_purchase,
     }));
 
-    const { error: insErr } = await supabase.from('employee_permissions').insert(rows);
+    const { error: insErr } = await getServerSupabase().from('employee_permissions').insert(rows);
     if (insErr) throw insErr;
 }
 
@@ -226,9 +238,9 @@ export async function authenticateEmployee(
     username: string,
     password: string = ''
 ): Promise<EmployeeWithPermissions | null> {
-    const { data, error } = await supabase
+    const { data, error } = await getServerSupabase()
         .from('employees')
-        .select('*')
+        .select(`${EMPLOYEE_COLUMNS},password_hash`)
         .eq('username', username.trim().toLowerCase())
         .eq('is_active', true)
         .maybeSingle();
@@ -238,15 +250,16 @@ export async function authenticateEmployee(
         (!password || !verifyPassword(password, data.password_hash))) return null;
 
     // best-effort: last_login_at
-    await supabase
+    await getServerSupabase()
         .from('employees')
         .update({ last_login_at: new Date().toISOString() })
-        .eq('id', (data as any).id);
+        .eq('id', data.id);
 
-    const { data: perms } = await supabase
+    const { data: perms, error: permissionsError } = await getServerSupabase()
         .from('employee_permissions')
         .select('*')
-        .eq('employee_id', (data as any).id);
+        .eq('employee_id', data.id);
 
-    return { ...(data as any), permissions: (perms || []) as any[] };
+    if (permissionsError) throw permissionsError;
+    return { ...safeEmployee(data), permissions: (perms || []) as EmployeePermission[] };
 }

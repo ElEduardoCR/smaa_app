@@ -12,6 +12,7 @@ export type DigitalPdfInput = {
     templateRevision: number;
     revision: number;
     status: 'draft' | 'finalized' | 'blank';
+    documentStatus?: string;
     authorName: string;
     savedAt: string;
 };
@@ -50,7 +51,8 @@ export function generateDigitalPdf(input: DigitalPdfInput): { bytes: Buffer; sha
         author: 'SMAA S.A. de C.V.', creator: 'SMAA · Control de Documentos', keywords: `${template.code}, ${template.area}` });
     const decorated = new Set<number>();
     const shortDate = date.toLocaleString('es-MX', { timeZone: 'America/Chihuahua', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-    const status = input.status === 'blank' ? 'FORMATO EN BLANCO' : input.status === 'draft' ? 'BORRADOR' : 'FINALIZADO';
+    const consultation = template.captureEnabled === false;
+    const status = input.status === 'blank' ? (consultation ? input.documentStatus === 'approved' ? 'DOCUMENTO VIGENTE' : 'BORRADOR DOCUMENTAL' : 'FORMATO EN BLANCO') : input.status === 'draft' ? 'BORRADOR' : 'FINALIZADO';
 
     function decorate() {
         const page = pdf.getCurrentPageInfo().pageNumber;
@@ -62,7 +64,7 @@ export function generateDigitalPdf(input: DigitalPdfInput): { bytes: Buffer; sha
         pdf.setFontSize(66);
         pdf.setTextColor(...NAVY);
         pdf.text('SMAA', width / 2, height / 2, { align: 'center', angle: 28 });
-        if (input.status === 'draft') {
+        if (input.status === 'draft' || (consultation && input.documentStatus !== 'approved')) {
             pdf.setFontSize(28);
             pdf.text('BORRADOR', width / 2, height / 2 + 18, { align: 'center', angle: 28 });
         }
@@ -89,7 +91,7 @@ export function generateDigitalPdf(input: DigitalPdfInput): { bytes: Buffer; sha
         pdf.setFontSize(7.5);
         pdf.setFont('helvetica', 'normal');
         pdf.setTextColor(...MUTED);
-        pdf.text(text(`Formato v${input.templateVersion} / rev. ${input.templateRevision} · Captura rev. ${input.revision || '-'} · ${input.folio}`), margin, 41);
+        pdf.text(text(consultation ? `Documento v${input.templateVersion} / rev. ${input.templateRevision} · ${template.normativeBaseline || template.area}` : `Formato v${input.templateVersion} / rev. ${input.templateRevision} · Captura rev. ${input.revision || '-'} · ${input.folio}`), margin, 41);
         pdf.setDrawColor(218, 224, 232);
         pdf.setLineWidth(0.25);
         pdf.line(margin, 44, width - margin, 44);
@@ -150,14 +152,18 @@ export function generateDigitalPdf(input: DigitalPdfInput): { bytes: Buffer; sha
         if (scale > 0) pdf.addImage(value, 'PNG', data.cell.x + 2.5, data.cell.y + 7,
             properties.width * scale, properties.height * scale, undefined, 'FAST');
     }
-    function drawFlow(flow: NonNullable<DigitalSection['flow']>, title = 'Diagrama del proceso') {
+    function drawFlow(flow: NonNullable<DigitalSection['flow']>, title = 'Diagrama del proceso', introduction: string[] = []) {
         if (!flow.nodes.length) return;
         const rowCoordinates = [...new Set(flow.nodes.map(node => node.y))].sort((a, b) => a - b);
         const byId = new Map(flow.nodes.map((node, index) => [node.id,
             { ...node, number: index + 1, row: rowCoordinates.indexOf(node.y) }]));
         const sorted = [...byId.values()].sort((a, b) => a.y - b.y || a.x - b.x);
         const scale = contentWidth / Math.max(flow.width, 1);
-        const usableHeight = bottom - top - 14;
+        pdf.setFont('helvetica', 'normal'); pdf.setFontSize(9);
+        const introductionHeight = introduction.length ? 12
+            + (pdf.splitTextToSize(text(title), contentWidth - 9).length - 1) * 4
+            + introduction.reduce((sum, value) => sum + pdf.splitTextToSize(text(value), contentWidth).length * 4.05 + 2, 0) : 0;
+        const usableHeight = bottom - top - 14 - introductionHeight;
         const boxHeight = 13;
         const rowPitch = 17;
         const maxRows = Math.max(1, Math.floor((usableHeight + rowPitch - boxHeight) / rowPitch));
@@ -175,8 +181,12 @@ export function generateDigitalPdf(input: DigitalPdfInput): { bytes: Buffer; sha
             pdf.line(x2, y2, x2 - len * Math.cos(angle + 0.5), y2 - len * Math.sin(angle + 0.5));
         };
         for (const [part, band] of bands.entries()) {
-            newPage();
-            paragraph(`${title} · Parte ${part + 1} de ${bands.length}`, 9, true);
+            if (y > top) newPage();
+            if (part === 0 && introduction.length) {
+                heading(title);
+                for (const value of introduction) paragraph(value);
+            }
+            paragraph(`${introduction.length ? 'Diagrama del proceso' : title} · Parte ${part + 1} de ${bands.length}`, 9, true);
             const originY = y + 3;
             const minRow = band[0].row;
             const inBand = new Set(band.map(n => n.id));
@@ -189,13 +199,29 @@ export function generateDigitalPdf(input: DigitalPdfInput): { bytes: Buffer; sha
                 const f = at(from), t = at(to);
                 pdf.setFont('helvetica', 'normal'); pdf.setFontSize(7); pdf.setTextColor(...MUTED);
                 if (inBand.has(from.id) && inBand.has(to.id)) {
-                    const downward = to.y > from.y + from.height / 2;
-                    const upward = to.y + to.height < from.y;
+                    const downward = to.row > from.row;
+                    const upward = to.row < from.row;
                     if (!downward && !upward) {
                         const right = to.x > from.x;
                         const sx = right ? f.x + f.w : f.x, tx = right ? t.x : t.x + t.w;
                         arrow(sx, f.y + f.h / 2, tx, t.y + t.h / 2);
                         if (edge.label) pdf.text(text(edge.label), (sx + tx) / 2, (f.y + t.y) / 2 + f.h / 2 - 1, { align: 'center' });
+                        continue;
+                    }
+                    if (upward) {
+                        // Return loops travel around the outside of the diagram,
+                        // separately from the forward connections between rows.
+                        const rightEdge = Math.max(...band.map(node => { const box = at(node); return box.x + box.w; }));
+                        const leftEdge = Math.min(...band.map(node => at(node).x));
+                        const useRight = rightEdge + 5 <= width - 7;
+                        const gutter = useRight ? rightEdge + 5 : Math.max(7, leftEdge - 5);
+                        const sx = f.x + f.w / 2, sy = f.y + f.h;
+                        const lowerY = Math.max(f.y + f.h, t.y + t.h) + 4;
+                        const targetX = useRight ? t.x + t.w : t.x, targetY = t.y + t.h / 2;
+                        pdf.setDrawColor(...ORANGE); pdf.setLineWidth(0.45);
+                        pdf.line(sx, sy, sx, lowerY); pdf.line(sx, lowerY, gutter, lowerY);
+                        pdf.line(gutter, lowerY, gutter, targetY); arrow(gutter, targetY, targetX, targetY);
+                        if (edge.label) pdf.text(text(edge.label), gutter + (useRight ? -2 : 2), lowerY - 1, { align: useRight ? 'right' : 'left' });
                         continue;
                     }
                     const sx = f.x + f.w / 2, sy = downward ? f.y + f.h : upward ? f.y : f.y + f.h / 2;
@@ -241,16 +267,18 @@ export function generateDigitalPdf(input: DigitalPdfInput): { bytes: Buffer; sha
         ]));
     }
 
-    runTable(['Folio de captura', 'Responsable', 'Fecha de guardado'], [[text(input.folio), text(input.authorName || 'Sin captura'), shortDate]]);
+    if (consultation) runTable(['Código', 'Revisión', 'Referencia normativa'], [[template.code, `${input.templateVersion} / ${input.templateRevision}`, template.normativeBaseline || 'Sistema de gestión de la calidad SMAA']]);
+    else runTable(['Folio de captura', 'Responsable', 'Fecha de guardado'], [[text(input.folio), text(input.authorName || 'Sin captura'), shortDate]]);
     if (template.needsAdaptation) {
         paragraph('Contenido de referencia para SMAA S.A. de C.V. Pendiente de revisión y adaptación antes de su aprobación.', 8);
     }
-    if (input.status === 'blank') paragraph('Formato en blanco. Los espacios de captura y firma se completan al realizar la actividad.', 8);
+    if (input.status === 'blank' && !consultation) paragraph('Formato en blanco. Los espacios de captura y firma se completan al realizar la actividad.', 8);
+    if (template.transitionNote) paragraph(template.transitionNote, 8);
     if (template.description) paragraph(template.description, 8);
 
     for (const section of template.sections) {
-        if (section.flow && !section.paragraphs?.length && !section.fields?.length && !section.table) {
-            drawFlow(section.flow, section.title);
+        if (section.flow && !section.fields?.length && !section.table) {
+            drawFlow(section.flow, section.title, section.paragraphs || []);
             continue;
         }
         // Keep a section title, its short instructions and its first data row
@@ -263,15 +291,57 @@ export function generateDigitalPdf(input: DigitalPdfInput): { bytes: Buffer; sha
             pdf.setFont('helvetica', bold ? 'bold' : 'normal'); pdf.setFontSize(size);
             return pdf.splitTextToSize(text(value), Math.max(8, cellWidth - 4.6)).length * size * 0.405 + 4.6;
         };
-        let firstBlock = 8;
-        if (section.fields?.length) {
+        const fieldHeight = (field: DigitalField) => {
             const labelWidth = Math.min(65, contentWidth * 0.32);
-            const heights = section.fields.map(field => Math.max(field.type === 'signature' ? 26 : 8,
-                lineHeight(field.label, labelWidth), lineHeight(display(field, values[field.key]), contentWidth - labelWidth)));
-            const completeBlock = 8 + heights.reduce((sum, height) => sum + height, 0);
-            // Small approval blocks stay intact, including the date after a signature.
+            return Math.max(field.type === 'signature' ? 26 : 8, lineHeight(field.label, labelWidth),
+                lineHeight(display(field, values[field.key], input.status === 'blank'), contentWidth - labelWidth));
+        };
+        const fieldGroups = (fields: DigitalField[]) => {
+            if (8 + fields.reduce((sum, field) => sum + fieldHeight(field), 0) <= 80) {
+                return [{ fields, keepTogether: true }];
+            }
+            const spans: { start: number; end: number }[] = [];
+            for (const [index, field] of fields.entries()) {
+                if (field.type !== 'signature') continue;
+                let start = index, end = index;
+                const prefix = field.key.match(/^(.*)[-_]firma$/)?.[1];
+                if (prefix) {
+                    const belongs = (candidate: DigitalField) => ['nombre', 'puesto', 'cargo', 'fecha', 'firma']
+                        .some(suffix => candidate.key === `${prefix}-${suffix}` || candidate.key === `${prefix}_${suffix}`);
+                    while (start > 0 && belongs(fields[start - 1])) start--;
+                    while (end + 1 < fields.length && belongs(fields[end + 1])) end++;
+                } else {
+                    const role = field.key.match(/^firma[-_](.+)$/)?.[1];
+                    const person = /^(nombre|puesto|cargo|persona|autoridad|aprob|elabor|revis|verific|coordinador|originador|asignado|responsable)/i;
+                    const belongsBefore = (candidate: DigitalField) => candidate.type !== 'signature'
+                        && (candidate.type === 'date' || person.test(candidate.label)
+                            || !!role && candidate.key.includes(role) && /cliente|recepcion/.test(role));
+                    const belongsAfter = (candidate: DigitalField) => candidate.type === 'date';
+                    while (start > 0 && belongsBefore(fields[start - 1])) start--;
+                    while (end + 1 < fields.length && belongsAfter(fields[end + 1])) end++;
+                }
+                spans.push({ start, end });
+            }
+            const groups: { fields: DigitalField[]; keepTogether: boolean }[] = [];
+            let cursor = 0;
+            for (const span of spans.sort((a, b) => a.start - b.start)) {
+                if (span.end < cursor) continue;
+                if (span.start > cursor) groups.push({ fields: fields.slice(cursor, span.start), keepTogether: false });
+                groups.push({ fields: fields.slice(Math.max(cursor, span.start), span.end + 1), keepTogether: true });
+                cursor = span.end + 1;
+            }
+            if (cursor < fields.length) groups.push({ fields: fields.slice(cursor), keepTogether: false });
+            return groups;
+        };
+        let firstBlock = 0;
+        if (section.fields?.length) {
+            const heights = section.fields.map(fieldHeight);
+            const completeBlock = 10 + heights.reduce((sum, height) => sum + height, 0);
+            // Keep small sections intact; larger sections can split between signers.
             const availableOnFreshPage = bottom - top - headingHeight - Math.min(instructionHeight, 60);
-            firstBlock = completeBlock <= availableOnFreshPage ? completeBlock : 8 + heights[0];
+            const firstGroup = fieldGroups(section.fields)[0];
+            firstBlock = completeBlock <= Math.min(80, availableOnFreshPage) ? completeBlock
+                : 10 + (firstGroup?.keepTogether ? firstGroup.fields.reduce((sum, field) => sum + fieldHeight(field), 0) : heights[0]);
         } else if (section.table) {
             const table = section.table;
             const cols = table.columns.length > 8 ? [table.columns[0], ...table.columns.slice(1, 7)] : table.columns;
@@ -288,12 +358,15 @@ export function generateDigitalPdf(input: DigitalPdfInput): { bytes: Buffer; sha
         for (const p of section.paragraphs || []) paragraph(p);
         if (section.flow) drawFlow(section.flow);
         if (section.fields?.length) {
-            const fields = section.fields;
-            runTable(['Campo', 'Información'], fields.map(field => [text(field.label), field.type === 'signature'
-                ? { content: display(field, values[field.key], input.status === 'blank'), styles: { minCellHeight: 26 } }
-                : display(field, values[field.key], input.status === 'blank')]), data => {
-                if (data.column.index === 1) signature(data, values[fields[data.row.index]?.key]);
-            }, { 0: { cellWidth: Math.min(65, contentWidth * 0.32) } });
+            for (const group of fieldGroups(section.fields)) {
+                const fields = group.fields;
+                if (group.keepTogether) room(Math.min(bottom - top, 9 + fields.reduce((sum, field) => sum + fieldHeight(field), 0)));
+                runTable(['Campo', 'Información'], fields.map(field => [text(field.label), field.type === 'signature'
+                    ? { content: display(field, values[field.key], input.status === 'blank'), styles: { minCellHeight: 26 } }
+                    : display(field, values[field.key], input.status === 'blank')]), data => {
+                    if (data.column.index === 1) signature(data, values[fields[data.row.index]?.key]);
+                }, { 0: { cellWidth: Math.min(65, contentWidth * 0.32) } });
+            }
         }
         if (!section.table) continue;
         const table = section.table;
@@ -325,16 +398,19 @@ export function generateDigitalPdf(input: DigitalPdfInput): { bytes: Buffer; sha
         const summary = calculateDigitalValues(template, values);
         if (summary.length) { heading('Resumen calculado'); runTable(['Concepto', 'Resultado'], summary.map(s => [text(s.label), text(s.value)])); }
     }
+    const referenceFooter = [template.relatedCodes?.length ? `Relacionados: ${template.relatedCodes.join(' · ')}` : '',
+        template.sourceEvidence?.length ? 'Originales privados: ficha del documento en la app.' : ''].filter(Boolean).join(' · ');
     const pages = pdf.getNumberOfPages();
     for (let page = 1; page <= pages; page++) {
         pdf.setPage(page);
         pdf.setDrawColor(218, 224, 232);
-        pdf.line(margin, height - 13, width - margin, height - 13);
+        pdf.line(margin, height - 14, width - margin, height - 14);
         pdf.setFont('helvetica', 'normal');
         pdf.setFontSize(7);
         pdf.setTextColor(...MUTED);
-        pdf.text(text(`${template.code} · ${input.folio} · ${status}`), margin, height - 8);
-        pdf.text(`Página ${page} de ${pages}`, width - margin, height - 8, { align: 'right' });
+        pdf.text(text(`${template.code} · ${input.folio} · ${status}`), margin, height - 10);
+        pdf.text(`Página ${page} de ${pages}`, width - margin, height - 10, { align: 'right' });
+        if (page === pages && referenceFooter) pdf.text(text(referenceFooter), margin, height - 6);
     }
     const bytes = Buffer.from(pdf.output('arraybuffer'));
     return { bytes, sha256: createHash('sha256').update(bytes).digest('hex'), pageCount: pages };

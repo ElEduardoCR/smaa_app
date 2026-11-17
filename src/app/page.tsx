@@ -4,6 +4,12 @@ import { can, canViewModule, listAccessibleSubCodes } from '@/lib/permissions';
 import { supabase } from '@/lib/supabase';
 import { ALL_MODULES, moduleEntryHref } from '@/lib/navModules';
 import DashboardClient from './DashboardClient';
+import { getServerSupabase } from '@/lib/supabaseServer';
+
+function queryRecentChanges() {
+    return supabase.from('change_log').select('changed_at')
+        .gte('changed_at', new Date(Date.now() - 7 * 86400000).toISOString());
+}
 
 export default async function HomePage() {
     const session = await getSession();
@@ -35,8 +41,10 @@ export default async function HomePage() {
         supabase.from("employees").select("id", { count: "exact", head: true }).eq("is_active", true),
         supabase.from("work_orders").select("id", { count: "exact", head: true }).in("status", ["Open", "In Progress", "Paused"]),
         supabase.from("work_orders").select("id", { count: "exact", head: true }).eq("status", "QC"),
-        supabase.from("documents").select("id", { count: "exact", head: true }),
-        supabase.from("change_log").select("changed_at").gte("changed_at", new Date(Date.now() - 7 * 86400000).toISOString()),
+        can(session.role, session.permissions, 'documents', 'view')
+            ? getServerSupabase().from("documents").select("id", { count: "exact", head: true })
+            : Promise.resolve({ count: 0 }),
+        queryRecentChanges(),
         supabase.from("requisitions").select("id", { count: "exact", head: true }).eq("status", "pending"),
     ]);
 

@@ -73,7 +73,7 @@ export default function DashboardClient({
                         <h1 className="text-xl md:text-2xl font-semibold tracking-tight text-white flex items-center gap-2.5">
                             Inicio
                             <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 uppercase tracking-wider">
-                                ISO 9001:2015
+                                Gestión de calidad
                             </span>
                         </h1>
                         <p className="text-[11px] md:text-xs text-neutral-400 mt-0.5">

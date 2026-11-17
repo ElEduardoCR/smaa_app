@@ -3,7 +3,7 @@
 import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
+import { getControlledDocumentAction, getControlledDocumentRequestAction, getDocumentEditorOptionsAction } from '@/app/actions/documentAccess';
 import {
     ArrowLeft, Save, BookOpen, AlertCircle, RefreshCw, FileText, ChevronRight, ChevronLeft, Layers
 } from "lucide-react";
@@ -60,17 +60,19 @@ function NewRequestForm() {
 
     useEffect(() => {
         (async () => {
-            const { data } = await supabase.from("document_types").select("*").eq("is_active", true).order("sort_order");
-            setTypes(data || []);
-            if (data && data.length > 0) setTypeId(current => current || data[0].id);
+            try {
+                const { types: data } = await getDocumentEditorOptionsAction();
+                setTypes(data);
+                if (data.length) setTypeId(current => current || data[0].id);
+            } catch (error) { setErr(error instanceof Error ? error.message : 'No se pudieron consultar los tipos de documento.'); }
         })();
     }, []);
 
     useEffect(() => {
         if (!editId) return;
         (async () => {
-            const { data, error } = await supabase.from('document_requests').select('*').eq('id', editId).single();
-            if (error || !data) { setErr('No se pudo cargar la requisición a corregir.'); return; }
+            try {
+            const { request: data } = await getControlledDocumentRequestAction(editId);
             if (!['rejected_by_doc_control', 'rejected'].includes(data.status)) { setErr('Solo se pueden corregir requisiciones rechazadas.'); return; }
             const payload = data.payload || {};
             setType(data.type);
@@ -81,13 +83,15 @@ function NewRequestForm() {
             setDefinitions(payload.definitions || ''); setResponsibilities(payload.responsibilities || ''); setContent(payload.content || '');
             setDocumentReferences(payload.document_references || ''); setRecords(payload.records || '');
             setEffectiveDate(payload.effective_date || ''); setNextReviewDate(payload.next_review_date || ''); setVersion(payload.version || '1.0');
+            } catch (error) { setErr(error instanceof Error ? error.message : 'No se pudo consultar la requisición.'); }
         })();
     }, [editId]);
 
     useEffect(() => {
         if (targetDocId) {
             (async () => {
-                const { data } = await supabase.from("documents").select("*").eq("id", targetDocId).single();
+                try {
+                const { document: data } = await getControlledDocumentAction(targetDocId);
                 if (data) {
                     setTargetDoc(data);
                     if (editId) return;
@@ -105,6 +109,7 @@ function NewRequestForm() {
                     setNextReviewDate(data.next_review_date || "");
                     setVersion(bumpVersion(data.version || "1.0"));
                 }
+                } catch (error) { setErr(error instanceof Error ? error.message : 'No se pudo consultar el documento objetivo.'); }
             })();
         }
     }, [targetDocId, editId]);
@@ -252,7 +257,7 @@ function NewRequestForm() {
 
                     {step === 2 && (
                         <div className="space-y-4">
-                            <h2 className="text-lg font-semibold text-white">2) Contenido del documento (ISO 9001:2015)</h2>
+                            <h2 className="text-lg font-semibold text-white">2) Contenido del documento (ISO 9001:2026)</h2>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                 <div>
                                     <label className="text-xs text-neutral-400 ml-1">Objetivo</label>

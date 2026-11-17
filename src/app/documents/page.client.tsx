@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
+import { listControlledDocumentsAction } from '@/app/actions/documentAccess';
 import {
     ArrowLeft, FileText, Plus, RefreshCw, Eye, Search, Filter, BookOpen
 } from "lucide-react";
@@ -46,13 +46,7 @@ export default function DocumentsIndex({ canCreate }: { canCreate: boolean }) {
         setLoading(true);
         setErrorMessage(null);
         try {
-            const { data, error } = await supabase
-                .from("documents")
-                .select("id, folio, title, version, status, effective_date, next_review_date, created_at, updated_at, area, priority_order, digital_kind, source_key, type:document_types(code, name, prefix)")
-                .order("priority_order", { ascending: true, nullsFirst: false }).order("folio");
-            if (error) throw error;
-            const fmt = (data || []).map((d: any) => ({ ...d, type: Array.isArray(d.type) ? d.type[0] : d.type }));
-            setDocs(fmt);
+            setDocs(await listControlledDocumentsAction());
         } catch { setErrorMessage('No se pudo cargar el catálogo. Usa Actualizar para intentarlo nuevamente.'); }
         finally { setLoading(false); }
     };

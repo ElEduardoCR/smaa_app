@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { supabase } from '@/lib/supabase';
+import { getServerSupabase } from '@/lib/supabaseServer';
 import { getSession } from '@/lib/session';
 import { can } from '@/lib/permissions';
 import { safeStorageName } from '@/lib/storageNames';
@@ -60,7 +61,7 @@ export async function createEmployeePhotoUploadAction(
     if (fileSize > EMPLOYEE_PHOTO_LIMIT_BYTES) throw new Error('La foto excede el límite de 5 MB.');
 
     const path = `photos/${Date.now()}-${safeStorageName(fileName)}`;
-    const { data, error } = await supabase.storage.from('employee_photos').createSignedUploadUrl(path);
+    const { data, error } = await getServerSupabase().storage.from('employee_photos').createSignedUploadUrl(path);
     if (error || !data?.token) {
         throw new Error('No se pudo preparar la carga de la foto: ' + storageErrorMessage(error?.message));
     }
@@ -71,7 +72,8 @@ export async function createEmployeePhotoUploadAction(
 /** Sólo un master puede modificar, obsoletar o borrar a otro master. */
 async function assertCanManage(session: { role: string }, targetId: string) {
     if (session.role === 'master') return;
-    const { data } = await supabase.from('employees').select('role').eq('id', targetId).maybeSingle();
+    const { data, error } = await getServerSupabase().from('employees').select('role').eq('id', targetId).maybeSingle();
+    if (error || !data) throw new Error('No se pudo verificar el empleado que quieres modificar.');
     if (data?.role === 'master') {
         throw new Error('Solo un master puede modificar a un usuario master.');
     }
@@ -126,8 +128,7 @@ export async function obsoleteEmployeeAction(id: string) {
     }
     await assertCanManage(session, id);
 
-    const { supabase } = await import('@/lib/supabase');
-    const { error } = await supabase
+    const { error } = await getServerSupabase()
         .from('employees')
         .update({ is_active: false })
         .eq('id', id);
@@ -141,8 +142,7 @@ export async function restoreEmployeeAction(id: string) {
     const session = await requireEmployeesWrite();
     await assertCanManage(session, id);
 
-    const { supabase } = await import('@/lib/supabase');
-    const { error } = await supabase
+    const { error } = await getServerSupabase()
         .from('employees')
         .update({ is_active: true })
         .eq('id', id);

@@ -1,9 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
+import {
+    getControlledDocumentAction, changeControlledDocumentStatusAction, obsoleteControlledDocumentAction,
+    signControlledDocumentAction, deleteControlledDocumentAction,
+} from '@/app/actions/documentAccess';
 import {
     ArrowLeft, BookOpen, Save, RefreshCw, Edit2, CheckCircle2, X, Lock, History,
     Shield, ShieldCheck, FileText, Loader2, AlertCircle, ChevronDown, ChevronUp
@@ -11,7 +14,6 @@ import {
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
 import SignaturePad from "@/components/manufacturing/SignaturePad";
-import { uploadSignatureDataUrl } from "@/lib/uploadHelpers";
 
 function cn(...inputs: (string | undefined | null | false)[]) {
     return twMerge(clsx(inputs));
@@ -70,16 +72,9 @@ export default function DocumentDetailPage({
     const load = async () => {
         setLoading(true);
         try {
-            const { data, error } = await supabase.from("documents").select("*, type:document_types(code, name, prefix)").eq("id", id).single();
-            if (error) throw error;
-            const fmt: any = { ...data, type: Array.isArray(data.type) ? data.type[0] : data.type };
-            setDoc(fmt);
-            const [{ data: vs }, { data: ss }] = await Promise.all([
-                supabase.from("document_versions").select("id, version, revision, title, change_summary, changed_by, changed_at").eq("document_id", id).order("changed_at", { ascending: false }),
-                supabase.from("document_signatures").select("id, version, signer_name, signer_role, signature_url, signed_at, purpose").eq("document_id", id).order("signed_at", { ascending: false }),
-            ]);
-            setVersions(vs || []);
-            setSignatures(ss || []);
+            const result = await getControlledDocumentAction(id);
+            setDoc(result.document); setVersions(result.versions); setSignatures(result.signatures);
+            setSignerName(result.viewer.fullName); setSignerRole(result.viewer.position);
         } catch (e: any) { setMsg({ type: "error", text: e?.message || "Error" }); }
         finally { setLoading(false); }
     };
@@ -98,8 +93,7 @@ export default function DocumentDetailPage({
         if (!doc) return;
         setBusy(true);
         try {
-            const { error } = await supabase.from("documents").update({ status: newStatus }).eq("id", doc.id);
-            if (error) throw error;
+            await changeControlledDocumentStatusAction({ documentId: doc.id, expectedRevision: doc.revision, status: newStatus });
             flash("success", `Estatus cambiado a ${STATUS_LABEL[newStatus]}.`);
             load();
         } catch (e: any) { flash("error", e?.message || "Error."); }
@@ -116,11 +110,7 @@ export default function DocumentDetailPage({
         if (reason === null) return;
         setBusy(true);
         try {
-            await supabase.from("documents").update({
-                status: "obsolete",
-                obsoleted_at: new Date().toISOString(),
-                obsoleted_reason: reason || null,
-            }).eq("id", doc.id);
+            await obsoleteControlledDocumentAction({ documentId: doc.id, expectedRevision: doc.revision, reason });
             flash("info", "Documento marcado como obsoleto.");
             load();
         } catch (e: any) { flash("error", e?.message || "Error."); }
@@ -132,23 +122,7 @@ export default function DocumentDetailPage({
         if (!signerName.trim()) { flash("error", "Captura el nombre del firmante."); return; }
         setBusy(true);
         try {
-            const sigUrl = await uploadSignatureDataUrl(signatureDataUrl, `doc_${doc.folio}_v${doc.version}`);
-            const { error } = await supabase.from("document_signatures").insert([{
-                document_id: doc.id, version: doc.version, signer_name: signerName, signer_role: signerRole || null,
-                signature_url: sigUrl, purpose: "approval",
-            }]);
-            if (error) throw error;
-            // If first signature and document is draft/in_review, mark as approved
-            if (doc.status === "draft" || doc.status === "in_review") {
-                await supabase.from("documents").update({
-                    status: "approved",
-                    approval_name: signerName,
-                    approval_role: signerRole || null,
-                    approval_signature_url: sigUrl,
-                    approval_signed_at: new Date().toISOString(),
-                    effective_date: doc.effective_date || new Date().toISOString().slice(0, 10),
-                }).eq("id", doc.id);
-            }
+            await signControlledDocumentAction({ documentId: doc.id, expectedRevision: doc.revision, signatureDataUrl });
             setShowSignModal(false);
             setSignerName(""); setSignerRole("");
             flash("success", "Firma registrada. Documento ahora vigente.");
@@ -164,8 +138,8 @@ export default function DocumentDetailPage({
         }
         if (!doc) return;
         if (!confirm("¿Eliminar este documento y todo su historial? Esta acción no se puede deshacer.")) return;
-        await supabase.from("documents").delete().eq("id", doc.id);
-        router.push("/documents");
+        try { await deleteControlledDocumentAction(doc.id); router.push('/documents'); }
+        catch (error) { flash('error', error instanceof Error ? error.message : 'No se pudo eliminar el documento.'); }
     };
 
     if (loading) return <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center"><RefreshCw className="w-8 h-8 animate-spin text-violet-400" /></div>;
@@ -345,11 +319,11 @@ export default function DocumentDetailPage({
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
                             <div>
                                 <label className="text-xs text-neutral-400">Nombre del firmante *</label>
-                                <input value={signerName} onChange={e => setSignerName(e.target.value)} placeholder="Tu nombre completo" className="w-full mt-1 bg-neutral-900/50 border border-neutral-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500" />
+                                <input value={signerName} readOnly className="w-full mt-1 bg-neutral-900/50 border border-neutral-700 rounded-lg px-3 py-2 text-white text-sm" />
                             </div>
                             <div>
                                 <label className="text-xs text-neutral-400">Cargo / Rol</label>
-                                <input value={signerRole} onChange={e => setSignerRole(e.target.value)} placeholder="Ej. Director de Calidad" className="w-full mt-1 bg-neutral-900/50 border border-neutral-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500" />
+                                <input value={signerRole} readOnly className="w-full mt-1 bg-neutral-900/50 border border-neutral-700 rounded-lg px-3 py-2 text-white text-sm" />
                             </div>
                         </div>
                         <SignaturePad

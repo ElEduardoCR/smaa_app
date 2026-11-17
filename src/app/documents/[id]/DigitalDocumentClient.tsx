@@ -1,15 +1,16 @@
 /* eslint-disable @next/next/no-img-element */
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, BookOpen, CheckCircle2, Download, FileText, History, Loader2, Plus, Printer, Save, Trash2, X } from 'lucide-react';
 import SignaturePad from '@/components/manufacturing/SignaturePad';
 import { initialDigitalValues, type DigitalField, type DigitalRow, type DigitalSection, type DigitalTemplate, type DigitalValues } from '@/lib/documents/schema';
 import { calculateDigitalValues } from '@/lib/documents/calculations';
 import { getDigitalRegisterValuesAction } from '@/app/actions/digitalDocumentContent';
+import { listControlledDocumentsAction } from '@/app/actions/documentAccess';
 import {
-    getDigitalEntryAction, getDigitalPdfAction, getDigitalTemplatePdfAction,
+    getDigitalEntryAction, getDigitalPdfAction, getDigitalTemplatePdfAction, getDigitalSourceEvidenceAction,
     listDigitalEntriesAction, saveDigitalEntryAction,
     type DigitalEntryDetail, type DigitalEntrySummary,
 } from '@/app/actions/digitalDocuments';
@@ -23,15 +24,34 @@ const displayDate = (date: string) => new Intl.DateTimeFormat('es-MX', { dateSty
 
 function ProcessFlow({ flow, title }: { flow: NonNullable<DigitalSection['flow']>; title: string }) {
     const nodes = new Map(flow.nodes.map(node => [node.id, node]));
+    const markerId = useId().replaceAll(':', '');
+    const rightEdge = Math.max(0, ...flow.nodes.map(node => node.x + node.width));
+    const padding = 36;
     return <div className="mt-5 overflow-auto rounded-lg border border-neutral-700 bg-neutral-900 p-4" tabIndex={0} role="region" aria-label={`Diagrama de ${title}`}>
-        <svg role="img" aria-label={title} viewBox={`0 0 ${flow.width} ${flow.height}`} className="h-auto w-full" style={{ minWidth: Math.max(800, flow.width) }}>
-            <defs><marker id={`arrow-${flow.nodes[0]?.id}`} markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 z" fill="var(--brand)" /></marker></defs>
+        <svg role="img" aria-label={title} viewBox={`${-padding} ${-padding} ${flow.width + padding * 2} ${flow.height + padding * 2}`} className="h-auto w-full" style={{ minWidth: Math.max(800, flow.width) }}>
+            <defs><marker id={markerId} markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 z" fill="var(--brand)" /></marker></defs>
             {flow.edges.map((edge, index) => {
                 const from = nodes.get(edge.from), to = nodes.get(edge.to);
                 if (!from || !to) return null;
                 const x1 = from.x + from.width / 2, y1 = from.y + from.height;
                 const x2 = to.x + to.width / 2, y2 = to.y;
-                return <g key={index}><path d={`M ${x1} ${y1} L ${x1} ${(y1 + y2) / 2} L ${x2} ${(y1 + y2) / 2} L ${x2} ${y2}`} stroke="var(--brand)" strokeWidth={1.5} fill="none" markerEnd={`url(#arrow-${flow.nodes[0]?.id})`} />{edge.label ? <text x={(x1 + x2) / 2 + 5} y={(y1 + y2) / 2 - 5} fontSize="12" fill="var(--ink-2)">{edge.label}</text> : null}</g>;
+                let path: string, labelX: number, labelY: number;
+                if (to.y === from.y) {
+                    const right = to.x > from.x;
+                    const startX = right ? from.x + from.width : from.x;
+                    const endX = right ? to.x : to.x + to.width;
+                    const startY = from.y + from.height / 2, endY = to.y + to.height / 2;
+                    path = `M ${startX} ${startY} L ${endX} ${endY}`;
+                    labelX = (startX + endX) / 2; labelY = (startY + endY) / 2 - 8;
+                } else if (to.y < from.y) {
+                    const gutter = rightEdge + 24, lowerY = y1 + 16, targetY = to.y + to.height / 2;
+                    path = `M ${x1} ${y1} L ${x1} ${lowerY} L ${gutter} ${lowerY} L ${gutter} ${targetY} L ${to.x + to.width} ${targetY}`;
+                    labelX = (x1 + gutter) / 2; labelY = lowerY - 6;
+                } else {
+                    path = `M ${x1} ${y1} L ${x1} ${(y1 + y2) / 2} L ${x2} ${(y1 + y2) / 2} L ${x2} ${y2}`;
+                    labelX = (x1 + x2) / 2 + 5; labelY = (y1 + y2) / 2 - 5;
+                }
+                return <g key={index}><path d={path} stroke="var(--brand)" strokeWidth={1.5} fill="none" markerEnd={`url(#${markerId})`} />{edge.label ? <text x={labelX} y={labelY} fontSize="12" fill="var(--ink-2)">{edge.label}</text> : null}</g>;
             })}
             {flow.nodes.map(node => {
                 const words = node.label.split(/\s+/), lines: string[] = [];
@@ -107,18 +127,22 @@ export default function DigitalDocumentClient({ document, template, canCreate, c
     const [loading, setLoading] = useState(true);
     const [notice, setNotice] = useState<{ error: boolean; text: string } | null>(null);
     const [tab, setTab] = useState<'document' | 'entries'>('document');
+    const [relatedDocuments, setRelatedDocuments] = useState<{ id: string; folio: string; title: string }[]>([]);
     const activeTemplate = entry?.template_snapshot || template;
     const shownCode = editing && entry ? activeTemplate.code : document.folio;
     const shownTitle = editing && entry ? activeTemplate.title : document.title;
     const shownVersion = editing && entry ? entry.template_version : document.version;
     const shownRevision = editing && entry ? entry.template_revision : document.revision;
-    const hasCapture = template.sections.some(section => section.fields?.length || section.table);
+    const hasCapture = template.captureEnabled !== false && template.sections.some(section => section.fields?.length || section.table);
     const readOnly = !editing || !!entry && !entry.can_edit;
     const summaries = useMemo(() => calculateDigitalValues(activeTemplate, values), [activeTemplate, values]);
 
     const loadEntries = useCallback(async () => {
         setLoading(true);
-        try { setEntries(await listDigitalEntriesAction(document.id)); }
+        try {
+            const [saved, catalogue] = await Promise.all([listDigitalEntriesAction(document.id), listControlledDocumentsAction()]);
+            setEntries(saved); setRelatedDocuments(catalogue);
+        }
         catch (error) { setNotice({ error: true, text: messageOf(error) }); }
         finally { setLoading(false); }
     }, [document.id]);
@@ -173,6 +197,17 @@ export default function DigitalDocumentClient({ document, template, canCreate, c
         finally { setBusy(false); }
     };
     const closeEntry = () => { if (!discardAllowed()) return; setEditing(false); setEntry(null); setDirty(false); setValues(initialDigitalValues(template)); };
+    const openEvidence = async (sha256: string) => {
+        const popup = window.open('about:blank', '_blank');
+        if (popup) popup.opener = null;
+        setBusy(true);
+        try {
+            const url = await getDigitalSourceEvidenceAction(document.id, sha256);
+            if (popup) popup.location.href = url;
+            else setNotice({ error: false, text: 'Permite las ventanas emergentes para abrir el original.' });
+        } catch (error) { popup?.close(); setNotice({ error: true, text: messageOf(error) }); }
+        finally { setBusy(false); }
+    };
 
     return <div className="min-h-screen bg-[var(--app-bg)] p-3 text-neutral-200 sm:p-6 lg:p-8">
         <div className="mx-auto max-w-7xl space-y-6">
@@ -183,6 +218,12 @@ export default function DigitalDocumentClient({ document, template, canCreate, c
                 </div>
                 <p className="mt-5 max-w-4xl text-sm leading-6 text-neutral-300">{template.description}</p>
                 {template.needsAdaptation ? <p className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">Documento en borrador. Revisa los responsables y las reglas pendientes antes de aprobarlo como vigente.</p> : null}
+                {template.normativeBaseline ? <p className="mt-4 text-sm font-medium text-neutral-200">{template.normativeBaseline}{template.transitionNote ? ` · ${template.transitionNote}` : ''}</p> : null}
+                {template.sourceEvidence?.length ? <div className="mt-4 flex flex-wrap gap-2">{template.sourceEvidence.map(source => <button type="button" key={source.sha256} disabled={busy} className={secondary} onClick={() => void openEvidence(source.sha256)}><FileText className="h-4 w-4" /> {source.label}</button>)}</div> : null}
+                {template.relatedCodes?.length ? <div className="mt-5 border-t border-neutral-700 pt-4"><p className="mb-3 text-sm font-medium text-neutral-300">Documentos relacionados</p><div className="flex flex-wrap gap-2">{template.relatedCodes.map(code => {
+                    const linked = relatedDocuments.find(item => item.folio === code);
+                    return linked ? <Link key={code} href={`/documents/${linked.id}`} title={linked.title} className={secondary}><span className="font-mono">{code}</span><span className="max-w-64 truncate">{linked.title}</span></Link> : <span key={code} className="rounded-lg border border-neutral-700 px-3 py-2 font-mono text-sm text-neutral-400">{code}</span>;
+                })}</div></div> : null}
             </header>
 
             {notice ? <div role={notice.error ? 'alert' : 'status'} className={`flex items-start justify-between gap-3 rounded-lg border p-4 text-sm ${notice.error ? 'border-rose-500/30 bg-rose-500/10 text-rose-300' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'}`}><p>{notice.text}</p><button type="button" aria-label="Cerrar aviso" onClick={() => setNotice(null)} className="min-h-8 min-w-8"><X className="mx-auto h-4 w-4" /></button></div> : null}

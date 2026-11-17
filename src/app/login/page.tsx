@@ -203,7 +203,7 @@ function LoginInner() {
                 )}
 
                 <p className="text-center text-[11px] text-neutral-500 mt-10">
-                    SMAA ERP · ISO 9001:2015
+                    SMAA ERP · Gestión de calidad
                 </p>
             </div>
 

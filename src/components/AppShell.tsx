@@ -126,7 +126,7 @@ export default function AppShell({
                     <div className="app-brand-mark"><Factory className="w-[18px] h-[18px]" /></div>
                     <div style={{ minWidth: 0 }}>
                         <div className="app-brand-name">SMAA ERP</div>
-                        <div className="app-brand-sub">ISO 9001:2015</div>
+                        <div className="app-brand-sub">Gestión de calidad</div>
                     </div>
                     <button
                         type="button"

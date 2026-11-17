@@ -26,10 +26,10 @@
  */
 
 import { revalidatePath } from 'next/cache';
-import { supabase } from '@/lib/supabase';
 import { getSession } from '@/lib/session';
 import { can } from '@/lib/permissions';
 import { getServerSupabase } from '@/lib/supabaseServer';
+import { storeControlledSignature, removeUncommittedControlledSignature } from '@/lib/documents/approvalStorage';
 
 // -----------------------------------------------------------------------------
 // Tipos
@@ -75,7 +75,7 @@ export type ReviewAction = {
     requestId: string;
     decision: 'approve' | 'reject';
     notes?: string;
-    signatureUrl?: string;
+    signatureDataUrl?: string;
 };
 
 // -----------------------------------------------------------------------------
@@ -94,7 +94,7 @@ async function prepareRequestPayload(input: CreateRequestInput): Promise<Documen
     const payload = { ...input.payload };
     delete payload.base_revision;
     if (input.type === 'change') {
-        const { data, error } = await supabase.from('documents').select('revision, status').eq('id', input.target_document_id).single();
+        const { data, error } = await getServerSupabase().from('documents').select('revision, status').eq('id', input.target_document_id).single();
         if (error || !data) throw new Error('Documento objetivo no encontrado.');
         if (['obsolete', 'pending_obsolete'].includes(data.status)) throw new Error('No se puede cambiar un documento obsoleto.');
         if (input.payload.base_revision !== undefined && input.payload.base_revision !== data.revision) {
@@ -112,7 +112,7 @@ async function logChange(
     changedBy: string,
     metadata: Record<string, unknown> = {}
 ) {
-    await supabase.from('change_log').insert({
+    await getServerSupabase().from('change_log').insert({
         entity_type: 'document_request',
         entity_id: entityId,
         action,
@@ -153,7 +153,7 @@ export async function createDocumentRequestAction(input: CreateRequestInput) {
     }
     const payload = await prepareRequestPayload(input);
 
-    const { data, error } = await supabase
+    const { data, error } = await getServerSupabase()
         .from('document_requests')
         .insert({
             type: input.type,
@@ -190,7 +190,7 @@ export async function resubmitDocumentRequestAction(
     if (!requestId) throw new Error('Falta el ID de la requisición.');
 
     // Verificar que la requisición existe y es del solicitante
-    const { data: req, error: rErr } = await supabase
+    const { data: req, error: rErr } = await getServerSupabase()
         .from('document_requests')
         .select('*')
         .eq('id', requestId)
@@ -208,7 +208,7 @@ export async function resubmitDocumentRequestAction(
         payload: updates.payload ?? req.payload,
     });
 
-    const { error } = await supabase
+    const { error } = await getServerSupabase()
         .from('document_requests')
         .update({
             title: updates.title ?? req.title,
@@ -246,7 +246,7 @@ export async function reviewByDocumentControllerAction(input: ReviewAction) {
         throw new Error('Solo el Controlador de Documentos puede revisar requisiciones.');
     }
 
-    const { data: req, error: rErr } = await supabase
+    const { data: req, error: rErr } = await getServerSupabase()
         .from('document_requests')
         .select('*')
         .eq('id', input.requestId)
@@ -261,7 +261,7 @@ export async function reviewByDocumentControllerAction(input: ReviewAction) {
 
     const newStatus: DocumentRequestStatus = input.decision === 'approve' ? 'pending_top_mgmt' : 'rejected_by_doc_control';
 
-    const { error } = await supabase
+    const { error } = await getServerSupabase()
         .from('document_requests')
         .update({
             status: newStatus,
@@ -290,7 +290,7 @@ export async function approveByTopManagementAction(input: ReviewAction) {
         throw new Error('Solo Alta Dirección puede aprobar estas requisiciones.');
     }
 
-    const { data: req, error: rErr } = await supabase
+    const { data: req, error: rErr } = await getServerSupabase()
         .from('document_requests')
         .select('*')
         .eq('id', input.requestId)
@@ -303,26 +303,19 @@ export async function approveByTopManagementAction(input: ReviewAction) {
     if (input.decision === 'reject' && !input.notes?.trim()) {
         throw new Error('Para rechazar, debes indicar las notas.');
     }
-    if (input.decision === 'approve') {
-        if (!input.signatureUrl || !s.employeeId) throw new Error('Dibuja tu firma para aprobar la requisición.');
-        let signature: URL;
-        try { signature = new URL(input.signatureUrl); } catch { throw new Error('Firma de aprobación no válida.'); }
-        const storageBase = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL || 'http://invalid.local');
-        if (signature.origin !== storageBase.origin || !signature.pathname.startsWith('/storage/v1/object/public/signatures/')) {
-            throw new Error('La firma debe guardarse en el archivo de firmas de SMAA.');
-        }
-    }
+    if (input.decision === 'approve' && (!input.signatureDataUrl || !s.employeeId)) throw new Error('Dibuja tu firma para aprobar la requisición.');
+    const signatureUri = input.decision === 'approve' ? await storeControlledSignature(input.signatureDataUrl!, s.employeeId) : null;
 
     const newStatus: DocumentRequestStatus = input.decision === 'approve' ? 'approved' : 'rejected';
 
-    const { error } = await supabase
+    const { error } = await getServerSupabase()
         .from('document_requests')
         .update({
             status: newStatus,
             top_mgmt_approver: s.employeeId,
             top_mgmt_approved_at: new Date().toISOString(),
             top_mgmt_notes: input.notes ?? null,
-            top_mgmt_signature_url: input.decision === 'approve' ? input.signatureUrl : null,
+            top_mgmt_signature_url: signatureUri,
             top_mgmt_approver_name: input.decision === 'approve' ? s.fullName || s.username : null,
             top_mgmt_approver_role: input.decision === 'approve' ? s.position || 'Alta Dirección' : null,
         })
@@ -330,7 +323,10 @@ export async function approveByTopManagementAction(input: ReviewAction) {
         .eq('status', req.status)
         .select('id')
         .single();
-    if (error) throw new Error('Error al guardar la aprobación: ' + error.message);
+    if (error) {
+        if (signatureUri) await removeUncommittedControlledSignature(signatureUri);
+        throw new Error('Error al guardar la aprobación: ' + error.message);
+    }
 
     await logChange(input.requestId, 'top_mgmt_' + input.decision, `Alta Dirección ${input.decision === 'approve' ? 'APROBÓ' : 'RECHAZÓ'} la requisición`, s.employeeId ?? s.username, {
         notes: input.notes,
@@ -374,7 +370,7 @@ export async function cancelDocumentRequestAction(requestId: string) {
     const s = await requireSession();
     if (!requestId) throw new Error('Falta el ID.');
 
-    const { data: req, error: rErr } = await supabase
+    const { data: req, error: rErr } = await getServerSupabase()
         .from('document_requests')
         .select('*')
         .eq('id', requestId)
@@ -387,7 +383,7 @@ export async function cancelDocumentRequestAction(requestId: string) {
         throw new Error(`La requisición está en estado "${req.status}" y no se puede cancelar.`);
     }
 
-    const { error } = await supabase
+    const { error } = await getServerSupabase()
         .from('document_requests')
         .update({ status: 'cancelled' })
         .eq('id', requestId);
