@@ -12,8 +12,10 @@ import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
 import {
     reviewByDocumentControllerAction, approveByTopManagementAction,
-    publishDocumentRequestAction, cancelDocumentRequestAction, resubmitDocumentRequestAction
+    publishDocumentRequestAction, cancelDocumentRequestAction
 } from "@/app/actions/documentRequests";
+import SignaturePad from '@/components/manufacturing/SignaturePad';
+import { uploadSignatureDataUrl } from '@/lib/uploadHelpers';
 
 function cn(...inputs: (string | undefined | null | false)[]) {
     return twMerge(clsx(inputs));
@@ -48,6 +50,7 @@ type Request = {
     top_mgmt_approver: string | null;
     top_mgmt_approved_at: string | null;
     top_mgmt_notes: string | null;
+    top_mgmt_signature_url: string | null;
     revision_count: number;
     resulting_document_id: string | null;
     target_document_id: string | null;
@@ -63,14 +66,13 @@ type LogEntry = {
     metadata: any;
 };
 
-export default function RequestDetailPage({ id }: { id: string }) {
+export default function RequestDetailPage({ id, viewer }: { id: string; viewer: { employeeId: string; role: string } }) {
     const router = useRouter();
     const [req, setReq] = useState<Request | null>(null);
     const [targetDoc, setTargetDoc] = useState<any>(null);
     const [resultingDoc, setResultingDoc] = useState<any>(null);
     const [log, setLog] = useState<LogEntry[]>([]);
     const [employees, setEmployees] = useState<Record<string, { full_name: string; role: string }>>({});
-    const [session, setSession] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState<string | null>(null);
@@ -127,13 +129,13 @@ export default function RequestDetailPage({ id }: { id: string }) {
     useEffect(() => { load(); }, [id]);
 
     // Determinar rol del usuario actual
-    const myId = session?.user?.id || null;
-    const myRole = session?.user?.role || null;
+    const myId = viewer.employeeId;
+    const myRole = viewer.role;
     const isRequester = req && myId && req.requested_by === myId;
     const isDocController = myRole === 'document_controller' || myRole === 'master';
     const isTopMgmt = myRole === 'top_management' || myRole === 'master';
 
-    const doReview = async (decision: 'approve' | 'reject', reviewer: 'doc_control' | 'top_mgmt') => {
+    const doReview = async (decision: 'approve' | 'reject', reviewer: 'doc_control' | 'top_mgmt', signatureDataUrl?: string) => {
         if (decision === 'reject' && !notes.trim()) {
             setErr("Para rechazar, debes indicar las notas con lo que el solicitante debe corregir.");
             return;
@@ -145,12 +147,14 @@ export default function RequestDetailPage({ id }: { id: string }) {
             if (reviewer === 'doc_control') {
                 await reviewByDocumentControllerAction({ requestId: id, decision, notes });
             } else {
-                await approveByTopManagementAction({ requestId: id, decision, notes });
+                const signatureUrl = decision === 'approve' && signatureDataUrl
+                    ? await uploadSignatureDataUrl(signatureDataUrl, `req_${id}`) : undefined;
+                await approveByTopManagementAction({ requestId: id, decision, notes, signatureUrl });
             }
             setNotes("");
             setShowApproveModal(null);
             setShowRejectModal(null);
-            setOk(decision === 'approve' ? 'Aprobada. La requisición pasó al siguiente paso.' : 'Rechazada. El solicitante fue notificado.');
+            setOk(decision === 'approve' ? 'Aprobada. La requisición pasó al siguiente paso.' : 'Rechazada. Las notas están disponibles para el solicitante.');
             await load();
         } catch (e: any) {
             setErr(e?.message || "Error");
@@ -165,7 +169,7 @@ export default function RequestDetailPage({ id }: { id: string }) {
         setOk(null);
         try {
             const { document_id } = await publishDocumentRequestAction(id);
-            setOk("Requisición publicada. Documento creado.");
+            setOk("Requisición publicada. Documento actualizado.");
             await load();
             if (document_id) router.push(`/documents/${document_id}`);
         } catch (e: any) {
@@ -266,9 +270,9 @@ export default function RequestDetailPage({ id }: { id: string }) {
 
                         {/* Publicar (Alta Dirección) */}
                         {isTopMgmt && req.status === 'approved' && (
-                            <button onClick={doPublish} disabled={busy}
+                            <button onClick={req.top_mgmt_signature_url ? doPublish : () => setShowApproveModal('top_mgmt')} disabled={busy}
                                 className="text-sm bg-cyan-500 hover:bg-cyan-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-1.5">
-                                <FileText className="w-4 h-4" /> Publicar documento
+                                <FileText className="w-4 h-4" /> {req.top_mgmt_signature_url ? 'Publicar documento' : 'Firmar aprobación para publicar'}
                             </button>
                         )}
                     </div>
@@ -397,13 +401,21 @@ export default function RequestDetailPage({ id }: { id: string }) {
                     <textarea value={notes} onChange={e => setNotes(e.target.value)}
                         className="w-full mt-1 bg-neutral-900/50 border border-neutral-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500 min-h-[80px]"
                         placeholder="Comentarios, condiciones, etc." />
-                    <div className="flex justify-end gap-2 mt-4">
+                    {showApproveModal === 'top_mgmt' ? (
+                        <div className="mt-4 overflow-x-auto">
+                            <SignaturePad width={280} height={160} saving={busy} disabled={busy}
+                                label="Firma de Alta Dirección"
+                                saveLabel="Firmar y aprobar"
+                                onCancel={() => setShowApproveModal(null)}
+                                onSave={dataUrl => doReview('approve', 'top_mgmt', dataUrl)} />
+                        </div>
+                    ) : <div className="flex justify-end gap-2 mt-4">
                         <button onClick={() => setShowApproveModal(null)} className="px-4 py-2 text-sm text-neutral-300 hover:text-white">Cancelar</button>
                         <button onClick={() => doReview('approve', showApproveModal)} disabled={busy}
                             className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-semibold inline-flex items-center gap-1.5">
                             <CheckCircle2 className="w-4 h-4" /> Aprobar
                         </button>
-                    </div>
+                    </div>}
                 </Modal>
             )}
 

@@ -17,8 +17,8 @@
  *      - Rechaza (con notas) → 'rejected'
  *   4) Cuando se publica:
  *      - type='new' → crea un documento nuevo con el payload
- *      - type='change' → marca el documento objetivo como obsoleto y crea
- *        uno nuevo con los datos actualizados (incrementa revisión)
+ *      - type='change' → conserva ID y código; guarda la revisión anterior
+ *        y publica la nueva revisión con la firma real de Alta Dirección.
  *
  * Evidencias: cada cambio de estado se registra en `change_log` con
  * metadata del reviewer, notas y timestamp.
@@ -29,6 +29,7 @@ import { revalidatePath } from 'next/cache';
 import { supabase } from '@/lib/supabase';
 import { getSession } from '@/lib/session';
 import { can } from '@/lib/permissions';
+import { getServerSupabase } from '@/lib/supabaseServer';
 
 // -----------------------------------------------------------------------------
 // Tipos
@@ -57,6 +58,8 @@ export type DocumentPayload = {
     effective_date?: string | null;
     next_review_date?: string | null;
     version?: string;
+    /** Revisión leída al preparar la solicitud; el servidor la establece. */
+    base_revision?: number;
 };
 
 export type CreateRequestInput = {
@@ -72,6 +75,7 @@ export type ReviewAction = {
     requestId: string;
     decision: 'approve' | 'reject';
     notes?: string;
+    signatureUrl?: string;
 };
 
 // -----------------------------------------------------------------------------
@@ -83,12 +87,30 @@ async function requireSession() {
     return s;
 }
 
+async function prepareRequestPayload(input: CreateRequestInput): Promise<DocumentPayload> {
+    if (!['new', 'change'].includes(input.type)) throw new Error('Tipo de requisición no válido.');
+    if (!input.payload.title?.trim() || !input.payload.content?.trim()) throw new Error('El documento requiere título y contenido.');
+    if (input.payload.version && !/^\d+\.\d+$/.test(input.payload.version)) throw new Error('La versión debe tener formato 1.0.');
+    const payload = { ...input.payload };
+    delete payload.base_revision;
+    if (input.type === 'change') {
+        const { data, error } = await supabase.from('documents').select('revision, status').eq('id', input.target_document_id).single();
+        if (error || !data) throw new Error('Documento objetivo no encontrado.');
+        if (['obsolete', 'pending_obsolete'].includes(data.status)) throw new Error('No se puede cambiar un documento obsoleto.');
+        if (input.payload.base_revision !== undefined && input.payload.base_revision !== data.revision) {
+            throw new Error('El documento cambió mientras preparabas la solicitud. Actualiza la página y revisa la versión vigente.');
+        }
+        payload.base_revision = data.revision;
+    }
+    return payload;
+}
+
 async function logChange(
     entityId: string,
     action: string,
     description: string,
     changedBy: string,
-    metadata: Record<string, any> = {}
+    metadata: Record<string, unknown> = {}
 ) {
     await supabase.from('change_log').insert({
         entity_type: 'document_request',
@@ -129,6 +151,7 @@ export async function createDocumentRequestAction(input: CreateRequestInput) {
     if (input.type === 'new' && input.target_document_id) {
         throw new Error('Para documento nuevo, no debe haber documento objetivo.');
     }
+    const payload = await prepareRequestPayload(input);
 
     const { data, error } = await supabase
         .from('document_requests')
@@ -138,7 +161,7 @@ export async function createDocumentRequestAction(input: CreateRequestInput) {
             title: input.title,
             change_summary: input.change_summary ?? null,
             reason: input.reason,
-            payload: input.payload as any,
+            payload,
             status: 'pending_doc_control',
             requested_by: s.employeeId,
         })
@@ -179,6 +202,11 @@ export async function resubmitDocumentRequestAction(
     if (!['rejected_by_doc_control', 'rejected'].includes(req.status)) {
         throw new Error('Solo puedes modificar requisiciones que fueron rechazadas.');
     }
+    const payload = await prepareRequestPayload({
+        type: req.type, target_document_id: req.target_document_id,
+        title: updates.title ?? req.title, reason: updates.reason ?? req.reason,
+        payload: updates.payload ?? req.payload,
+    });
 
     const { error } = await supabase
         .from('document_requests')
@@ -186,10 +214,15 @@ export async function resubmitDocumentRequestAction(
             title: updates.title ?? req.title,
             change_summary: updates.change_summary ?? req.change_summary,
             reason: updates.reason ?? req.reason,
-            payload: updates.payload ?? req.payload,
+            payload,
             status: 'pending_doc_control',
             doc_control_notes: null,
             top_mgmt_notes: null,
+            top_mgmt_approver: null,
+            top_mgmt_approved_at: null,
+            top_mgmt_signature_url: null,
+            top_mgmt_approver_name: null,
+            top_mgmt_approver_role: null,
             revision_count: (req.revision_count ?? 0) + 1,
         })
         .eq('id', requestId);
@@ -263,11 +296,21 @@ export async function approveByTopManagementAction(input: ReviewAction) {
         .eq('id', input.requestId)
         .single();
     if (rErr || !req) throw new Error('Requisición no encontrada.');
-    if (req.status !== 'pending_top_mgmt') {
+    const needsLegacySignature = req.status === 'approved' && !req.top_mgmt_signature_url;
+    if (req.status !== 'pending_top_mgmt' && !(needsLegacySignature && input.decision === 'approve')) {
         throw new Error(`La requisición está en estado "${req.status}" y no puede ser aprobada por Alta Dirección.`);
     }
     if (input.decision === 'reject' && !input.notes?.trim()) {
         throw new Error('Para rechazar, debes indicar las notas.');
+    }
+    if (input.decision === 'approve') {
+        if (!input.signatureUrl || !s.employeeId) throw new Error('Dibuja tu firma para aprobar la requisición.');
+        let signature: URL;
+        try { signature = new URL(input.signatureUrl); } catch { throw new Error('Firma de aprobación no válida.'); }
+        const storageBase = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL || 'http://invalid.local');
+        if (signature.origin !== storageBase.origin || !signature.pathname.startsWith('/storage/v1/object/public/signatures/')) {
+            throw new Error('La firma debe guardarse en el archivo de firmas de SMAA.');
+        }
     }
 
     const newStatus: DocumentRequestStatus = input.decision === 'approve' ? 'approved' : 'rejected';
@@ -279,8 +322,14 @@ export async function approveByTopManagementAction(input: ReviewAction) {
             top_mgmt_approver: s.employeeId,
             top_mgmt_approved_at: new Date().toISOString(),
             top_mgmt_notes: input.notes ?? null,
+            top_mgmt_signature_url: input.decision === 'approve' ? input.signatureUrl : null,
+            top_mgmt_approver_name: input.decision === 'approve' ? s.fullName || s.username : null,
+            top_mgmt_approver_role: input.decision === 'approve' ? s.position || 'Alta Dirección' : null,
         })
-        .eq('id', input.requestId);
+        .eq('id', input.requestId)
+        .eq('status', req.status)
+        .select('id')
+        .single();
     if (error) throw new Error('Error al guardar la aprobación: ' + error.message);
 
     await logChange(input.requestId, 'top_mgmt_' + input.decision, `Alta Dirección ${input.decision === 'approve' ? 'APROBÓ' : 'RECHAZÓ'} la requisición`, s.employeeId ?? s.username, {
@@ -292,10 +341,9 @@ export async function approveByTopManagementAction(input: ReviewAction) {
 }
 
 /**
- * Publica una requisición aprobada. Crea el documento real:
+ * Publica una requisición aprobada con firma real de Alta Dirección:
  * - type='new' → crea un documento nuevo con el payload.
- * - type='change' → marca el documento objetivo como obsoleto y crea
- *   uno nuevo con la versión incrementada.
+ * - type='change' → conserva ID/código y archiva la revisión anterior.
  */
 export async function publishDocumentRequestAction(requestId: string) {
     const s = await requireSession();
@@ -304,110 +352,12 @@ export async function publishDocumentRequestAction(requestId: string) {
     }
     if (!requestId) throw new Error('Falta el ID.');
 
-    const { data: req, error: rErr } = await supabase
-        .from('document_requests')
-        .select('*')
-        .eq('id', requestId)
-        .single();
-    if (rErr || !req) throw new Error('Requisición no encontrada.');
-    if (req.status !== 'approved') {
-        throw new Error(`La requisición está en estado "${req.status}" y no se puede publicar.`);
-    }
-
-    const payload = req.payload as DocumentPayload;
-    let resultingDocId: string | null = null;
-    let obsoletedDocId: string | null = null;
-
-    if (req.type === 'change' && req.target_document_id) {
-        // 1) Marcar el documento objetivo como obsoleto
-        const { data: oldDoc, error: oErr } = await supabase
-            .from('documents')
-            .update({
-                status: 'obsolete',
-                obsoleted_at: new Date().toISOString(),
-                obsoleted_reason: `Reemplazado por nueva versión vía requisición ${requestId.slice(0, 8)}`,
-            })
-            .eq('id', req.target_document_id)
-            .select('id, version, revision')
-            .single();
-        if (oErr) throw new Error('Error al obsoletar el documento anterior: ' + oErr.message);
-        obsoletedDocId = oldDoc.id;
-
-        // 2) Calcular nueva versión (incrementar minor: 1.0 → 1.1)
-        const newVersion = bumpVersion(oldDoc.version ?? '1.0');
-
-        // 3) Crear el nuevo documento
-        const { data: newDoc, error: nErr } = await supabase
-            .from('documents')
-            .insert({
-                type_id: payload.type_id ?? null,
-                title: payload.title,
-                keywords: payload.keywords ?? null,
-                objective: payload.objective ?? null,
-                scope: payload.scope ?? null,
-                definitions: payload.definitions ?? null,
-                responsibilities: payload.responsibilities ?? null,
-                content: payload.content,
-                document_references: payload.document_references ?? null,
-                records: payload.records ?? null,
-                effective_date: payload.effective_date ?? new Date().toISOString().slice(0, 10),
-                next_review_date: payload.next_review_date ?? null,
-                version: payload.version ?? newVersion,
-                status: 'approved',
-                approval_name: req.top_mgmt_approver ? s.fullName ?? s.username : null,
-                approval_role: s.position ?? 'Alta Dirección',
-                approval_signed_at: new Date().toISOString(),
-                created_by: req.requested_by,
-            })
-            .select('id, folio, version')
-            .single();
-        if (nErr) throw new Error('Error al crear el nuevo documento: ' + nErr.message);
-        resultingDocId = newDoc.id;
-    } else {
-        // type='new': crear el documento desde cero
-        const { data: newDoc, error: nErr } = await supabase
-            .from('documents')
-            .insert({
-                type_id: payload.type_id ?? null,
-                title: payload.title,
-                keywords: payload.keywords ?? null,
-                objective: payload.objective ?? null,
-                scope: payload.scope ?? null,
-                definitions: payload.definitions ?? null,
-                responsibilities: payload.responsibilities ?? null,
-                content: payload.content,
-                document_references: payload.document_references ?? null,
-                records: payload.records ?? null,
-                effective_date: payload.effective_date ?? new Date().toISOString().slice(0, 10),
-                next_review_date: payload.next_review_date ?? null,
-                version: payload.version ?? '1.0',
-                status: 'approved',
-                approval_name: s.fullName ?? s.username,
-                approval_role: s.position ?? 'Alta Dirección',
-                approval_signed_at: new Date().toISOString(),
-                created_by: req.requested_by,
-            })
-            .select('id, folio, version')
-            .single();
-        if (nErr) throw new Error('Error al crear el documento: ' + nErr.message);
-        resultingDocId = newDoc.id;
-    }
-
-    // 4) Actualizar la requisición
-    const { error: uErr } = await supabase
-        .from('document_requests')
-        .update({
-            status: 'published',
-            resulting_document_id: resultingDocId,
-            published_at: new Date().toISOString(),
-        })
-        .eq('id', requestId);
-    if (uErr) throw new Error('Error al actualizar la requisición: ' + uErr.message);
-
-    await logChange(requestId, 'published', `Requisición publicada. Documento ${resultingDocId} creado.${obsoletedDocId ? ' Versión anterior obsoletada.' : ''}`, s.employeeId ?? s.username, {
-        resulting_document_id: resultingDocId,
-        obsoleted_document_id: obsoletedDocId,
+    const { data, error } = await getServerSupabase().rpc('publish_document_request_atomic', {
+        p_request_id: requestId, p_actor_id: s.employeeId, p_actor_name: s.fullName || s.username,
     });
+    if (error) throw new Error('No se pudo publicar la requisición: ' + error.message);
+    const resultingDocId = data?.document_id as string | undefined;
+    if (!resultingDocId) throw new Error('La publicación no devolvió un documento.');
 
     revalidatePath('/documents/requests');
     revalidatePath('/documents');
@@ -447,17 +397,4 @@ export async function cancelDocumentRequestAction(requestId: string) {
 
     revalidatePath('/documents/requests');
     revalidatePath(`/documents/requests/${requestId}`);
-}
-
-// -----------------------------------------------------------------------------
-// Helper: bumpVersion
-// -----------------------------------------------------------------------------
-function bumpVersion(v: string): string {
-    const parts = v.split('.').map((n) => parseInt(n, 10));
-    if (parts.length === 1) return `${parts[0]}.1`;
-    if (parts.length >= 2) {
-        parts[1] = (parts[1] ?? 0) + 1;
-        return parts.slice(0, 2).join('.');
-    }
-    return v;
 }

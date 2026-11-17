@@ -12,7 +12,9 @@
     "test:hikvision-bridge": "tsx scripts/test-hikvision-lan-bridge.ts",
     "test:attendance": "tsx scripts/test-attendance-calculation.ts",
     "test:time-clock": "tsx scripts/test-time-clock-import.ts",
-    "test:sales-manufacturing": "tsx scripts/test-sales-manufacturing.ts"
+    "test:sales-manufacturing": "tsx scripts/test-sales-manufacturing.ts",
+    "test:documents": "tsx scripts/test-digital-documents.ts && tsx scripts/test-document-publication.ts && tsx scripts/test-digital-catalog-replacement.ts",
+    "documents:catalog": "tsx scripts/prepare-digital-document-catalog.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

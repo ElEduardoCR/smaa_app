@@ -9,7 +9,8 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
-import { createDocumentRequestAction } from "@/app/actions/documentRequests";
+import { createDocumentRequestAction, resubmitDocumentRequestAction, type CreateRequestInput } from "@/app/actions/documentRequests";
+import type { DigitalTemplate } from '@/lib/documents/schema';
 
 function cn(...inputs: (string | undefined | null | false)[]) {
     return twMerge(clsx(inputs));
@@ -24,7 +25,10 @@ const STEPS = [
 function NewRequestForm() {
     const router = useRouter();
     const search = useSearchParams();
-    const targetDocId = search?.get("target") || null;
+    const targetParam = search?.get("target") || null;
+    const editId = search?.get('edit') || null;
+    const [editTargetId, setEditTargetId] = useState<string | null>(null);
+    const targetDocId = targetParam || editTargetId;
 
     const [step, setStep] = useState(1);
     const [busy, setBusy] = useState(false);
@@ -58,9 +62,27 @@ function NewRequestForm() {
         (async () => {
             const { data } = await supabase.from("document_types").select("*").eq("is_active", true).order("sort_order");
             setTypes(data || []);
-            if (data && data.length > 0 && !typeId) setTypeId(data[0].id);
+            if (data && data.length > 0) setTypeId(current => current || data[0].id);
         })();
     }, []);
+
+    useEffect(() => {
+        if (!editId) return;
+        (async () => {
+            const { data, error } = await supabase.from('document_requests').select('*').eq('id', editId).single();
+            if (error || !data) { setErr('No se pudo cargar la requisición a corregir.'); return; }
+            if (!['rejected_by_doc_control', 'rejected'].includes(data.status)) { setErr('Solo se pueden corregir requisiciones rechazadas.'); return; }
+            const payload = data.payload || {};
+            setType(data.type);
+            setEditTargetId(data.target_document_id);
+            setTitle(payload.title || data.title || ''); setTypeId(payload.type_id || '');
+            setChangeSummary(data.change_summary || ''); setReason(data.reason || '');
+            setKeywords(payload.keywords || ''); setObjective(payload.objective || ''); setScope(payload.scope || '');
+            setDefinitions(payload.definitions || ''); setResponsibilities(payload.responsibilities || ''); setContent(payload.content || '');
+            setDocumentReferences(payload.document_references || ''); setRecords(payload.records || '');
+            setEffectiveDate(payload.effective_date || ''); setNextReviewDate(payload.next_review_date || ''); setVersion(payload.version || '1.0');
+        })();
+    }, [editId]);
 
     useEffect(() => {
         if (targetDocId) {
@@ -68,6 +90,7 @@ function NewRequestForm() {
                 const { data } = await supabase.from("documents").select("*").eq("id", targetDocId).single();
                 if (data) {
                     setTargetDoc(data);
+                    if (editId) return;
                     setTitle(data.title);
                     setTypeId(data.type_id || "");
                     setKeywords(data.keywords || "");
@@ -75,7 +98,7 @@ function NewRequestForm() {
                     setScope(data.scope || "");
                     setDefinitions(data.definitions || "");
                     setResponsibilities(data.responsibilities || "");
-                    setContent(data.content || "");
+                    setContent(requestProse(data.template_schema, data.content || ''));
                     setDocumentReferences(data.document_references || "");
                     setRecords(data.records || "");
                     setEffectiveDate(data.effective_date || "");
@@ -84,7 +107,7 @@ function NewRequestForm() {
                 }
             })();
         }
-    }, [targetDocId]);
+    }, [targetDocId, editId]);
 
     const submit = async () => {
         setErr(null);
@@ -96,7 +119,7 @@ function NewRequestForm() {
 
         setBusy(true);
         try {
-            const { id } = await createDocumentRequestAction({
+            const input: CreateRequestInput = {
                 type,
                 target_document_id: type === 'change' ? targetDocId : null,
                 title: title.trim(),
@@ -116,8 +139,12 @@ function NewRequestForm() {
                     effective_date: effectiveDate || null,
                     next_review_date: nextReviewDate || null,
                     version: version.trim() || undefined,
+                    base_revision: type === 'change' ? targetDoc?.revision : undefined,
                 },
-            });
+            };
+            const { id } = editId
+                ? await resubmitDocumentRequestAction(editId, input).then(() => ({ id: editId }))
+                : await createDocumentRequestAction(input);
             router.push(`/documents/requests/${id}`);
         } catch (e: any) {
             setErr(e?.message || "Error al crear la requisición.");
@@ -136,7 +163,7 @@ function NewRequestForm() {
                     <div>
                         <h1 className="text-3xl font-bold text-white flex items-center gap-3">
                             <BookOpen className="w-8 h-8 text-violet-400" />
-                            Nueva requisición
+                            {editId ? 'Corregir requisición' : 'Nueva requisición'}
                         </h1>
                         <p className="text-neutral-400 text-sm mt-1">
                             Tu solicitud será revisada por el Controlador de Documentos antes de pasar a Alta Dirección.
@@ -149,7 +176,8 @@ function NewRequestForm() {
                         <Layers className="w-5 h-5 flex-shrink-0 mt-0.5" />
                         <div>
                             <p className="font-semibold">Estás proponiendo un cambio al documento <span className="font-mono">{targetDoc.folio}</span> v{targetDoc.version}</p>
-                            <p className="text-violet-300/80 mt-1">"{targetDoc.title}" — al publicar, la versión actual se marcará como obsoleta y se creará una nueva.</p>
+                            <p className="text-violet-300/80 mt-1">&ldquo;{targetDoc.title}&rdquo;. Al publicar se conservarán el código y el vínculo del documento, y la revisión anterior quedará en el historial.</p>
+                            {targetDoc.template_schema && <p className="text-violet-300/80 mt-1">Esta solicitud actualiza el texto del documento. Se conservarán los campos, tablas y mapas del formato digital.</p>}
                         </div>
                     </div>
                 )}
@@ -321,7 +349,7 @@ function NewRequestForm() {
                         <button onClick={submit} disabled={busy}
                             className="flex items-center gap-1.5 bg-violet-500 hover:bg-violet-600 text-white px-6 py-2.5 rounded-xl font-bold text-sm disabled:opacity-50">
                             {busy ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                            Enviar requisición
+                            {editId ? 'Reenviar requisición' : 'Enviar requisición'}
                         </button>
                     )}
                 </div>
@@ -335,6 +363,13 @@ function bumpVersion(v: string): string {
     if (parts.length === 1) return `${parts[0]}.1`;
     if (parts.length >= 2) { parts[1] = (parts[1] ?? 0) + 1; return parts.slice(0, 2).join('.'); }
     return v;
+}
+
+function requestProse(schema: DigitalTemplate | null, fallback: string): string {
+    if (!schema?.sections) return fallback;
+    const prose = schema.sections.filter(section => section.paragraphs?.length)
+        .map(section => `${section.title}\n${section.paragraphs!.join('\n\n')}`).join('\n\n');
+    return prose || schema.description || fallback;
 }
 
 export default function NewRequestPage() {

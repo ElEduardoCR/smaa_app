@@ -18,6 +18,7 @@ type Document = {
     status: string; effective_date: string | null; next_review_date: string | null;
     created_at: string; updated_at: string;
     type?: { code: string; name: string; prefix: string };
+    area: string | null; priority_order: number; digital_kind: string | null; source_key: string | null;
 };
 
 const STATUS_STYLES: Record<string, string> = {
@@ -32,24 +33,27 @@ const STATUS_LABEL: Record<string, string> = {
     obsolete: "Obsoleto", pending_obsolete: "Por obsolescer",
 };
 
-export default function DocumentsIndex() {
+export default function DocumentsIndex({ canCreate }: { canCreate: boolean }) {
     const [docs, setDocs] = useState<Document[]>([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState("");
     const [filterType, setFilterType] = useState("all");
     const [filterStatus, setFilterStatus] = useState("all");
+    const [filterArea, setFilterArea] = useState("all");
+    const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
     const load = async () => {
         setLoading(true);
+        setErrorMessage(null);
         try {
             const { data, error } = await supabase
                 .from("documents")
-                .select("id, folio, title, version, status, effective_date, next_review_date, created_at, updated_at, type:document_types(code, name, prefix)")
-                .order("created_at", { ascending: false });
+                .select("id, folio, title, version, status, effective_date, next_review_date, created_at, updated_at, area, priority_order, digital_kind, source_key, type:document_types(code, name, prefix)")
+                .order("priority_order", { ascending: true, nullsFirst: false }).order("folio");
             if (error) throw error;
             const fmt = (data || []).map((d: any) => ({ ...d, type: Array.isArray(d.type) ? d.type[0] : d.type }));
             setDocs(fmt);
-        } catch (e) { console.error(e); }
+        } catch { setErrorMessage('No se pudo cargar el catálogo. Usa Actualizar para intentarlo nuevamente.'); }
         finally { setLoading(false); }
     };
     useEffect(() => { load(); }, []);
@@ -57,16 +61,20 @@ export default function DocumentsIndex() {
     const filtered = docs.filter(d => {
         if (filterType !== "all" && d.type?.code !== filterType) return false;
         if (filterStatus !== "all" && d.status !== filterStatus) return false;
+        if (filterArea !== "all" && d.area !== filterArea) return false;
         if (search) {
             const s = search.toLowerCase();
             return d.title.toLowerCase().includes(s)
                 || d.folio.toLowerCase().includes(s)
-                || (d.type?.name || "").toLowerCase().includes(s);
+                || (d.type?.name || "").toLowerCase().includes(s)
+                || (d.area || "").toLowerCase().includes(s);
         }
         return true;
     });
 
     const types = Array.from(new Set(docs.map(d => d.type?.code).filter(Boolean))) as string[];
+    const areas = Array.from(new Set(docs.map(d => d.area).filter(Boolean))) as string[];
+    const kindLabel: Record<string, string> = { form: 'Formato digital', document: 'Documento', process_map: 'Mapa de proceso', presentation: 'Presentación', register: 'Registro maestro' };
 
     return (
         <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 p-3 sm:p-6 md:p-8 lg:p-10 font-[family-name:var(--font-sans)]">
@@ -81,7 +89,7 @@ export default function DocumentsIndex() {
                                 <BookOpen className="w-8 h-8 text-violet-400" />
                                 Control de Documentos
                             </h1>
-                            <p className="text-neutral-400 text-sm mt-1">Procedimientos, formatos, manuales, políticas — ISO 9001:2015.</p>
+                            <p className="text-neutral-400 text-sm mt-1">SMAA S.A. de C.V. · {docs.length} documentos y formatos · Ordenados por importancia y proceso.</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -91,16 +99,19 @@ export default function DocumentsIndex() {
                         <Link href="/documents/requests" className="flex items-center justify-center gap-2 bg-neutral-800 hover:bg-neutral-700 text-white px-4 py-3 rounded-xl font-medium transition-all border border-neutral-700">
                             <FileText className="w-4 h-4" /> Requisiciones
                         </Link>
-                        <Link href="/documents/new" className="flex items-center justify-center gap-2 bg-violet-500 hover:bg-violet-600 text-white px-5 py-3 rounded-xl font-medium transition-all hover:shadow-[0_0_20px_rgba(139,92,246,0.4)] active:scale-95">
+                        {canCreate ? <Link href="/documents/new" className="flex items-center justify-center gap-2 bg-violet-500 hover:bg-violet-600 text-white px-5 py-3 rounded-xl font-medium transition-all">
                             <Plus className="w-5 h-5" /> Nuevo documento
-                        </Link>
+                        </Link> : null}
                     </div>
                 </header>
+
+                {errorMessage ? <p role="alert" className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-300">{errorMessage}</p> : null}
 
                 <div className="flex flex-col md:flex-row gap-3">
                     <div className="relative flex-1">
                         <Search className="w-4 h-4 absolute left-3 top-3.5 text-neutral-500" />
                         <input
+                            aria-label="Buscar documentos"
                             value={search}
                             onChange={e => setSearch(e.target.value)}
                             placeholder="Buscar por folio, título o tipo…"
@@ -109,11 +120,12 @@ export default function DocumentsIndex() {
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
                         <Filter className="w-4 h-4 text-neutral-500" />
-                        <select value={filterType} onChange={e => setFilterType(e.target.value)} className="bg-neutral-900/50 border border-neutral-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-violet-500">
+                        <select aria-label="Área" value={filterArea} onChange={e => setFilterArea(e.target.value)} className="min-h-11 bg-neutral-900/50 border border-neutral-700 rounded-lg px-3 py-1.5 text-white text-sm"><option value="all">Todas las áreas</option>{areas.map(area => <option key={area}>{area}</option>)}</select>
+                        <select aria-label="Tipo de documento" value={filterType} onChange={e => setFilterType(e.target.value)} className="min-h-11 bg-neutral-900/50 border border-neutral-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-violet-500">
                             <option value="all">Todos los tipos</option>
                             {types.map(t => <option key={t} value={t}>{t}</option>)}
                         </select>
-                        <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="bg-neutral-900/50 border border-neutral-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-violet-500">
+                        <select aria-label="Estado" value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="min-h-11 bg-neutral-900/50 border border-neutral-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-violet-500">
                             <option value="all">Todos los estatus</option>
                             <option value="draft">Borrador</option>
                             <option value="in_review">En revisión</option>
@@ -156,8 +168,8 @@ export default function DocumentsIndex() {
                                             </span>
                                         </td>
                                         <td className="px-4 py-3 text-xs text-neutral-300 whitespace-nowrap">
-                                            <div>{d.type?.name || "—"}</div>
-                                            <div className="text-[10px] text-neutral-500 uppercase">{d.type?.code}</div>
+                                            <div>{kindLabel[d.digital_kind || ''] || d.type?.name || "—"}</div>
+                                            <div className="text-xs text-neutral-400">{d.area || d.type?.code}</div>
                                         </td>
                                         <td className="px-4 py-3 text-neutral-200 truncate" title={d.title}>{d.title}</td>
                                         <td className="px-4 py-3 text-neutral-300 font-mono whitespace-nowrap">v{d.version}</td>
