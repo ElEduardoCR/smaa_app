@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test:employee-auth": "tsx scripts/test-employee-auth.ts",
     "test:hikvision": "tsx scripts/test-hikvision-attendance.ts",
     "test:hikvision-direct": "tsx scripts/test-hikvision-direct-events.ts",
     "test:hikvision-bridge": "tsx scripts/test-hikvision-lan-bridge.ts",

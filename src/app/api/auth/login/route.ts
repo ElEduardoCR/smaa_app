@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 
 /**
  * POST /api/auth/login
- * Body: { username, password, redirectTo? }
+ * Body: { username, password?, redirectTo? }
  *
  * Valida credenciales y setea la cookie de sesión. Devuelve JSON con
  * { ok, redirectTo?, user?, error? }. Usado por /login en lugar del server
@@ -26,9 +26,9 @@ export async function POST(req: Request) {
     const requested = body?.redirectTo ? String(body.redirectTo) : '/';
     const redirectTo = /^\/(?![/\\])/.test(requested) ? requested : '/';
 
-    if (!username || !password) {
+    if (!username) {
         return NextResponse.json(
-            { ok: false, error: 'Selecciona un usuario e ingresa tu contraseña.' },
+            { ok: false, error: 'Selecciona un usuario.' },
             { status: 400 }
         );
     }
