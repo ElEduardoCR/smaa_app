@@ -396,7 +396,14 @@ export function generateDigitalPdf(input: DigitalPdfInput): { bytes: Buffer; sha
     }
     if (input.status !== 'blank') {
         const summary = calculateDigitalValues(template, values);
-        if (summary.length) { heading('Resumen calculado'); runTable(['Concepto', 'Resultado'], summary.map(s => [text(s.label), text(s.value)])); }
+        if (summary.length) {
+            pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8);
+            const firstRowHeight = Math.max(8, ...[summary[0].label, summary[0].value].map(value =>
+                pdf.splitTextToSize(text(value), contentWidth / 2 - 4.6).length * 8 * 0.405 + 4.6));
+            room(Math.min(bottom - top, 12 + 8 + firstRowHeight + 3));
+            heading('Resumen calculado');
+            runTable(['Concepto', 'Resultado'], summary.map(s => [text(s.label), text(s.value)]));
+        }
     }
     const referenceFooter = [template.relatedCodes?.length ? `Relacionados: ${template.relatedCodes.join(' · ')}` : '',
         template.sourceEvidence?.length ? 'Originales privados: ficha del documento en la app.' : ''].filter(Boolean).join(' · ');
