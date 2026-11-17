@@ -568,7 +568,12 @@ function GroupCard({
                             <h3 className="text-sm font-semibold text-white">Artículos de este proveedor</h3>
                             <button
                                 type="button"
-                                onClick={() => append({ description: "", quantity: 1, unit_price: 0 })}
+                                onClick={(event) => {
+                                    // Safari no enfoca los botones al hacer clic: retira el cursor
+                                    // del campo anterior sin desplazar la vista hacia otra fila.
+                                    event.currentTarget.focus({ preventScroll: true });
+                                    append({ description: "", quantity: 1, unit_price: 0 }, { shouldFocus: false });
+                                }}
                                 className="flex items-center gap-1.5 text-xs text-orange-300 hover:text-orange-200 bg-orange-500/10 hover:bg-orange-500/20 px-3 py-1.5 rounded-lg border border-orange-500/20"
                             >
                                 <Plus className="w-3.5 h-3.5" /> Agregar línea

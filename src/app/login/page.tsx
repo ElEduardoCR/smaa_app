@@ -8,6 +8,7 @@ import {
 import {
     listLoginUsersAction,
 } from "@/app/actions/auth";
+import { requiresEmployeePassword } from "@/lib/employeeAuth";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -68,6 +69,8 @@ function LoginInner() {
     const [error, setError] = useState<string | null>(null);
     const [submitting, setSubmitting] = useState(false);
     const pwdRef = useRef<HTMLInputElement>(null);
+    const submitRef = useRef<HTMLButtonElement>(null);
+    const needsPassword = selected ? requiresEmployeePassword(selected.role) : true;
 
     useEffect(() => {
         (async () => {
@@ -84,10 +87,13 @@ function LoginInner() {
 
     useEffect(() => {
         if (selected) {
-            // pequeño delay para que el modal rinda
-            setTimeout(() => pwdRef.current?.focus(), 80);
+            const timeout = setTimeout(() => {
+                const target = needsPassword ? pwdRef.current : submitRef.current;
+                target?.focus({ preventScroll: true });
+            }, 80);
+            return () => clearTimeout(timeout);
         }
-    }, [selected]);
+    }, [selected, needsPassword]);
 
     const closeModal = () => {
         if (submitting) return;
@@ -98,7 +104,7 @@ function LoginInner() {
 
     const handleSubmit = async (e?: React.FormEvent) => {
         e?.preventDefault();
-        if (!selected) return;
+        if (!selected || submitting) return;
         setError(null);
         setSubmitting(true);
         try {
@@ -110,7 +116,7 @@ function LoginInner() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     username: selected.username,
-                    password,
+                    ...(needsPassword ? { password } : {}),
                     redirectTo: redirectUrl,
                 }),
                 credentials: 'same-origin',
@@ -201,7 +207,7 @@ function LoginInner() {
                 </p>
             </div>
 
-            {/* Password modal */}
+            {/* Login modal */}
             {selected && (
                 <div
                     className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
@@ -231,30 +237,39 @@ function LoginInner() {
                         </div>
 
                         <form onSubmit={handleSubmit} className="space-y-4">
-                            <div>
-                                <label className="block text-[11px] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
-                                    Contraseña
-                                </label>
-                                <div className="relative">
-                                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
-                                    <input
-                                        ref={pwdRef}
-                                        type="password"
-                                        value={password}
-                                        onChange={(e) => setPassword(e.target.value)}
-                                        placeholder="Ingresa tu contraseña"
-                                        className="w-full bg-neutral-800/60 border border-neutral-700 rounded-xl py-3 pl-10 pr-3 text-white placeholder-neutral-500 focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition-all"
-                                        autoComplete="current-password"
-                                    />
+                            {needsPassword ? (
+                                <div>
+                                    <label className="block text-[11px] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
+                                        Contraseña
+                                    </label>
+                                    <div className="relative">
+                                        <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
+                                        <input
+                                            ref={pwdRef}
+                                            type="password"
+                                            value={password}
+                                            onChange={(e) => setPassword(e.target.value)}
+                                            placeholder="Ingresa tu contraseña"
+                                            className="w-full bg-neutral-800/60 border border-neutral-700 rounded-xl py-3 pl-10 pr-3 text-white placeholder-neutral-500 focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition-all"
+                                            autoComplete="current-password"
+                                            required
+                                        />
+                                    </div>
                                 </div>
-                                {error && (
-                                    <p className="mt-2 text-xs text-rose-400 text-center">{error}</p>
-                                )}
-                            </div>
+                            ) : (
+                                <p className="text-sm text-neutral-400 text-center">
+                                    Pulsa Ingresar para acceder con este usuario.
+                                </p>
+                            )}
+
+                            {error && (
+                                <p role="alert" className="text-xs text-rose-400 text-center">{error}</p>
+                            )}
 
                             <button
+                                ref={submitRef}
                                 type="submit"
-                                disabled={submitting || !password}
+                                disabled={submitting || (needsPassword && !password)}
                                 className="w-full bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white py-3 rounded-xl font-bold transition-all flex items-center justify-center gap-2"
                             >
                                 {submitting ? (

@@ -18,6 +18,7 @@ import {
 } from "@/app/actions/employees";
 import { supabase } from "@/lib/supabase";
 import { storageErrorMessage } from "@/lib/storageErrors";
+import { requiresEmployeePassword } from "@/lib/employeeAuth";
 import {
     MODULE_CATALOG,
     ALL_FLAG_KEYS,
@@ -372,6 +373,8 @@ function EmployeeEditorModal({
     const [password, setPassword] = useState("");
     const [showPwd, setShowPwd] = useState(false);
     const [role, setRole] = useState<"master" | "admin" | "operator" | "document_controller" | "top_management">(employee?.role || "operator");
+    const needsPassword = requiresEmployeePassword(role);
+    const passwordRequired = needsPassword && (!employee || !requiresEmployeePassword(employee.role));
     const [position, setPosition] = useState(employee?.position || "");
     const [phone, setPhone] = useState(employee?.phone || "");
     const [isActive, setIsActive] = useState(employee?.is_active ?? true);
@@ -460,8 +463,8 @@ function EmployeeEditorModal({
             setErr("Nombre completo y usuario son obligatorios.");
             return;
         }
-        if (!isEdit && !password) {
-            setErr("La contraseña es obligatoria al crear un empleado.");
+        if (passwordRequired && !password) {
+            setErr("La contraseña es obligatoria para administradores y masters.");
             return;
         }
         if (role === "master" && !isMaster) {
@@ -488,14 +491,14 @@ function EmployeeEditorModal({
                     photo_url: photoUrl || null,
                     is_active: isActive,
                 };
-                if (password) input.password = password;
+                if (needsPassword && password) input.password = password;
                 await updateEmployeeAction(employee.id, input, cleanPerms);
                 onSaved({ ...employee, ...input, permissions: cleanPerms, id: employee.id } as any);
             } else {
                 const input: any = {
                     full_name: fullName,
                     username,
-                    password,
+                    ...(needsPassword ? { password } : {}),
                     role,
                     position: position || null,
                     phone: phone || null,
@@ -596,29 +599,37 @@ function EmployeeEditorModal({
                                     required
                                 />
                             </Field>
-                            <Field label={isEdit ? "Nueva contraseña (dejar vacío para no cambiar)" : "Contraseña *"}>
-                                <div className="relative">
-                                    <input
-                                        type={showPwd ? "text" : "password"}
-                                        value={password}
-                                        onChange={(e) => setPassword(e.target.value)}
-                                        className="w-full bg-neutral-800/60 border border-neutral-700 rounded-xl pl-3 pr-10 py-2 text-sm text-white font-mono focus:outline-none focus:border-orange-500"
-                                        placeholder={isEdit ? "••••••••" : "Mínimo 6 caracteres"}
-                                        autoComplete="new-password"
-                                    />
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowPwd((v) => !v)}
-                                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-neutral-500 hover:text-white"
-                                    >
-                                        {showPwd ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                                    </button>
-                                </div>
-                            </Field>
+                            {needsPassword && (
+                                <Field label={passwordRequired ? "Contraseña *" : "Nueva contraseña (dejar vacío para no cambiar)"}>
+                                    <div className="relative">
+                                        <input
+                                            type={showPwd ? "text" : "password"}
+                                            value={password}
+                                            onChange={(e) => setPassword(e.target.value)}
+                                            className="w-full bg-neutral-800/60 border border-neutral-700 rounded-xl pl-3 pr-10 py-2 text-sm text-white font-mono focus:outline-none focus:border-orange-500"
+                                            placeholder={passwordRequired ? "Mínimo 6 caracteres" : "••••••••"}
+                                            autoComplete="new-password"
+                                            required={passwordRequired}
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowPwd((v) => !v)}
+                                            aria-label={showPwd ? "Ocultar contraseña" : "Mostrar contraseña"}
+                                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-neutral-500 hover:text-white"
+                                        >
+                                            {showPwd ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                        </button>
+                                    </div>
+                                </Field>
+                            )}
                             <Field label="Rol">
                                 <select
                                     value={role}
-                                    onChange={(e) => setRole(e.target.value as any)}
+                                    onChange={(e) => {
+                                        setRole(e.target.value as Employee["role"]);
+                                        setPassword("");
+                                        setShowPwd(false);
+                                    }}
                                     className="w-full bg-neutral-800/60 border border-neutral-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500"
                                     disabled={!isMaster}
                                 >

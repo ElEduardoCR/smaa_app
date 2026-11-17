@@ -1,6 +1,7 @@
 import 'server-only';
 import { supabase } from './supabase';
 import { hashPassword, verifyPassword } from './password';
+import { requiresEmployeePassword } from './employeeAuth';
 
 export type EmployeeRole =
     | 'master'
@@ -97,7 +98,7 @@ export async function getEmployeeById(id: string): Promise<EmployeeWithPermissio
 export type CreateEmployeeInput = {
     full_name: string;
     username: string;
-    password: string;
+    password?: string;
     role: EmployeeRole;
     position?: string | null;
     phone?: string | null;
@@ -106,12 +107,16 @@ export type CreateEmployeeInput = {
 };
 
 export async function createEmployee(input: CreateEmployeeInput): Promise<Employee> {
+    const needsPassword = requiresEmployeePassword(input.role);
+    if (needsPassword && !input.password) {
+        throw new Error('La contraseña es obligatoria para administradores y masters.');
+    }
     const { data, error } = await supabase
         .from('employees')
         .insert({
             full_name: input.full_name.trim(),
             username: input.username.trim().toLowerCase(),
-            password_hash: hashPassword(input.password),
+            password_hash: needsPassword ? hashPassword(input.password!) : '',
             role: input.role,
             position: input.position?.trim() || null,
             phone: input.phone?.trim() || null,
@@ -132,7 +137,7 @@ export async function createEmployee(input: CreateEmployeeInput): Promise<Employ
 export type UpdateEmployeeInput = {
     full_name?: string;
     username?: string;
-    password?: string | null;        // si viene, se rehashea
+    password?: string | null;        // sólo para roles que requieren contraseña
     role?: EmployeeRole;
     position?: string | null;
     phone?: string | null;
@@ -141,10 +146,22 @@ export type UpdateEmployeeInput = {
 };
 
 export async function updateEmployee(id: string, input: UpdateEmployeeInput): Promise<Employee> {
+    const { data: current, error: currentError } = await supabase
+        .from('employees')
+        .select('role')
+        .eq('id', id)
+        .single();
+    if (currentError) throw currentError;
+
+    const needsPassword = requiresEmployeePassword(input.role ?? current.role);
+    if (needsPassword && !requiresEmployeePassword(current.role) && !input.password) {
+        throw new Error('Asigna una contraseña al cambiar a administrador o master.');
+    }
     const patch: Record<string, any> = {};
     if (input.full_name !== undefined) patch.full_name = input.full_name.trim();
     if (input.username !== undefined) patch.username = input.username.trim().toLowerCase();
-    if (input.password) patch.password_hash = hashPassword(input.password);
+    if (!needsPassword) patch.password_hash = '';
+    else if (input.password) patch.password_hash = hashPassword(input.password);
     if (input.role !== undefined) patch.role = input.role;
     if (input.position !== undefined) patch.position = input.position?.trim() || null;
     if (input.phone !== undefined) patch.phone = input.phone?.trim() || null;
@@ -204,10 +221,10 @@ export async function setEmployeePermissions(
     if (insErr) throw insErr;
 }
 
-/** Login: trae el empleado + permisos, valida password, actualiza last_login_at. */
+/** Login: valida la contraseña según el rol guardado y carga los permisos. */
 export async function authenticateEmployee(
     username: string,
-    password: string
+    password: string = ''
 ): Promise<EmployeeWithPermissions | null> {
     const { data, error } = await supabase
         .from('employees')
@@ -217,7 +234,8 @@ export async function authenticateEmployee(
         .maybeSingle();
     if (error) throw error;
     if (!data) return null;
-    if (!verifyPassword(password, (data as any).password_hash)) return null;
+    if (requiresEmployeePassword(data.role) &&
+        (!password || !verifyPassword(password, data.password_hash))) return null;
 
     // best-effort: last_login_at
     await supabase
