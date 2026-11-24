@@ -8,6 +8,7 @@ import PriceTaxToggle from "@/components/PriceTaxToggle";
 import { calculatePriceTotals, priceLine, priceWithoutVat } from "@/lib/pricing";
 import { updatePurchaseOrderAction, deletePurchaseOrderAction, addPurchaseAttachmentAction, deletePurchaseAttachmentAction } from "@/app/actions/purchases";
 import { uploadPurchaseFiles } from "@/lib/purchaseUploads";
+import EditHistory from "@/components/EditHistory";
 import { ArrowLeft, Save, Trash2, Loader2, AlertCircle, CheckCircle2, ExternalLink, Plus, ShoppingCart, Truck, Calendar, FileText, Receipt, FileCheck, Paperclip, X, Upload, Layers, Camera, FilePlus } from "lucide-react";
 import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -77,6 +78,8 @@ export default function PurchaseOrderEditClient({
     const [items, setItems] = useState<Item[]>(initialItems.length > 0 ? initialItems : [{ id: "_new", description: "", quantity: 1, unit_price: 0, line_total: 0 }]);
     const [saving, setSaving] = useState(false);
     const [deleting, setDeleting] = useState(false);
+    const [reason, setReason] = useState("");
+    const [historyKey, setHistoryKey] = useState(0);
     const [msg, setMsg] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
     // Adjuntos múltiples (facturas, evidencia)
@@ -180,7 +183,10 @@ export default function PurchaseOrderEditClient({
                 supplier_id: supplierId,
                 status,
                 notes,
+                reason,
                 items: cleanItems.map((it) => ({
+                    // Los artículos nuevos traen un id temporal "_new…".
+                    id: it.id && !it.id.startsWith("_new") ? it.id : null,
                     description: it.description.trim(),
                     quantity: Number(it.quantity) || 0,
                     unit_price: priceWithoutVat(it.unit_price, it.price_includes_vat),
@@ -188,7 +194,9 @@ export default function PurchaseOrderEditClient({
                     notes: it.notes?.trim() || null,
                 })),
             });
-            setMsg({ type: 'success', text: "Orden actualizada." });
+            setMsg({ type: 'success', text: "Orden actualizada. El cambio quedó en el historial." });
+            setReason("");
+            setHistoryKey((k) => k + 1);
             router.refresh();
         } catch (ex: any) {
             setMsg({ type: 'error', text: ex.message || "Error al guardar." });
@@ -492,11 +500,6 @@ export default function PurchaseOrderEditClient({
                     <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-2xl p-4">
                         <div className="flex items-center justify-between mb-3">
                             <h2 className="text-sm font-bold text-white">Artículos</h2>
-                            {canEdit && (
-                                <button type="button" onClick={addItem} className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-orange-500/15 text-orange-300 hover:bg-orange-500/25 border border-orange-500/30">
-                                    <Plus className="w-3.5 h-3.5" /> Agregar línea
-                                </button>
-                            )}
                         </div>
                         <div className="space-y-2">
                             <div className="hidden md:grid grid-cols-12 gap-3 text-[10px] font-bold text-neutral-500 uppercase tracking-wider px-2">
@@ -551,6 +554,12 @@ export default function PurchaseOrderEditClient({
                                     </div>
                                 </div>
                             ))}
+                            {/* Abajo de la última línea: para capturar muchas sin regresar hasta arriba. */}
+                            {canEdit && (
+                                <button type="button" onClick={addItem} className="w-full flex items-center justify-center gap-1.5 text-sm px-3 py-2.5 rounded-xl bg-orange-500/10 text-orange-300 hover:bg-orange-500/20 border border-dashed border-orange-500/40">
+                                    <Plus className="w-4 h-4" /> Agregar línea
+                                </button>
+                            )}
                         </div>
                     </div>
 
@@ -574,7 +583,17 @@ export default function PurchaseOrderEditClient({
                             className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500 disabled:opacity-60"
                         />
                     </div>
+
+                    {canEdit && (
+                        <div className="bg-neutral-800/40 border border-neutral-700/50 rounded-2xl p-4">
+                            <label className="block text-[11px] font-bold text-neutral-500 uppercase tracking-wider mb-1.5">Motivo del cambio (queda en el historial)</label>
+                            <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Ej. precio actualizado según factura"
+                                className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500" />
+                        </div>
+                    )}
                 </form>
+
+                <EditHistory rootTable="purchase_orders" rootId={po.id} title="Historial de cambios de la compra" refreshKey={historyKey} />
             </div>
         </div>
     );

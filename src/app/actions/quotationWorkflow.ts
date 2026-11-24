@@ -16,25 +16,26 @@ export async function addQuotationExtraAction(input: { quotationId: string; desc
     revalidatePath('/finance/receivable', 'layout');
 }
 
-export async function quotationToReceivableAction(quotationId: string) {
+export type SaleOrigin = 'fabricacion' | 'venta_directa' | 'trabajo_previo';
+
+/**
+ * Envía una cotización a cuentas por cobrar. No requiere OT: también sirve
+ * para material que sólo se compró y entregó, y para trabajos ya hechos que se
+ * registran después (con su fecha de venta; el vencimiento corre desde ahí).
+ */
+export async function quotationToReceivableAction(quotationId: string, options: { origin: SaleOrigin; invoiceDate?: string | null; notes?: string | null } = { origin: 'fabricacion' }) {
     const session = await getSession();
     if (!session || !can(session.role, session.permissions, 'finance', 'create', 'receivable') || !can(session.role, session.permissions, 'sales', 'view')) throw new Error('Sin permiso para enviar a cuentas por cobrar.');
+    if (options.invoiceDate && !/^\d{4}-\d{2}-\d{2}$/.test(options.invoiceDate)) throw new Error('Fecha de venta inválida.');
     const database = getServerSupabase();
-    const { data, error } = await database.rpc('quotation_to_receivable', { p_quotation_id: quotationId, p_employee_id: session.employeeId });
+    const { data, error } = await database.rpc('quotation_to_receivable', {
+        p_quotation_id: quotationId, p_employee_id: session.employeeId,
+        p_invoice_date: options.invoiceDate || null, p_origin: options.origin, p_notes: options.notes?.trim() || null,
+    });
     if (error) throw new Error(error.message);
     const { data: invoice, error: readError } = await database.from('ar_invoices').select('client_id').eq('id', data).single();
     if (readError) throw new Error(readError.message);
     revalidatePath('/finance/receivable', 'layout');
+    revalidatePath('/sales');
     return { id: data as string, clientId: invoice.client_id as number };
-}
-
-export async function createWorkOrderAction(order: { module_id: string; quotation_id: string | null; client_name: string | null; client_rfc: string | null; work_title: string; priority: string; notes: string | null }, wpsIds: string[]) {
-    const session = await getSession();
-    if (!session) throw new Error('No autenticado.');
-    const { data: module, error: moduleError } = await supabase.from('manufacturing_modules').select('code').eq('id', order.module_id).single();
-    if (moduleError || !module || !can(session.role, session.permissions, 'manufacturing', 'create', module.code)) throw new Error('Sin permiso para crear una OT en este módulo.');
-    const { data, error } = await supabase.rpc('create_work_order', { p_order: order, p_wps_ids: wpsIds });
-    if (error) throw new Error(error.message);
-    revalidatePath('/manufacturing');
-    return { id: data as string };
 }

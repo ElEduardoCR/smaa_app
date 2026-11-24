@@ -16,6 +16,8 @@ import { twMerge } from "tailwind-merge";
 import ServiceConceptsModal, { ServiceConcept } from "@/app/sales/ServiceConceptsModal";
 import CommissionersSection from "@/app/sales/CommissionersSection";
 import { normalizeCommissioners, rememberCommissionAgents } from "@/lib/commissioners";
+import { saveQuotationAction } from "@/app/actions/quotations";
+import EditHistory from "@/components/EditHistory";
 
 function cn(...inputs: (string | undefined | null | false)[]) {
     return twMerge(clsx(inputs));
@@ -30,6 +32,10 @@ const conceptSchema = z.object({
 
 const itemSchema = z
     .object({
+        // id de la partida al editar: se conserva para que el historial muestre qué cambió.
+        id: z.string().optional().nullable(),
+        is_extra: z.boolean().optional(),
+        extra_note: z.string().optional().nullable(),
         item_type: z.enum(["product", "service"]).default("product"),
         description: z.string().optional().or(z.literal("")),
         quantity: z.coerce.number().optional(),
@@ -115,6 +121,9 @@ function QuotationForm() {
     const [serviceModalIndex, setServiceModalIndex] = useState<number | null>(null);
     const [marginMode, setMarginMode] = useState<"general" | "specific">("general");
     const [generalMargin, setGeneralMargin] = useState<number>(DEFAULT_MARGIN);
+    const [canEdit, setCanEdit] = useState(true);
+    const [editContext, setEditContext] = useState<{ status: string; inManufacturing: boolean; receivablePaid: number | null } | null>(null);
+    const [reason, setReason] = useState("");
 
     const {
         register,
@@ -222,9 +231,22 @@ function QuotationForm() {
                 const { data: items, error: itemsError } = await supabase
                     .from("quotation_items")
                     .select("*")
-                    .eq("quotation_id", editId);
+                    .eq("quotation_id", editId)
+                    .order("position", { ascending: true, nullsFirst: false });
 
                 if (itemsError) throw itemsError;
+
+                const [{ data: orders }, { data: ar }, perms] = await Promise.all([
+                    supabase.from("work_orders").select("id").eq("quotation_id", editId).neq("status", "Cancelled").limit(1),
+                    supabase.from("ar_invoices").select("paid_amount, status, is_active").eq("quotation_id", editId).maybeSingle(),
+                    fetch("/api/me/permissions?module=sales").then((r) => (r.ok ? r.json() : null)).catch(() => null),
+                ]);
+                setCanEdit(!!perms?.permissions?.can_edit);
+                setEditContext({
+                    status: quote.status,
+                    inManufacturing: !!orders?.length,
+                    receivablePaid: ar && ar.is_active && ar.status !== "cancelled" ? Number(ar.paid_amount) : null,
+                });
 
                 reset({
                     client_id: String(quote.client_id),
@@ -234,6 +256,9 @@ function QuotationForm() {
                     delivery_date: quote.delivery_date || "",
                     terms_conditions: quote.terms_conditions || "",
                     items: (items || []).map((i: any) => ({
+                        id: i.id,
+                        is_extra: !!i.is_extra,
+                        extra_note: i.extra_note || null,
                         item_type: i.item_type === "service" ? "service" : "product",
                         description: i.description || "",
                         quantity: i.quantity,
@@ -265,67 +290,9 @@ function QuotationForm() {
         setIsSubmitting(true);
         setErrorMsg(null);
         try {
-            let currentQuoteId = editId;
             const cleanCommissioners = normalizeCommissioners(data.commissioners);
-
-            if (isEditing) {
-                const { data: linkedOrders, error: linkedError } = await supabase.from("work_orders").select("id").eq("quotation_id", editId!).limit(1);
-                if (linkedError) throw linkedError;
-                if (linkedOrders?.length) throw new Error("Esta cotización ya tiene fabricación. Abre su detalle y usa Agregar extra para conservar las partidas originales.");
-                const { error: quoteError } = await supabase
-                    .from("quotations")
-                    .update({
-                        client_id: data.client_id,
-                        title: data.title?.trim() || null,
-                        seller: data.seller || null,
-                        delivery_time: data.delivery_time || null,
-                        delivery_date: data.delivery_date || null,
-                        terms_conditions: data.terms_conditions || null,
-                        commissioners: cleanCommissioners,
-                        subtotal,
-                        vat_total: vatTotal,
-                        total,
-                        updated_at: new Date().toISOString(),
-                    })
-                    .eq("id", editId);
-
-                if (quoteError) throw quoteError;
-
-                const { error: delError } = await supabase
-                    .from("quotation_items")
-                    .delete()
-                    .eq("quotation_id", editId);
-
-                if (delError) throw delError;
-            } else {
-                const quoteData = {
-                    client_id: data.client_id,
-                    title: data.title?.trim() || null,
-                    seller: data.seller || null,
-                    delivery_time: data.delivery_time || null,
-                    delivery_date: data.delivery_date || null,
-                    terms_conditions: data.terms_conditions || null,
-                    commissioners: cleanCommissioners,
-                    subtotal,
-                    vat_total: vatTotal,
-                    total,
-                    status: "Draft",
-                };
-
-                const { data: insertedQuote, error: quoteError } = await supabase
-                    .from("quotations")
-                    .insert([quoteData])
-                    .select()
-                    .single();
-
-                if (quoteError) throw quoteError;
-                currentQuoteId = insertedQuote.id;
-            }
-
-            // Map form items to DB rows.
-            // unit_price / line_total = PRECIO al cliente (costo + utilidad).
-            // cost_unit_price / cost_line_total = costo interno. margin_pct = utilidad %.
-            const itemsToInsert = data.items.map((item) => {
+            // El formulario trabaja con COSTOS: el precio al cliente es costo + utilidad.
+            const items = data.items.map((item) => {
                 const margin = effectiveMargin(item);
                 const factor = 1 + margin / 100;
                 if (item.item_type === "service") {
@@ -334,44 +301,44 @@ function QuotationForm() {
                         rate: priceWithoutVat(Number(c.rate), item.price_includes_vat),
                         hours: Number(c.hours) || 0,
                     }));
-                    const qty = Number(item.quantity) || 1;
                     const unitCost = concepts.reduce((a, c) => a + c.rate * c.hours, 0);
-                    const saleUnit = unitCost * factor;
                     const name = item.description && item.description.trim() ? item.description.trim() : "";
-                    const description = name || `Servicio: ${concepts.map((c) => c.concept).join(", ")}` || "Servicio";
                     return {
-                        quotation_id: currentQuoteId,
-                        description,
-                        quantity: qty,
-                        unit_price: saleUnit,
-                        line_total: round2(qty * saleUnit),
+                        id: item.id || null,
+                        description: name || `Servicio: ${concepts.map((c) => c.concept).join(", ")}` || "Servicio",
+                        quantity: Number(item.quantity) || 1,
+                        unit_price: unitCost * factor,
                         cost_unit_price: unitCost,
-                        cost_line_total: round2(qty * unitCost),
                         margin_pct: margin,
-                        item_type: "service",
+                        item_type: "service" as const,
                         service_concepts: concepts,
                     };
                 }
-                const qty = Number(item.quantity) || 0;
                 const costUnit = priceWithoutVat(Number(item.unit_price), item.price_includes_vat);
-                const saleUnit = costUnit * factor;
                 return {
-                    quotation_id: currentQuoteId,
+                    id: item.id || null,
                     description: item.description || "",
-                    quantity: qty,
-                    unit_price: saleUnit,
-                    line_total: round2(qty * saleUnit),
+                    quantity: Number(item.quantity) || 0,
+                    unit_price: costUnit * factor,
                     cost_unit_price: costUnit,
-                    cost_line_total: round2(qty * costUnit),
                     margin_pct: margin,
-                    item_type: "product",
+                    item_type: "product" as const,
                     service_concepts: null,
                 };
             });
 
-            const { error: itemsError } = await supabase.from("quotation_items").insert(itemsToInsert);
-
-            if (itemsError) throw itemsError;
+            await saveQuotationAction({
+                id: editId,
+                client_id: data.client_id,
+                title: data.title?.trim() || null,
+                seller: data.seller || null,
+                delivery_time: data.delivery_time || null,
+                delivery_date: data.delivery_date || null,
+                terms_conditions: data.terms_conditions || null,
+                commissioners: cleanCommissioners,
+                items,
+                reason: isEditing ? reason : null,
+            });
 
             // Recuerda los nombres de comisionados para reusarlos (no bloquea el guardado)
             await rememberCommissionAgents(cleanCommissioners.map((c) => c.name));
@@ -379,7 +346,7 @@ function QuotationForm() {
             router.push("/sales");
         } catch (error: any) {
             console.error("Error saving quotation:", error);
-            setErrorMsg(error.message || "Failed to save quotation");
+            setErrorMsg(error.message || "No se pudo guardar la cotización");
         } finally {
             setIsSubmitting(false);
         }
@@ -398,9 +365,22 @@ function QuotationForm() {
                             <Calculator className="w-8 h-8 text-emerald-400" />
                             {isEditing ? "Editar Cotización" : "Nueva Cotización"}
                         </h1>
-                        <p className="text-neutral-400 text-sm mt-1">{isEditing ? "Modify an existing draft quotation" : "Create a new sales quotation with auto-calculated totals"}</p>
+                        <p className="text-neutral-400 text-sm mt-1">{isEditing ? "Cada cambio queda en el historial de la cotización con tu nombre y el valor anterior." : "Create a new sales quotation with auto-calculated totals"}</p>
                     </div>
                 </header>
+
+                {isEditing && !canEdit && (
+                    <div className="p-4 rounded-xl border bg-amber-500/10 border-amber-500/30 text-amber-200 text-sm">
+                        Solo lectura: necesitas el permiso <strong>Ventas → Editar</strong> para guardar cambios en una cotización.
+                    </div>
+                )}
+                {isEditing && editContext && (editContext.status !== "Draft" || editContext.inManufacturing || editContext.receivablePaid !== null) && (
+                    <div className="p-4 rounded-xl border bg-sky-500/10 border-sky-500/30 text-sky-200 text-sm space-y-1">
+                        <p className="font-semibold">Estás editando una cotización {editContext.status === "Approved" ? "aprobada" : "enviada"}{editContext.inManufacturing ? " que ya está en fabricación" : ""}.</p>
+                        {editContext.receivablePaid !== null && <p>Su cuenta por cobrar se actualizará al nuevo total y conservará lo pagado ({formatCurrency(editContext.receivablePaid)}); el total no puede quedar por debajo de eso.</p>}
+                        <p className="text-sky-300/80">El cambio se notifica a Ventas y queda en el historial con el motivo que escribas.</p>
+                    </div>
+                )}
 
                 {errorMsg && (
                     <div className="p-4 rounded-xl border bg-red-500/10 border-red-500/30 text-red-400 flex items-center gap-3">
@@ -503,13 +483,6 @@ function QuotationForm() {
                                         />
                                     </div>
                                 )}
-                                <button
-                                    type="button"
-                                    onClick={() => append({ ...emptyProduct })}
-                                    className="flex items-center gap-2 text-sm text-emerald-400 hover:text-emerald-300 font-medium bg-emerald-500/10 hover:bg-emerald-500/20 px-4 py-2 rounded-lg transition-colors border border-emerald-500/20"
-                                >
-                                    <Plus className="w-4 h-4" /> Agregar línea
-                                </button>
                             </div>
                         </div>
 
@@ -547,6 +520,7 @@ function QuotationForm() {
                                                     <Wrench className="w-4 h-4" /> Servicio
                                                 </button>
                                             </div>
+                                            {item?.is_extra && <span className="text-[10px] font-bold uppercase text-amber-300 border border-amber-500/40 rounded px-2 py-0.5" title={item.extra_note || undefined}>Extra</span>}
                                             <button
                                                 type="button"
                                                 onClick={() => remove(index)}
@@ -700,18 +674,35 @@ function QuotationForm() {
                                 );
                             })}
                             {typeof errors.items?.message === "string" && <p className="text-red-400 text-xs ml-1">{errors.items.message}</p>}
+                            {/* Abajo de la última línea: para capturar muchas sin regresar hasta arriba. */}
+                            <button
+                                type="button"
+                                onClick={() => append({ ...emptyProduct })}
+                                className="w-full flex items-center justify-center gap-2 text-sm text-emerald-400 hover:text-emerald-300 font-medium bg-emerald-500/10 hover:bg-emerald-500/20 px-4 py-3 rounded-xl transition-colors border border-dashed border-emerald-500/40"
+                            >
+                                <Plus className="w-4 h-4" /> Agregar línea
+                            </button>
                         </div>
                     </div>
 
                     {/* Comisionados */}
                     <CommissionersSection control={control} register={register} />
 
+                    {isEditing && (
+                        <label className="block space-y-2 text-neutral-300 bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50">
+                            <span className="text-sm font-medium">Motivo del cambio <span className="text-neutral-500 font-normal">(queda en el historial)</span></span>
+                            <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2}
+                                className="w-full bg-neutral-900/50 border border-neutral-700 rounded-xl px-4 py-3 text-white placeholder-neutral-500"
+                                placeholder="Ej. el cliente pidió 5 piezas más / ajuste de precio del proveedor" />
+                        </label>
+                    )}
+
                     {/* Totals & Submit */}
                     <div className="flex flex-col md:flex-row justify-between items-end gap-6 bg-neutral-800/20 p-6 rounded-3xl border border-neutral-700/30">
                         <div className="w-full md:w-auto">
                             <button
                                 type="submit"
-                                disabled={isSubmitting}
+                                disabled={isSubmitting || (isEditing && !canEdit)}
                                 className="w-full md:w-auto bg-emerald-500 hover:bg-emerald-600 disabled:bg-emerald-500/50 text-white px-10 py-4 rounded-xl font-bold transition-all shadow-[0_0_15px_rgba(16,185,129,0.2)] hover:shadow-[0_0_20px_rgba(16,185,129,0.4)] flex items-center justify-center gap-2 text-lg"
                             >
                                 {isSubmitting ? (
@@ -746,6 +737,8 @@ function QuotationForm() {
                         </div>
                     </div>
                 </form>
+
+                {isEditing && editId && <EditHistory rootTable="quotations" rootId={editId} title="Historial de cambios de la cotización" />}
             </div>
 
             {serviceModalIndex !== null && (

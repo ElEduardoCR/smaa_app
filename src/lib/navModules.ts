@@ -32,7 +32,7 @@ export type SidebarModule = ModuleCard & { moduleCode: string; short: string };
 
 export const ALL_MODULES: Array<NavModule & { short: string }> = [
     { moduleCode: "manufacturing", href: "/manufacturing", title: "Fabricación", short: "Fabricación",
-      desc: "Maquinado, Soldadura y Automatización con WPS, planos y visor 3D.",
+      desc: "Una sola lista de OT con etapas (maquinado, soldadura, automatización) y cierres parciales.",
       Icon: "Factory", color: "orange", category: "Operación" },
     { moduleCode: "quality", href: "/quality", title: "Calidad", short: "Calidad",
       desc: "Cola de OTs para revisión final y firma de liberación.",
@@ -43,6 +43,9 @@ export const ALL_MODULES: Array<NavModule & { short: string }> = [
     { moduleCode: "requisitions", href: "/requisitions", title: "Requisiciones", short: "Requisiciones",
       desc: "Solicitudes de insumos de operadores y conversión a compras.",
       Icon: "ClipboardList", color: "amber", category: "Operación", badge: "NUEVO" },
+    { moduleCode: "vehicles", href: "/vehicles", title: "Vehículos", short: "Vehículos",
+      desc: "Expediente: fotos, seguros, tarjeta de circulación, servicios y gastos.",
+      Icon: "Car", color: "cyan", category: "Operación", badge: "NUEVO" },
 
     { moduleCode: "clients", href: "/clients", title: "Clientes", short: "Clientes",
       desc: "CFDI 4.0, RFC, datos fiscales y condiciones de pago.",
@@ -74,6 +77,9 @@ export const ALL_MODULES: Array<NavModule & { short: string }> = [
     { moduleCode: "document_requests", href: "/documents/requests", title: "Requisiciones de Documentos", short: "Req. de Documentos",
       desc: "Solicitudes de documento nuevo o cambio con workflow de aprobación.",
       Icon: "Layers", color: "violet", category: "Sistema", badge: "NUEVO" },
+    { moduleCode: "audit", href: "/audit", title: "Bitácora de ediciones", short: "Bitácora de ediciones",
+      desc: "Quién editó cotizaciones, compras, OT y vehículos, con el valor anterior y el nuevo.",
+      Icon: "ScrollText", color: "rose", category: "Sistema", badge: "NUEVO" },
     { moduleCode: "dashboard", href: "/dashboard", title: "Dashboard", short: "Dashboard",
       desc: "Estadísticas del negocio: ventas, compras, gastos.",
       Icon: "BarChart3", color: "orange", category: "Sistema" },

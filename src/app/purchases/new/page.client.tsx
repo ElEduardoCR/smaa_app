@@ -8,7 +8,7 @@ import { matchesSearch } from "@/lib/search";
 import { supabase } from "@/lib/supabase";
 import PriceTaxToggle from "@/components/PriceTaxToggle";
 import { calculatePriceTotals, priceLine, priceWithoutVat, roundMoney } from "@/lib/pricing";
-import { generateUUID } from "@/lib/uuid";
+import { createMultiPurchaseOrderAction, createPurchaseOrderAction } from "@/app/actions/purchases";
 import { fileExtension } from "@/lib/storageNames";
 import { storageErrorMessage } from "@/lib/storageErrors";
 import {
@@ -154,40 +154,31 @@ function NewPOForm() {
                     supplierQuoteUrl = publicUrlData.publicUrl;
                 }
 
-                const { data: insertedPO, error: poError } = await supabase.from('purchase_orders').insert([{
+                // Alta por el servidor: queda en el historial a nombre de quien la captura.
+                await createPurchaseOrderAction({
                     supplier_id: g.supplier_id,
                     subtotal,
                     vat_total: vatTotal,
                     total,
                     supplier_quote_url: supplierQuoteUrl,
-                    status: 'Draft',
                     notes: data.notes?.trim() || null,
-                }]).select().single();
-                if (poError) throw poError;
-
-                const itemsToInsert = g.items.map(item => ({
-                    purchase_order_id: insertedPO.id,
-                    description: item.description,
-                    quantity: item.quantity,
-                    unit_price: priceWithoutVat(item.unit_price, item.price_includes_vat),
-                    line_total: calculateLineTotal(item.quantity, item.unit_price, item.price_includes_vat),
-                    notes: item.notes?.trim() || null,
-                }));
-                const { error: itemsError } = await supabase.from('purchase_order_items').insert(itemsToInsert);
-                if (itemsError) throw itemsError;
+                    items: g.items.map(item => ({
+                        description: item.description,
+                        quantity: Number(item.quantity),
+                        unit_price: priceWithoutVat(item.unit_price, item.price_includes_vat),
+                        line_total: calculateLineTotal(item.quantity, item.unit_price, item.price_includes_vat),
+                        notes: item.notes?.trim() || null,
+                    })),
+                });
 
                 router.push('/purchases');
                 return;
             }
 
-            // Modo multicompra: subir cotizaciones por grupo, luego crear N POs.
-            const groupId = generateUUID();
-            const createdPOs: { id: string; po_number: string }[] = [];
-
+            // Modo multicompra: subir cotizaciones por grupo, luego crear N POs en el servidor.
+            const groups: { supplier_id: string | null; supplier_quote_url: string | null; items: { description: string; quantity: number; unit_price: number; line_total: number; notes: string | null }[] }[] = [];
             for (let i = 0; i < data.groups.length; i++) {
                 const g = data.groups[i];
-                const { subtotal, vat: vatTotal, total } = calculatePriceTotals(g.items);
-
                 let supplierQuoteUrl: string | null = null;
                 const f = getFirstFile((g as any).supplier_quote_file);
                 if (f) {
@@ -205,43 +196,21 @@ function NewPOForm() {
                     const { data: publicUrlData } = supabase.storage.from('purchase_files').getPublicUrl(filePath);
                     supplierQuoteUrl = publicUrlData.publicUrl;
                 }
-
-                const { data: insertedPO, error: poError } = await supabase.from('purchase_orders').insert([{
+                groups.push({
                     supplier_id: g.supplier_id,
-                    subtotal,
-                    vat_total: vatTotal,
-                    total,
                     supplier_quote_url: supplierQuoteUrl,
-                    status: 'Draft',
-                    notes: data.notes?.trim() || null,
-                    purchase_group_id: groupId,
-                }]).select().single();
-                if (poError) {
-                    // Rollback: borrar las POs anteriores
-                    for (const p of createdPOs) {
-                        await supabase.from('purchase_orders').delete().eq('id', p.id);
-                    }
-                    throw poError;
-                }
-
-                const itemsToInsert = g.items.map(item => ({
-                    purchase_order_id: insertedPO.id,
-                    description: item.description,
-                    quantity: item.quantity,
-                    unit_price: priceWithoutVat(item.unit_price, item.price_includes_vat),
-                    line_total: calculateLineTotal(item.quantity, item.unit_price, item.price_includes_vat),
-                    notes: item.notes?.trim() || null,
-                }));
-                const { error: itemsError } = await supabase.from('purchase_order_items').insert(itemsToInsert);
-                if (itemsError) {
-                    for (const p of createdPOs) {
-                        await supabase.from('purchase_orders').delete().eq('id', p.id);
-                    }
-                    throw itemsError;
-                }
-
-                createdPOs.push({ id: insertedPO.id, po_number: insertedPO.po_number });
+                    items: g.items.map(item => ({
+                        description: item.description,
+                        quantity: Number(item.quantity),
+                        unit_price: priceWithoutVat(item.unit_price, item.price_includes_vat),
+                        line_total: calculateLineTotal(item.quantity, item.unit_price, item.price_includes_vat),
+                        notes: item.notes?.trim() || null,
+                    })),
+                });
             }
+            const created = await createMultiPurchaseOrderAction({ notes: data.notes?.trim() || null, groups });
+            const groupId = created.purchase_group_id;
+            const createdPOs = created.pos.map((p: { id: string; po_number: string }) => ({ id: p.id, po_number: p.po_number }));
 
             setCreatedGroup({ group_id: groupId, pos: createdPOs });
         } catch (error: any) {
@@ -566,18 +535,6 @@ function GroupCard({
                     <div>
                         <div className="flex justify-between items-center mb-3">
                             <h3 className="text-sm font-semibold text-white">Artículos de este proveedor</h3>
-                            <button
-                                type="button"
-                                onClick={(event) => {
-                                    // Safari no enfoca los botones al hacer clic: retira el cursor
-                                    // del campo anterior sin desplazar la vista hacia otra fila.
-                                    event.currentTarget.focus({ preventScroll: true });
-                                    append({ description: "", quantity: 1, unit_price: 0 }, { shouldFocus: false });
-                                }}
-                                className="flex items-center gap-1.5 text-xs text-orange-300 hover:text-orange-200 bg-orange-500/10 hover:bg-orange-500/20 px-3 py-1.5 rounded-lg border border-orange-500/20"
-                            >
-                                <Plus className="w-3.5 h-3.5" /> Agregar línea
-                            </button>
                         </div>
                         <div className="space-y-2">
                             <div className="hidden md:grid grid-cols-12 gap-3 text-[10px] font-semibold text-neutral-400 uppercase tracking-wider px-2">
@@ -644,6 +601,15 @@ function GroupCard({
                                     </div>
                                 );
                             })}
+                            {/* Abajo de la última línea: para capturar muchas sin regresar hasta arriba.
+                                El cursor pasa a la descripción de la línea nueva. */}
+                            <button
+                                type="button"
+                                onClick={() => append({ description: "", quantity: 1, unit_price: 0 }, { shouldFocus: true, focusName: `groups.${gIdx}.items.${fields.length}.description` })}
+                                className="w-full flex items-center justify-center gap-1.5 text-sm text-orange-300 hover:text-orange-200 bg-orange-500/10 hover:bg-orange-500/20 px-3 py-2.5 rounded-xl border border-dashed border-orange-500/40"
+                            >
+                                <Plus className="w-4 h-4" /> Agregar línea
+                            </button>
                         </div>
                     </div>
                 </div>

@@ -6,7 +6,7 @@ import { twMerge } from "tailwind-merge";
 import {
     Users, BarChart3, Receipt, ShieldCheck, Cog,
     Wallet, BookOpen, History, Factory, Truck, ChevronRight,
-    ClipboardList, UserCog, ShieldAlert, Layers, ShoppingCart
+    ClipboardList, UserCog, ShieldAlert, Layers, ShoppingCart, Car, ScrollText
 } from "lucide-react";
 import { CATEGORIES, type ModuleCard } from "@/lib/navModules";
 
@@ -26,7 +26,7 @@ type UserInfo = {
 const ICONS: Record<string, any> = {
     Users, BarChart3, Receipt, ShieldCheck, Cog,
     Wallet, BookOpen, History, Factory, Truck,
-    ClipboardList, UserCog, ShieldAlert, Layers, ShoppingCart,
+    ClipboardList, UserCog, ShieldAlert, Layers, ShoppingCart, Car, ScrollText,
 };
 
 const COLOR_CLASSES: Record<string, { border: string; icon: string; hover: string; }> = {
@@ -89,7 +89,7 @@ export default function DashboardClient({
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5">
                     <StatChip label="Empleados activos" value={stats.employees} Icon={Users} color="emerald" />
                     <StatChip label="OTs en curso" value={stats.otInProgress} Icon={Factory} color="orange" />
-                    <StatChip label="OTs en Calidad" value={stats.otInQC} Icon={ShieldCheck} color="sky" />
+                    <StatChip label="Lotes en Calidad" value={stats.otInQC} Icon={ShieldCheck} color="sky" />
                     <StatChip label="Requisiciones pendientes" value={stats.pendingRequisitions} Icon={ClipboardList} color="amber" />
                     <StatChip label="Docs ISO" value={stats.docsTotal} Icon={BookOpen} color="violet" />
                     <StatChip label="Cambios (7d)" value={stats.changesLast7d} Icon={History} color="amber" />

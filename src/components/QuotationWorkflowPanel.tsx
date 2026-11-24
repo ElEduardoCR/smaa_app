@@ -6,7 +6,23 @@ import { priceWithoutVat, priceLine } from '@/lib/pricing';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { partyLabel } from '@/lib/search';
-import { addQuotationExtraAction, quotationToReceivableAction } from '@/app/actions/quotationWorkflow';
+import { addQuotationExtraAction, quotationToReceivableAction, type SaleOrigin } from '@/app/actions/quotationWorkflow';
+
+const ORIGINS: { value: SaleOrigin; label: string; hint: string }[] = [
+    { value: 'fabricacion', label: 'Trabajo fabricado', hint: 'Tiene (o tendrá) OT. Se puede cobrar antes de terminarla.' },
+    { value: 'venta_directa', label: 'Venta directa', hint: 'Se compró y se entregó tal cual; no necesita OT.' },
+    { value: 'trabajo_previo', label: 'Trabajo ya realizado', hint: 'Se hizo antes y apenas se da de alta; usa la fecha real de la venta.' },
+];
+
+function todayIso() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function addDays(date: string, days: number) {
+    const [y, m, d] = date.split('-').map(Number);
+    return new Date(y, m - 1, d + days).toLocaleDateString('es-MX', { dateStyle: 'medium' });
+}
 
 type Summary = { clientId: number; client: string; days: number; total: number; inManufacturing: boolean; arId?: string; arActive: boolean; extras: { id: string; description: string; extra_note: string | null }[] };
 export default function QuotationWorkflowPanel({ quotationId, onChanged }: { quotationId: string; onChanged?: () => void }) {
@@ -21,6 +37,10 @@ export default function QuotationWorkflowPanel({ quotationId, onChanged }: { quo
     const [price, setPrice] = useState('');
     const [priceIncludesVat, setPriceIncludesVat] = useState(false);
     const [note, setNote] = useState('');
+    const [showAR, setShowAR] = useState(false);
+    const [origin, setOrigin] = useState<SaleOrigin>('fabricacion');
+    const [saleDate, setSaleDate] = useState(todayIso());
+    const [arNotes, setArNotes] = useState('');
     const load = useCallback(async () => {
         if (!permissions?.view) return;
         const [quote, orders, ar, extras] = await Promise.all([
@@ -57,9 +77,19 @@ export default function QuotationWorkflowPanel({ quotationId, onChanged }: { quo
         } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo agregar el extra.'); }
         finally { setBusy(false); }
     }
-    async function sendToAR() {
-        setBusy(true); setError(''); setMessage('');
-        try { await quotationToReceivableAction(quotationId); await load(); onChanged?.(); setMessage('Cotización enviada a cuentas por cobrar. Las OT conservan su estado actual.'); }
+    function openAR() {
+        setOrigin(summary?.inManufacturing ? 'fabricacion' : 'venta_directa');
+        setSaleDate(todayIso());
+        setArNotes('');
+        setShowAR(true);
+    }
+    async function sendToAR(e: React.FormEvent) {
+        e.preventDefault(); setBusy(true); setError(''); setMessage('');
+        try {
+            await quotationToReceivableAction(quotationId, { origin, invoiceDate: saleDate, notes: arNotes });
+            setShowAR(false); await load(); onChanged?.();
+            setMessage(origin === 'fabricacion' ? 'Cotización enviada a cuentas por cobrar. Las OT conservan su estado actual.' : 'Venta registrada en cuentas por cobrar.');
+        }
         catch (e) { setError(e instanceof Error ? e.message : 'No se pudo enviar.'); }
         finally { setBusy(false); }
     }
@@ -73,9 +103,27 @@ export default function QuotationWorkflowPanel({ quotationId, onChanged }: { quo
             <div className="flex flex-wrap gap-3">
                 {permissions.edit && summary.inManufacturing && summary.arActive && <button type="button" disabled={busy} onClick={() => setShowExtra(!showExtra)} className="rounded-lg border border-amber-500/40 px-3 py-2 text-sm text-amber-300">Agregar extra</button>}
                 {summary.arId && permissions.viewAR ? <Link href={`/finance/receivable/${summary.clientId}`} className="rounded-lg border border-emerald-500/40 px-3 py-2 text-sm text-emerald-300">Ver cuenta por cobrar{!summary.arActive ? ' (inactiva)' : ''}</Link>
-                    : permissions.createAR && !summary.arId && <button type="button" disabled={busy || !summary.inManufacturing} onClick={sendToAR} className="rounded-lg border border-emerald-500/40 px-3 py-2 text-sm text-emerald-300 disabled:opacity-40">Enviar a cuentas por cobrar</button>}
+                    : permissions.createAR && !summary.arId && <button type="button" disabled={busy} onClick={() => (showAR ? setShowAR(false) : openAR())} className="rounded-lg border border-emerald-500/40 px-3 py-2 text-sm text-emerald-300 disabled:opacity-40">Enviar a cuentas por cobrar</button>}
             </div>
-            {!summary.arId && <p className="text-xs text-neutral-400">{summary.inManufacturing ? 'Puedes enviarla a cobro sin terminar ni liberar las OT. El vencimiento se calcula desde hoy con los días de crédito del cliente.' : 'Crea una OT activa de esta cotización para enviarla a cuentas por cobrar.'}</p>}
+            {!summary.arId && !showAR && <p className="text-xs text-neutral-400">{summary.inManufacturing ? 'Puedes enviarla a cobro sin terminar ni liberar las OT.' : 'No necesita OT: sirve para ventas directas y para trabajos ya realizados.'} El vencimiento se calcula con los días de crédito del cliente.</p>}
+            {showAR && !summary.arId && <form onSubmit={sendToAR} className="space-y-3 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3">
+                <div className="grid gap-2 sm:grid-cols-3">
+                    {ORIGINS.map(option => <label key={option.value} className={`cursor-pointer rounded-lg border p-2 text-sm ${origin === option.value ? 'border-emerald-500/60 bg-emerald-500/10 text-emerald-200' : 'border-neutral-700 text-neutral-300'}`}>
+                        <input type="radio" name="sale-origin" value={option.value} checked={origin === option.value} onChange={() => setOrigin(option.value)} className="sr-only" />
+                        <span className="block font-semibold">{option.label}</span>
+                        <span className="block text-xs text-neutral-400">{option.hint}</span>
+                    </label>)}
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="text-sm text-neutral-300">Fecha de venta<input type="date" required max={todayIso()} value={saleDate} onChange={e => setSaleDate(e.target.value)} className="mt-1 w-full rounded-lg border border-neutral-700 bg-neutral-800 p-2 text-white" /></label>
+                    <p className="self-end text-xs text-neutral-400">Vence el {saleDate ? addDays(saleDate, summary.days) : '—'} ({summary.days} días de crédito).</p>
+                </div>
+                <label className="block text-sm text-neutral-300">Notas (opcional)<input value={arNotes} onChange={e => setArNotes(e.target.value)} className="mt-1 w-full rounded-lg border border-neutral-700 bg-neutral-800 p-2 text-white" placeholder="Ej. factura A-123, entregado el lunes" /></label>
+                <div className="flex gap-2">
+                    <button disabled={busy || !saleDate} className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40">{busy ? 'Enviando…' : 'Confirmar envío a cobro'}</button>
+                    <button type="button" onClick={() => setShowAR(false)} className="rounded-lg border border-neutral-600 px-3 py-2 text-sm text-neutral-200">Cancelar</button>
+                </div>
+            </form>}
             {summary.extras.map(extra => <p key={extra.id} className="text-sm text-amber-200">{extra.description}{extra.extra_note && ` — ${extra.extra_note}`}</p>)}
             {showExtra && <form onSubmit={addExtra} className="grid gap-3 sm:grid-cols-2">
                 <label className="text-sm text-neutral-300 sm:col-span-2">Descripción del extra<input required value={description} onChange={e => setDescription(e.target.value)} className="mt-1 w-full rounded-lg border border-neutral-700 bg-neutral-800 p-2 text-white" /></label>

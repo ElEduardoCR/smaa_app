@@ -15,12 +15,12 @@ import clsx from "clsx";
 import { twMerge } from "tailwind-merge";
 import CommissionersSection from "@/app/sales/CommissionersSection";
 import { normalizeCommissioners, rememberCommissionAgents } from "@/lib/commissioners";
+import { saveQuotationAction } from "@/app/actions/quotations";
 
 function cn(...inputs: (string | undefined | null | false)[]) {
     return twMerge(clsx(inputs));
 }
 
-const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 
 // Cotización rápida: solo descripción + cantidad + precio de venta directo.
 // Sin costos, sin margen, sin conceptos de servicio.
@@ -124,7 +124,10 @@ export default function QuickQuotationPage() {
         try {
             const cleanCommissioners = normalizeCommissioners(data.commissioners);
 
-            const quoteData = {
+            // En cotización rápida el precio capturado ES el precio al cliente:
+            // no hay margen (costo = precio, margin_pct = 0).
+            await saveQuotationAction({
+                id: null,
                 client_id: data.client_id,
                 title: data.title?.trim() || null,
                 seller: data.seller || null,
@@ -132,42 +135,19 @@ export default function QuickQuotationPage() {
                 delivery_date: data.delivery_date || null,
                 terms_conditions: defaultTerms || null,
                 commissioners: cleanCommissioners,
-                subtotal,
-                vat_total: vatTotal,
-                total,
-                status: "Draft",
-            };
-
-            const { data: insertedQuote, error: quoteError } = await supabase
-                .from("quotations")
-                .insert([quoteData])
-                .select()
-                .single();
-
-            if (quoteError) throw quoteError;
-
-            // En cotización rápida el precio capturado ES el precio al cliente:
-            // no hay margen (costo = precio, margin_pct = 0).
-            const itemsToInsert = data.items.map((item) => {
-                const qty = Number(item.quantity) || 1;
-                const price = priceWithoutVat(item.unit_price, item.price_includes_vat);
-                const line = round2(qty * price);
-                return {
-                    quotation_id: insertedQuote.id,
-                    description: item.description,
-                    quantity: qty,
-                    unit_price: price,
-                    line_total: line,
-                    cost_unit_price: price,
-                    cost_line_total: line,
-                    margin_pct: 0,
-                    item_type: "product",
-                    service_concepts: null,
-                };
+                items: data.items.map((item) => {
+                    const price = priceWithoutVat(item.unit_price, item.price_includes_vat);
+                    return {
+                        description: item.description,
+                        quantity: Number(item.quantity) || 1,
+                        unit_price: price,
+                        cost_unit_price: price,
+                        margin_pct: 0,
+                        item_type: "product" as const,
+                        service_concepts: null,
+                    };
+                }),
             });
-
-            const { error: itemsError } = await supabase.from("quotation_items").insert(itemsToInsert);
-            if (itemsError) throw itemsError;
 
             await rememberCommissionAgents(cleanCommissioners.map((c) => c.name));
 
@@ -255,13 +235,6 @@ export default function QuickQuotationPage() {
                     <div className="bg-neutral-800/40 p-6 rounded-3xl border border-neutral-700/50 backdrop-blur-sm">
                         <div className="flex flex-wrap justify-between items-center gap-3 mb-6">
                             <h2 className="text-lg font-semibold text-white">Productos</h2>
-                            <button
-                                type="button"
-                                onClick={() => append({ ...emptyItem })}
-                                className="flex items-center gap-2 text-sm text-amber-300 hover:text-amber-200 font-medium bg-amber-500/10 hover:bg-amber-500/20 px-4 py-2 rounded-lg transition-colors border border-amber-500/20"
-                            >
-                                <Plus className="w-4 h-4" /> Agregar línea
-                            </button>
                         </div>
 
                         <div className="space-y-4">
@@ -315,6 +288,14 @@ export default function QuickQuotationPage() {
                                 );
                             })}
                             {typeof errors.items?.message === "string" && <p className="text-red-400 text-xs ml-1">{errors.items.message}</p>}
+                            {/* Abajo de la última línea: para capturar muchas sin regresar hasta arriba. */}
+                            <button
+                                type="button"
+                                onClick={() => append({ ...emptyItem })}
+                                className="w-full flex items-center justify-center gap-2 text-sm text-amber-300 hover:text-amber-200 font-medium bg-amber-500/10 hover:bg-amber-500/20 px-4 py-3 rounded-xl transition-colors border border-dashed border-amber-500/40"
+                            >
+                                <Plus className="w-4 h-4" /> Agregar línea
+                            </button>
                         </div>
                     </div>
 

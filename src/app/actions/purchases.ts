@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { supabase } from '@/lib/supabase';
+import { getActorSupabase } from '@/lib/supabaseServer';
 import { getSession } from '@/lib/session';
 import { can } from '@/lib/permissions';
 import { fileExtension, safeStorageName } from '@/lib/storageNames';
@@ -40,6 +41,7 @@ export type CreatePOInput = {
 
 export async function createPurchaseOrderAction(input: CreatePOInput) {
     const session = await requireCan('create');
+    const db = getActorSupabase(session.employeeId);
     if (!input.items || input.items.length === 0) {
         throw new Error('Agrega al menos un artículo.');
     }
@@ -49,12 +51,12 @@ export async function createPurchaseOrderAction(input: CreatePOInput) {
         if (!Number.isFinite(it.unit_price) || it.unit_price < 0) throw new Error('El precio unitario no puede ser negativo.');
     }
     if (input.supplier_id) {
-        const { data: sup } = await supabase.from('suppliers').select('id').eq('id', input.supplier_id).maybeSingle();
+        const { data: sup } = await db.from('suppliers').select('id').eq('id', input.supplier_id).maybeSingle();
         if (!sup) throw new Error('El proveedor seleccionado no existe.');
     }
 
     const totals = calculatePriceTotals(input.items);
-    const { data: po, error: poErr } = await supabase
+    const { data: po, error: poErr } = await db
         .from('purchase_orders')
         .insert({
             supplier_id: input.supplier_id,
@@ -78,7 +80,7 @@ export async function createPurchaseOrderAction(input: CreatePOInput) {
         line_total: priceLine(it).subtotal,
         notes: it.notes?.trim() || null,
     }));
-    const { error: itemsErr } = await supabase.from('purchase_order_items').insert(items);
+    const { error: itemsErr } = await db.from('purchase_order_items').insert(items);
     if (itemsErr) throw new Error('Error al crear items: ' + itemsErr.message);
 
     revalidatePath('/purchases');
@@ -105,6 +107,7 @@ export type CreateMultiPOInput = {
 
 export async function createMultiPurchaseOrderAction(input: CreateMultiPOInput) {
     const session = await requireCan('create');
+    const db = getActorSupabase(session.employeeId);
 
     if (!input.groups || input.groups.length < 2) {
         throw new Error('La multicompra requiere al menos 2 proveedores.');
@@ -123,7 +126,7 @@ export async function createMultiPurchaseOrderAction(input: CreateMultiPOInput) 
             if (!Number.isFinite(it.unit_price) || it.unit_price < 0) throw new Error(`Grupo ${g + 1}: el precio unitario no puede ser negativo.`);
         }
         // Validar proveedor
-        const { data: sup } = await supabase.from('suppliers').select('id').eq('id', group.supplier_id).maybeSingle();
+        const { data: sup } = await db.from('suppliers').select('id').eq('id', group.supplier_id).maybeSingle();
         if (!sup) throw new Error(`Grupo ${g + 1}: el proveedor seleccionado no existe.`);
     }
 
@@ -138,7 +141,7 @@ export async function createMultiPurchaseOrderAction(input: CreateMultiPOInput) 
         for (const group of input.groups) {
             const { subtotal, vat: vat_total, total } = calculatePriceTotals(group.items);
 
-            const { data: po, error: poErr } = await supabase
+            const { data: po, error: poErr } = await db
                 .from('purchase_orders')
                 .insert({
                     supplier_id: group.supplier_id,
@@ -163,7 +166,7 @@ export async function createMultiPurchaseOrderAction(input: CreateMultiPOInput) 
                 line_total: priceLine(it).subtotal,
                 notes: it.notes?.trim() || null,
             }));
-            const { error: itemsErr } = await supabase.from('purchase_order_items').insert(items);
+            const { error: itemsErr } = await db.from('purchase_order_items').insert(items);
             if (itemsErr) throw new Error('Error creando items: ' + itemsErr.message);
 
             createdPOs.push({
@@ -180,7 +183,7 @@ export async function createMultiPurchaseOrderAction(input: CreateMultiPOInput) 
         // falla, las POs huérfanas quedan — admin las limpia con el
         // botón "Obsoletar" (que ya existe en la lista).
         for (const p of createdPOs) {
-            await supabase.from('purchase_orders').delete().eq('id', p.id);
+            await db.from('purchase_orders').delete().eq('id', p.id);
         }
         throw err;
     }
@@ -201,17 +204,21 @@ export type UpdatePOInput = {
     supplier_id: string | null;
     status: 'Draft' | 'Sent' | 'Approved' | 'Received';
     notes?: string | null;
-    items: Array<{ description: string; quantity: number; unit_price: number; line_total: number; notes?: string | null }>;
+    /** Queda en la bitácora junto con el cambio. */
+    reason?: string | null;
+    /** `id` de los artículos existentes: se actualizan en su lugar para que el historial muestre qué cambió. */
+    items: Array<{ id?: string | null; description: string; quantity: number; unit_price: number; line_total: number; notes?: string | null }>;
 };
 
 export async function updatePurchaseOrderAction(input: UpdatePOInput) {
     const session = await requireCan('edit');
+    const db = getActorSupabase(session.employeeId, input.reason);
     if (!input.id) throw new Error('Falta el ID de la PO.');
     if (!input.items || input.items.length === 0) {
         throw new Error('Agrega al menos un artículo con descripción.');
     }
     if (input.supplier_id) {
-        const { data: sup } = await supabase.from('suppliers').select('id').eq('id', input.supplier_id).maybeSingle();
+        const { data: sup } = await db.from('suppliers').select('id').eq('id', input.supplier_id).maybeSingle();
         if (!sup) throw new Error('El proveedor seleccionado no existe.');
     }
 
@@ -224,7 +231,7 @@ export async function updatePurchaseOrderAction(input: UpdatePOInput) {
     const { subtotal, vat: vat_total, total } = calculatePriceTotals(input.items);
 
     // 1. Update header
-    const { error: poErr } = await supabase
+    const { error: poErr } = await db
         .from('purchase_orders')
         .update({
             supplier_id: input.supplier_id,
@@ -233,27 +240,38 @@ export async function updatePurchaseOrderAction(input: UpdatePOInput) {
             vat_total,
             total,
             notes: input.notes?.trim() || null,
+            updated_at: new Date().toISOString(),
         })
         .eq('id', input.id);
     if (poErr) throw new Error('Error al actualizar PO: ' + poErr.message);
 
-    // 2. Replace items (delete + insert)
-    const { error: delErr } = await supabase
-        .from('purchase_order_items')
-        .delete()
-        .eq('purchase_order_id', input.id);
-    if (delErr) throw new Error('Error al limpiar items: ' + delErr.message);
-
-    const items = input.items.map((it) => ({
-        purchase_order_id: input.id,
-        description: it.description.trim(),
-        quantity: it.quantity,
-        unit_price: it.unit_price,
-        line_total: priceLine(it).subtotal,
-        notes: it.notes?.trim() || null,
-    }));
-    const { error: itemsErr } = await supabase.from('purchase_order_items').insert(items);
-    if (itemsErr) throw new Error('Error al guardar items: ' + itemsErr.message);
+    // 2. Artículos: actualizar los existentes, agregar los nuevos y quitar los que ya no están.
+    const { data: existing, error: existingErr } = await db.from('purchase_order_items').select('id').eq('purchase_order_id', input.id);
+    if (existingErr) throw new Error('Error al leer artículos: ' + existingErr.message);
+    const existingIds = new Set((existing || []).map((row) => row.id as string));
+    const keep = new Set<string>();
+    for (const it of input.items) {
+        const row = {
+            description: it.description.trim(),
+            quantity: it.quantity,
+            unit_price: it.unit_price,
+            line_total: priceLine(it).subtotal,
+            notes: it.notes?.trim() || null,
+        };
+        if (it.id && existingIds.has(it.id)) {
+            keep.add(it.id);
+            const { error } = await db.from('purchase_order_items').update(row).eq('id', it.id);
+            if (error) throw new Error('Error al guardar artículos: ' + error.message);
+        } else {
+            const { error } = await db.from('purchase_order_items').insert({ ...row, purchase_order_id: input.id });
+            if (error) throw new Error('Error al guardar artículos: ' + error.message);
+        }
+    }
+    const removed = Array.from(existingIds).filter((id) => !keep.has(id));
+    if (removed.length) {
+        const { error: delErr } = await db.from('purchase_order_items').delete().in('id', removed);
+        if (delErr) throw new Error('Error al quitar artículos: ' + delErr.message);
+    }
 
     revalidatePath('/purchases');
     revalidatePath(`/purchases/${input.id}`);
@@ -264,11 +282,12 @@ export async function updatePurchaseOrderAction(input: UpdatePOInput) {
 // =============================================================================
 export async function deletePurchaseOrderAction(id: string) {
     const session = await requireCan('delete');
+    const db = getActorSupabase(session.employeeId);
     if (!id) throw new Error('Falta el ID de la PO.');
 
     // Soft-delete: marcar como obsoleto en vez de borrar.
     // Las POs son registros contables — no deben borrarse físicamente.
-    const { error } = await supabase
+    const { error } = await db
         .from('purchase_orders')
         .update({ is_active: false })
         .eq('id', id);
@@ -281,9 +300,10 @@ export async function deletePurchaseOrderAction(id: string) {
 /** Restaura una PO que fue marcada como obsoleto. */
 export async function restorePurchaseOrderAction(id: string) {
     const session = await requireCan('edit');
+    const db = getActorSupabase(session.employeeId);
     if (!id) throw new Error('Falta el ID de la PO.');
 
-    const { error } = await supabase
+    const { error } = await db
         .from('purchase_orders')
         .update({ is_active: true })
         .eq('id', id);
@@ -347,11 +367,12 @@ export async function createPurchaseUploadAction(
     fileSize: number,
     kind: PurchaseFileKind,
 ): Promise<{ path: string; token: string }> {
-    await requireCan('edit');
+    const session = await requireCan('edit');
+    const db = getActorSupabase(session.employeeId);
     if (!poId) throw new Error('Falta el ID de la PO.');
     validatePurchaseFile(fileName, contentType, fileSize, kind);
 
-    const { data: po } = await supabase.from('purchase_orders').select('id').eq('id', poId).maybeSingle();
+    const { data: po } = await db.from('purchase_orders').select('id').eq('id', poId).maybeSingle();
     if (!po) throw new Error('La orden de compra no existe.');
 
     const path = `${purchaseFolder(poId, kind)}${Date.now()}-${safeStorageName(fileName)}`;
@@ -392,6 +413,7 @@ export async function receivePurchaseOrderAction(
     evidences: UploadedPurchaseFile[] = []
 ) {
     const session = await requireCan('edit');
+    const db = getActorSupabase(session.employeeId);
     if (!poId) throw new Error('Falta el ID de la PO.');
     if (!invoices || invoices.length === 0) {
         throw new Error('Sube al menos una factura (PDF, XML o imagen) para recibir la compra.');
@@ -399,7 +421,7 @@ export async function receivePurchaseOrderAction(
 
     const invoiceRows = attachmentRows(poId, invoices, 'invoice', session.employeeId);
     const evidenceRows = attachmentRows(poId, evidences, 'evidence', session.employeeId);
-    const { error: attErr } = await supabase
+    const { error: attErr } = await db
         .from('purchase_order_attachments')
         .insert([...invoiceRows, ...evidenceRows]);
     if (attErr) throw new Error('Error al registrar los archivos: ' + attErr.message);
@@ -411,7 +433,7 @@ export async function receivePurchaseOrderAction(
         invoice_url: invoiceRows[0].file_url,
     };
     if (evidenceRows.length > 0) patch.evidence_photo_url = evidenceRows[0].file_url;
-    const { error: updateErr } = await supabase
+    const { error: updateErr } = await db
         .from('purchase_orders')
         .update(patch)
         .eq('id', poId);
@@ -437,24 +459,25 @@ export async function addPurchaseAttachmentAction(
     kind: PurchaseFileKind = 'other'
 ) {
     const session = await requireCan('edit');
+    const db = getActorSupabase(session.employeeId);
     if (!poId) throw new Error('Falta el ID de la PO.');
     if (!files || files.length === 0) throw new Error('Selecciona al menos un archivo.');
 
     const rows = attachmentRows(poId, files, kind, session.employeeId);
-    const { error: insErr } = await supabase
+    const { error: insErr } = await db
         .from('purchase_order_attachments')
         .insert(rows);
     if (insErr) throw new Error('Error al registrar adjuntos: ' + insErr.message);
 
     // Si era la primera factura y la PO no tenía invoice_url, la llenamos
     if (kind === 'invoice') {
-        const { data: po } = await supabase
+        const { data: po } = await db
             .from('purchase_orders')
             .select('invoice_url')
             .eq('id', poId)
             .maybeSingle();
         if (po && !po.invoice_url) {
-            await supabase
+            await db
                 .from('purchase_orders')
                 .update({ invoice_url: rows[0].file_url })
                 .eq('id', poId);
@@ -471,9 +494,10 @@ export async function addPurchaseAttachmentAction(
 // =============================================================================
 export async function deletePurchaseAttachmentAction(attachmentId: string) {
     const session = await requireCan('edit');
+    const db = getActorSupabase(session.employeeId);
     if (!attachmentId) throw new Error('Falta el ID del adjunto.');
 
-    const { data: att } = await supabase
+    const { data: att } = await db
         .from('purchase_order_attachments')
         .select('*')
         .eq('id', attachmentId)
@@ -490,7 +514,7 @@ export async function deletePurchaseAttachmentAction(attachmentId: string) {
         console.warn('[deletePurchaseAttachmentAction] storage delete warning:', storageErr);
     }
 
-    const { error } = await supabase
+    const { error } = await db
         .from('purchase_order_attachments')
         .delete()
         .eq('id', attachmentId);

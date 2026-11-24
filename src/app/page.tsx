@@ -40,7 +40,8 @@ export default async function HomePage() {
     ] = await Promise.all([
         supabase.from("employees").select("id", { count: "exact", head: true }).eq("is_active", true),
         supabase.from("work_orders").select("id", { count: "exact", head: true }).in("status", ["Open", "In Progress", "Paused"]),
-        supabase.from("work_orders").select("id", { count: "exact", head: true }).eq("status", "QC"),
+        // Lotes de piezas esperando a Calidad (las OT pueden cerrarse por partes).
+        supabase.from("work_order_closures").select("id", { count: "exact", head: true }).eq("qc_status", "pending"),
         can(session.role, session.permissions, 'documents', 'view')
             ? getServerSupabase().from("documents").select("id", { count: "exact", head: true })
             : Promise.resolve({ count: 0 }),

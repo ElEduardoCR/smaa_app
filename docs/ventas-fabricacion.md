@@ -1,5 +1,7 @@
 # Ventas y fabricación — cambios del 18 de septiembre de 2026
 
+> **24 de noviembre de 2026:** el envío a cuentas por cobrar ya no requiere OT (venta directa / trabajo ya realizado) y la garantía ahora abre una OT ligada (`-G1`/`-R1`). Ver `docs/operacion-integral-noviembre.md`.
+
 ## Comportamiento
 
 - La base genera un folio independiente de la cotización para cada OT. La secuencia empieza después del mayor folio existente y admite creaciones concurrentes. OT y asignación de WPS se guardan en una transacción.

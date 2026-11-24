@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import QuotationWorkflowPanel from "@/components/QuotationWorkflowPanel";
+import EditHistory from "@/components/EditHistory";
 import { supabase } from "@/lib/supabase";
 import { X, RefreshCw, Box, Users } from "lucide-react";
 import { commissionersTotal, type Commissioner } from "@/lib/commissioners";
@@ -46,7 +47,8 @@ export default function QuotationDetailsModal({ quote, onClose }: QuotationDetai
             const { data, error } = await supabase
                 .from('quotation_items')
                 .select('*')
-                .eq('quotation_id', quote.id);
+                .eq('quotation_id', quote.id)
+                .order('position', { ascending: true, nullsFirst: false });
 
             if (error) throw error;
             setItems(data || []);
@@ -190,6 +192,10 @@ export default function QuotationDetailsModal({ quote, onClose }: QuotationDetai
                             </table>
                         </div>
                     )}
+
+                    <div className="mt-6">
+                        <EditHistory rootTable="quotations" rootId={quote.id} title="Historial de cambios de la cotización" />
+                    </div>
                 </div>
 
                 {/* Footer (Totals) */}

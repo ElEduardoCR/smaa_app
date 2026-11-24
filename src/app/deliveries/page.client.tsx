@@ -44,6 +44,7 @@ type Delivery = {
     tracking_number: string | null;
     created_at: string;
     stage: string;
+    quantity: number | null;
     packaged_at: string | null;
     packaged_by: string | null;
     packaging_signature_url?: string | null;
@@ -62,6 +63,8 @@ type Delivery = {
         work_title: string | null;
         status: string;
         warranty_count: number;
+        quantity: number;
+        unit: string;
         notes: string | null;
         module?: { code: string; name: string; color: string; icon: string };
         quotation: {
@@ -92,10 +95,10 @@ export default function DeliveriesPage() {
                 .from("deliveries")
                 .select(`
                     id, delivery_number, observations, shipping_method, shipping_address, shipping_carrier,
-                    tracking_number, created_at, stage, packaged_at, packaged_by, delivered_at, delivered_by,
+                    tracking_number, created_at, stage, quantity, packaged_at, packaged_by, delivered_at, delivered_by,
                     delivery_lat, delivery_lng, delivery_location_source,
                     work_order:work_orders(
-                        id, order_number, work_title, notes, status, warranty_count,
+                        id, order_number, work_title, notes, status, warranty_count, quantity, unit,
                         module:manufacturing_modules(code, name, color, icon),
                         quotation:quotations(id, quotation_number, client:clients(business_name, rfc, email, address))
                     )
@@ -196,9 +199,12 @@ export default function DeliveriesPage() {
 
     const handleDownloadPDF = async (d: Delivery) => {
         try {
-            const items = d.work_order.quotation
-                ? (await supabase.from("quotation_items").select("description, quantity").eq("quotation_id", d.work_order.quotation.id)).data || []
-                : [];
+            // Entrega completa: las partidas de la cotización. Entrega parcial:
+            // sólo lo que sale en esta nota.
+            const partial = d.quantity !== null && Number(d.quantity) < Number(d.work_order.quantity);
+            const items = d.work_order.quotation && !partial
+                ? (await supabase.from("quotation_items").select("description, quantity").eq("quotation_id", d.work_order.quotation.id).order("position", { ascending: true, nullsFirst: false })).data || []
+                : [{ description: `${d.work_order.work_title || d.work_order.order_number}${partial ? ` (entrega parcial: ${Number(d.quantity)} de ${Number(d.work_order.quantity)} ${d.work_order.unit})` : ""}`, quantity: Number(d.quantity ?? d.work_order.quantity) }];
             await generateDeliveryPDF({
                 delivery_number: d.delivery_number,
                 created_at: d.created_at,
@@ -287,7 +293,7 @@ export default function DeliveriesPage() {
 
                 {tab === "ready" && heldForWarranty.length > 0 && <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">
                     <p>En espera por garantía; requieren nueva liberación de Calidad:</p>
-                    <ul className="mt-1 flex flex-wrap gap-3">{heldForWarranty.map(delivery => <li key={delivery.id}><Link className="underline" href={`/manufacturing/${delivery.work_order.module?.code}/${delivery.work_order.id}`}>{delivery.work_order.order_number}</Link></li>)}</ul>
+                    <ul className="mt-1 flex flex-wrap gap-3">{heldForWarranty.map(delivery => <li key={delivery.id}><Link className="underline" href={`/manufacturing/ot/${delivery.work_order.id}`}>{delivery.work_order.order_number}</Link></li>)}</ul>
                 </div>}
                 {loading ? (
                     <div className="p-12 text-center text-neutral-400">
@@ -355,8 +361,9 @@ function DeliveryCard({
                 <div className="flex-1 min-w-0 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-mono text-emerald-300 text-xs bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">{d.delivery_number}</span>
-                        <span className="text-white font-semibold">{d.work_order.order_number}</span>
-                        {d.work_order.module && <span className="text-[10px] uppercase tracking-wider text-neutral-500">{d.work_order.module.name}</span>}
+                        <Link href={`/manufacturing/ot/${d.work_order.id}`} className="text-white font-semibold hover:underline">{d.work_order.order_number}</Link>
+                        {d.quantity !== null && <span className="text-xs text-neutral-300">{Number(d.quantity)} de {Number(d.work_order.quantity)} {d.work_order.unit}</span>}
+
                         <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full border uppercase", STAGE_LABELS[d.stage]?.color)}>
                             {STAGE_LABELS[d.stage]?.label}
                         </span>

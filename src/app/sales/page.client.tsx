@@ -11,6 +11,7 @@ import { generateQuotationPDF } from "@/lib/generatePdf";
 import QuotationDetailsModal from "./QuotationDetailsModal";
 import HorizontalTableScroll from "@/components/HorizontalTableScroll";
 import { commissionersTotal, type Commissioner } from "@/lib/commissioners";
+import { setQuotationClientPoAction, setQuotationStatusAction } from "@/app/actions/quotations";
 
 function cn(...inputs: (string | undefined | null | false)[]) {
     return twMerge(clsx(inputs));
@@ -48,6 +49,7 @@ type Quotation = {
 
 export default function SalesPage() {
     const [search, setSearch] = useState("");
+    const [canEdit, setCanEdit] = useState(false);
     const [quotations, setQuotations] = useState<Quotation[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [selectedQuote, setSelectedQuote] = useState<Quotation | null>(null);
@@ -107,6 +109,10 @@ export default function SalesPage() {
     useEffect(() => {
         fetchQuotations();
         fetchPendingMatches();
+        fetch('/api/me/permissions?module=sales').then(r => r.ok ? r.json() : null).then(j => setCanEdit(!!j?.permissions?.can_edit)).catch(() => setCanEdit(false));
+        // Los avisos de notificaciones llegan con ?q=<folio>.
+        const q = new URLSearchParams(window.location.search).get('q');
+        if (q) setSearch(q);
     }, []);
 
     const filteredQuotations = quotations.filter(q => matchesSearch(search, q.title, q.quotation_number, q.client?.name, q.client?.business_name, q.client?.rfc, q.seller, q.items?.map(i => i.description)));
@@ -132,7 +138,8 @@ export default function SalesPage() {
             const { data: items, error } = await supabase
                 .from('quotation_items')
                 .select('*')
-                .eq('quotation_id', quote.id);
+                .eq('quotation_id', quote.id)
+                .order('position', { ascending: true, nullsFirst: false });
 
             if (error) throw error;
 
@@ -196,18 +203,11 @@ export default function SalesPage() {
 
         setIsLoading(true);
         try {
-            const { error } = await supabase
-                .from('quotations')
-                .update({ status: 'Approved' })
-                .eq('id', quote.id);
-
-            if (error) throw error;
-
-            // Re-fetch to update list
+            await setQuotationStatusAction(quote.id, 'Approved');
             fetchQuotations();
         } catch (error: any) {
             console.error("Error approving quotation:", error);
-            alert("Error al aprobar la cotización.");
+            alert(error?.message || "Error al aprobar la cotización.");
         } finally {
             setIsLoading(false);
         }
@@ -220,12 +220,11 @@ export default function SalesPage() {
             const { error: uploadError } = await supabase.storage.from('purchase_files').upload(`client_pos/${fileName}`, file, { cacheControl: '3600', upsert: false, contentType: file.type });
             if (uploadError) throw uploadError;
             const { data: publicUrlData } = supabase.storage.from('purchase_files').getPublicUrl(`client_pos/${fileName}`);
-            const { error: updateError } = await supabase.from('quotations').update({ client_po_url: publicUrlData.publicUrl }).eq('id', quoteId);
-            if (updateError) throw updateError;
+            await setQuotationClientPoAction(quoteId, publicUrlData.publicUrl);
             fetchQuotations();
         } catch (error: any) {
             console.error("Error uploading client PO:", error);
-            alert("Error al subir la OC del cliente.");
+            alert(error?.message || "Error al subir la OC del cliente.");
         }
     };
 
@@ -389,24 +388,24 @@ export default function SalesPage() {
                                             </td>
                                             <td className="px-6 py-4 text-right">
                                                 <div className="flex items-center justify-end gap-2">
-                                                    {quote.status === 'Draft' && (
-                                                        <>
-                                                            <button
-                                                                onClick={(e) => { e.stopPropagation(); handleConfirmQuote(quote); }}
-                                                                className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-emerald-300 transition-colors bg-emerald-500/10 hover:bg-emerald-500/20 px-3 py-1.5 rounded-lg border border-emerald-500/20"
-                                                                title="Confirm Quote"
-                                                            >
-                                                                <CheckCircle className="w-3.5 h-3.5" /> Confirmar
-                                                            </button>
-                                                            <Link
-                                                                href={`/sales/new?id=${quote.id}`}
-                                                                className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-400 hover:text-amber-300 transition-colors bg-amber-500/10 hover:bg-amber-500/20 px-3 py-1.5 rounded-lg border border-amber-500/20"
-                                                                title="Edit Quote"
-                                                                onClick={(e) => e.stopPropagation()}
-                                                            >
-                                                                <Edit3 className="w-3.5 h-3.5" /> Editar
-                                                            </Link>
-                                                        </>
+                                                    {quote.status === 'Draft' && canEdit && (
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); handleConfirmQuote(quote); }}
+                                                            className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-emerald-300 transition-colors bg-emerald-500/10 hover:bg-emerald-500/20 px-3 py-1.5 rounded-lg border border-emerald-500/20"
+                                                            title="Aprobar cotización"
+                                                        >
+                                                            <CheckCircle className="w-3.5 h-3.5" /> Confirmar
+                                                        </button>
+                                                    )}
+                                                    {canEdit && (
+                                                        <Link
+                                                            href={`/sales/new?id=${quote.id}`}
+                                                            className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-400 hover:text-amber-300 transition-colors bg-amber-500/10 hover:bg-amber-500/20 px-3 py-1.5 rounded-lg border border-amber-500/20"
+                                                            title={quote.status === 'Draft' ? 'Editar cotización' : 'Editar cotización (queda en el historial)'}
+                                                            onClick={(e) => e.stopPropagation()}
+                                                        >
+                                                            <Edit3 className="w-3.5 h-3.5" /> Editar
+                                                        </Link>
                                                     )}
                                                     <button
                                                         onClick={(e) => { e.stopPropagation(); handleDownloadPDF(quote); }}

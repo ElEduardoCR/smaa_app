@@ -16,14 +16,15 @@ import { usePathname } from "next/navigation";
 import {
     Users, LogOut, BarChart3, Receipt, ShieldCheck, Cog, Wallet, BookOpen,
     History, Factory, Truck, ClipboardList, UserCog, ShieldAlert, Layers,
-    ShoppingCart, LayoutGrid, Menu, X, Sun, Moon,
+    ShoppingCart, LayoutGrid, Menu, X, Sun, Moon, Car, ScrollText,
 } from "lucide-react";
 import { logoutAction } from "@/app/actions/auth";
+import { NotificationsProvider, NotificationBellButton } from "@/components/NotificationBell";
 import { CATEGORIES, type ModuleCategory } from "@/lib/navModules";
 
 const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
     Users, BarChart3, Receipt, ShieldCheck, Cog, Wallet, BookOpen, History,
-    Factory, Truck, ClipboardList, UserCog, ShieldAlert, Layers, ShoppingCart,
+    Factory, Truck, ClipboardList, UserCog, ShieldAlert, Layers, ShoppingCart, Car, ScrollText,
 };
 
 export type ShellUser = {
@@ -104,6 +105,7 @@ export default function AppShell({
     const active = activeHref(pathname, ["/", ...modules.map((m) => m.href)]);
 
     return (
+        <NotificationsProvider>
         <div className="app-shell">
             {/* Barra superior — sólo móvil/tablet */}
             <div className="app-topbar">
@@ -116,7 +118,7 @@ export default function AppShell({
                     <Menu />
                 </button>
                 <span className="app-brand-name">SMAA ERP</span>
-                <div style={{ marginLeft: "auto" }}><ThemeToggle /></div>
+                <div style={{ marginLeft: "auto", display: "flex", gap: ".375rem" }}><NotificationBellButton /><ThemeToggle /></div>
             </div>
 
             {open && <div className="app-scrim" onClick={() => setOpen(false)} />}
@@ -128,6 +130,7 @@ export default function AppShell({
                         <div className="app-brand-name">SMAA ERP</div>
                         <div className="app-brand-sub">Gestión de calidad</div>
                     </div>
+                    <div className="app-only-desktop" style={{ marginLeft: "auto" }}><NotificationBellButton /></div>
                     <button
                         type="button"
                         className="app-icon-btn app-only-mobile"
@@ -205,5 +208,6 @@ export default function AppShell({
 
             <div className="app-main">{children}</div>
         </div>
+        </NotificationsProvider>
     );
 }

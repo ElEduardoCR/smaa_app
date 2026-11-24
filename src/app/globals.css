@@ -614,7 +614,46 @@ input::placeholder, textarea::placeholder { color: var(--ink-3); opacity: 1; }
     color: #e11d48;
 }
 
+/* --- Notificaciones --- */
+.app-only-desktop { display: none; }
+@media (min-width: 1024px) { .app-only-desktop { display: block; } }
+.app-bell { position: relative; }
+.app-bell-count {
+    position: absolute;
+    top: -6px; right: -6px;
+    min-width: 17px; height: 17px;
+    padding: 0 4px;
+    border-radius: 999px;
+    display: grid;
+    place-items: center;
+    background: #e11d48;
+    color: #fff;
+    font-size: .625rem;
+    font-weight: 700;
+    line-height: 1;
+    border: 2px solid var(--surface-1);
+}
+.app-notif-scrim { position: fixed; inset: 0; z-index: 47; }
+.app-notif-panel {
+    position: fixed;
+    z-index: 48;
+    top: 64px;
+    left: calc(var(--sidebar-w) + 8px);
+    width: min(400px, calc(100vw - 24px));
+    max-height: min(72vh, 580px);
+    display: flex;
+    flex-direction: column;
+    background: var(--surface-1);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    box-shadow: var(--shadow-lg);
+    overflow: hidden;
+}
+@media (max-width: 1023.98px) {
+    .app-notif-panel { top: calc(var(--topbar-h) + 8px); left: auto; right: 12px; }
+}
+
 @media print {
-    .app-sidebar, .app-topbar, .app-scrim { display: none !important; }
+    .app-sidebar, .app-topbar, .app-scrim, .app-notif-panel { display: none !important; }
     .app-main { margin-left: 0 !important; padding-top: 0 !important; }
 }

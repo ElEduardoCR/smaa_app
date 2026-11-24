@@ -65,7 +65,9 @@ export const MODULE_CATALOG: ModuleDef[] = [
     },
     {
         code: 'manufacturing',
-        label: 'Fabricación (OTs)',
+        // Una sola lista de OT; los permisos se asignan por proceso y aplican
+        // a la etapa correspondiente de cada OT.
+        label: 'Fabricación (OTs) — por proceso',
         routePrefix: 'manufacturing',
         subs: [
             { code: 'maquinado', label: 'Maquinado' },
@@ -175,6 +177,25 @@ export const MODULE_CATALOG: ModuleDef[] = [
             { key: 'can_view', label: 'Ver' },
             { key: 'can_create', label: 'Crear' },
             { key: 'can_edit', label: 'Editar' },
+        ],
+    },
+    {
+        code: 'vehicles',
+        label: 'Vehículos (expediente)',
+        routePrefix: 'vehicles',
+        actions: [
+            { key: 'can_view', label: 'Ver' },
+            { key: 'can_create', label: 'Registrar' },
+            { key: 'can_edit', label: 'Editar' },
+            { key: 'can_delete', label: 'Eliminar' },
+        ],
+    },
+    {
+        code: 'audit',
+        label: 'Bitácora de ediciones',
+        routePrefix: 'audit',
+        actions: [
+            { key: 'can_view', label: 'Ver' },
         ],
     },
     {
